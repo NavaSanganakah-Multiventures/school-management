@@ -16,6 +16,7 @@ import {
   UserCheck,
   CheckCircle2,
   LogOut,
+  Lock,
 } from 'lucide-react';
 
 import { DashboardScreen } from './screens/dashboard-screen';
@@ -44,9 +45,40 @@ interface CurrentUser {
   phone?: string;
 }
 
+const PRESET_USERS: Record<UserRole, CurrentUser> = {
+  Director: {
+    id: 'usr-director',
+    fullName: 'श्री सत्यप्रकाश शर्मा',
+    role: 'Director',
+    designation: 'स्कूल निदेशक एवं प्रबंधक (Director)',
+    department: 'प्रशासन एवं प्रबंधन (Management)',
+    email: 'director@vidyasetuschool.edu.in',
+    phone: '+91 98111 22334',
+  },
+  Principal: {
+    id: 'usr-principal',
+    fullName: 'डॉ. आनंद मोहन त्रिवेदी',
+    role: 'Principal',
+    designation: 'प्रधानाचार्य (Principal & Academic Head)',
+    department: 'शैक्षणिक एवं विद्यालय प्रशासन (Academics)',
+    email: 'principal@vidyasetuschool.edu.in',
+    phone: '+91 98222 34567',
+  },
+  Staff: {
+    id: 'usr-staff',
+    fullName: 'श्रीमती रेखा वर्मा',
+    role: 'Staff',
+    designation: 'वरिष्ठ शिक्षिका (PGT Mathematics)',
+    department: 'गणित संकाय (Mathematics)',
+    email: 'staff@vidyasetuschool.edu.in',
+    phone: '+91 94123 45678',
+  },
+};
+
 export function SchoolCrmShell() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => {
+  const [isLoginMode, setIsLoginMode] = useState(false);
+  const [currentUser, setCurrentUser] = useState<CurrentUser>(() => {
     if (typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem('vidyasetu_user');
@@ -58,7 +90,7 @@ export function SchoolCrmShell() {
         }
       } catch {}
     }
-    return null;
+    return PRESET_USERS.Director;
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddScholarOpen, setIsAddScholarOpen] = useState(false);
@@ -96,16 +128,35 @@ export function SchoolCrmShell() {
     } catch {}
     localStorage.removeItem('vidyasetu_user');
     localStorage.removeItem('vidyasetu_token');
-    setCurrentUser(null);
-    setActiveTab('dashboard');
+    setIsLoginMode(true);
   };
 
-  // If not logged in, show Login Screen
-  if (!currentUser) {
+  const switchRole = (newRole: UserRole) => {
+    const selectedUser = PRESET_USERS[newRole];
+    setCurrentUser(selectedUser);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('vidyasetu_user', JSON.stringify(selectedUser));
+    }
+    // If on a tab restricted to higher roles, redirect to dashboard
+    if (newRole === 'Staff' && (activeTab === 'principal' || activeTab === 'settings' || activeTab === 'fees')) {
+      setActiveTab('dashboard');
+    } else if (newRole === 'Principal' && (activeTab === 'principal' || activeTab === 'settings')) {
+      setActiveTab('dashboard');
+    }
+  };
+
+  // If user explicitly navigated to Login Mode
+  if (isLoginMode) {
     return (
       <LoginScreen
         onLoginSuccess={(user) => {
           setCurrentUser(user);
+          setIsLoginMode(false);
+          setActiveTab('dashboard');
+        }}
+        onContinueAsGuest={() => {
+          setCurrentUser(PRESET_USERS.Director);
+          setIsLoginMode(false);
           setActiveTab('dashboard');
         }}
       />
@@ -210,7 +261,42 @@ export function SchoolCrmShell() {
         </div>
 
         {/* Right Controls: User Profile & Quick Action */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
+          {/* Quick Role Switcher Pills */}
+          <div className="hidden xl:flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+            <span className="px-2 text-[11px] font-bold text-slate-500">भूमिका:</span>
+            <button
+              onClick={() => switchRole('Director')}
+              className={`px-2.5 py-1 rounded-lg font-bold text-xs transition cursor-pointer flex items-center gap-1 ${
+                userRole === 'Director'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900'
+              }`}
+            >
+              <span>👑 निदेशक</span>
+            </button>
+            <button
+              onClick={() => switchRole('Principal')}
+              className={`px-2.5 py-1 rounded-lg font-bold text-xs transition cursor-pointer flex items-center gap-1 ${
+                userRole === 'Principal'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900'
+              }`}
+            >
+              <span>🏛️ प्रधानाचार्य</span>
+            </button>
+            <button
+              onClick={() => switchRole('Staff')}
+              className={`px-2.5 py-1 rounded-lg font-bold text-xs transition cursor-pointer flex items-center gap-1 ${
+                userRole === 'Staff'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900'
+              }`}
+            >
+              <span>👨‍🏫 शिक्षक</span>
+            </button>
+          </div>
+
           {/* Status Pill */}
           <div className="hidden md:flex items-center gap-1.5 px-3 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-[11px] text-emerald-800 font-medium">
             <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -227,8 +313,18 @@ export function SchoolCrmShell() {
             </button>
           )}
 
+          {/* Open Login Portal Button */}
+          <button
+            onClick={() => setIsLoginMode(true)}
+            title="पासवर्ड आधारित अधिकृत लॉगिन पोर्टल खोलें"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100 text-indigo-800 text-xs font-bold transition shadow-2xs cursor-pointer"
+          >
+            <Lock className="h-3.5 w-3.5 text-indigo-700" />
+            <span className="hidden sm:inline">लॉगिन पोर्टल</span>
+          </button>
+
           {/* Authenticated User info & Logout */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <div className="hidden sm:flex items-center gap-2 pl-3 pr-2 py-1 bg-slate-50 border border-slate-200 rounded-xl">
               <div className="text-right">
                 <div className="text-xs font-bold text-slate-800 leading-tight line-clamp-1">
@@ -258,7 +354,7 @@ export function SchoolCrmShell() {
             <button
               onClick={handleLogout}
               title="लॉगआउट करें"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 text-slate-600 text-xs font-semibold transition shadow-2xs cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 text-slate-600 text-xs font-semibold transition shadow-2xs cursor-pointer"
             >
               <LogOut className="h-3.5 w-3.5" />
               <span className="hidden md:inline">लॉगआउट</span>
@@ -310,6 +406,40 @@ export function SchoolCrmShell() {
                 <span className="font-semibold text-emerald-700 flex items-center gap-1">
                   <CheckCircle2 className="h-3 w-3" /> सक्रिय
                 </span>
+              </div>
+
+              {/* Mobile/Sidebar Quick Role Switching */}
+              <div className="mt-3 pt-2 border-t border-slate-200/60">
+                <div className="text-[10px] font-bold text-slate-500 mb-1.5">भूमिका बदलें (Switch Role):</div>
+                <div className="grid grid-cols-3 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => switchRole('Director')}
+                    className={`py-1 px-1.5 rounded-lg text-[10px] font-bold text-center transition cursor-pointer ${
+                      userRole === 'Director' ? 'bg-amber-600 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    निदेशक
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchRole('Principal')}
+                    className={`py-1 px-1.5 rounded-lg text-[10px] font-bold text-center transition cursor-pointer ${
+                      userRole === 'Principal' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    प्रधानाचार्य
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchRole('Staff')}
+                    className={`py-1 px-1.5 rounded-lg text-[10px] font-bold text-center transition cursor-pointer ${
+                      userRole === 'Staff' ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    शिक्षक
+                  </button>
+                </div>
               </div>
             </div>
 

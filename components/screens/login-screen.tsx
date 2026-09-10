@@ -17,9 +17,10 @@ import {
 
 interface LoginScreenProps {
   onLoginSuccess: (user: any) => void;
+  onContinueAsGuest?: () => void;
 }
 
-export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
+export function LoginScreen({ onLoginSuccess, onContinueAsGuest }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -243,6 +244,18 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               </span>
             </button>
           </div>
+
+          {onContinueAsGuest && (
+            <div className="mt-4 pt-4 border-t border-slate-200 text-center">
+              <button
+                type="button"
+                onClick={onContinueAsGuest}
+                className="inline-flex items-center gap-2 text-xs font-bold text-blue-700 hover:text-blue-800 hover:underline cursor-pointer"
+              >
+                <span>← सीधे विद्या सेतु विद्यालय डैशबोर्ड खोलें (निदेशक रूप में)</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
