@@ -1,0 +1,154 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { IndianRupee, CheckCircle2, Clock, AlertCircle, Plus } from 'lucide-react';
+import { PayFeeModal } from '../modals/pay-fee-modal';
+
+export function FeesScreen() {
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [summary, setSummary] = useState({ totalReceivable: 0, totalCollected: 0, totalPending: 0 });
+  const [filter, setFilter] = useState('All');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [activePayInvoice, setActivePayInvoice] = useState<any | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/fees?status=${filter}`);
+        const data = await res.json();
+        if (isMounted && data.success) {
+          setInvoices(data.invoices);
+          setSummary(data.summary);
+        }
+      } catch {
+        //
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    load();
+    return () => {
+      isMounted = false;
+    };
+  }, [filter, refreshKey]);
+
+  return (
+    <div className="space-y-4 pb-12">
+      {/* Fees Summary Cards */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+          <span className="text-xs text-blue-700 font-medium">कुल देय फीस (Total Dues)</span>
+          <h3 className="text-xl font-bold text-blue-950 mt-1">₹{summary.totalReceivable?.toLocaleString('en-IN')}</h3>
+          <p className="text-[11px] text-blue-600 mt-0.5">सत्र 2026-27</p>
+        </div>
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+          <span className="text-xs text-emerald-700 font-medium">प्राप्त फीस (Collected)</span>
+          <h3 className="text-xl font-bold text-emerald-950 mt-1">₹{summary.totalCollected?.toLocaleString('en-IN')}</h3>
+          <p className="text-[11px] text-emerald-600 mt-0.5">सफलतापूर्वक संकलित</p>
+        </div>
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+          <span className="text-xs text-rose-700 font-medium">लंबित फीस (Pending)</span>
+          <h3 className="text-xl font-bold text-rose-950 mt-1">₹{summary.totalPending?.toLocaleString('en-IN')}</h3>
+          <p className="text-[11px] text-rose-600 mt-0.5">देय तिथि निकट</p>
+        </div>
+      </div>
+
+      {/* Filter Chips */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+          {['All', 'Paid', 'Partial', 'Unpaid'].map((st) => (
+            <button
+              key={st}
+              onClick={() => setFilter(st)}
+              className={`px-3 py-1 text-xs font-medium rounded-full transition-all shrink-0 ${
+                filter === st
+                  ? 'bg-blue-900 text-white'
+                  : 'bg-white border border-slate-200 text-slate-600'
+              }`}
+            >
+              {st === 'All' ? 'सभी चालान' : st === 'Paid' ? 'भुगतान पूर्ण' : st === 'Partial' ? 'आंशिक' : 'बकाया'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Invoices List */}
+      <div className="space-y-3">
+        {loading ? (
+          <div className="p-8 text-center text-xs text-slate-500">फीस चालान लोड हो रहे हैं...</div>
+        ) : invoices.length === 0 ? (
+          <div className="p-10 text-center bg-white rounded-2xl border border-slate-200">
+            <p className="text-sm font-semibold text-slate-700">कोई चालान नहीं मिला</p>
+          </div>
+        ) : (
+          invoices.map((inv) => {
+            const dueAmt = inv.totalAmount - inv.paidAmount;
+            return (
+              <div
+                key={inv.id}
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs hover:shadow-xs transition-all space-y-3"
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-semibold text-slate-700">{inv.invoiceNumber}</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          inv.status === 'Paid'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : inv.status === 'Partial'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}
+                      >
+                        {inv.status === 'Paid' ? 'भुगतान किया गया' : inv.status === 'Partial' ? 'आंशिक भुगतान' : 'बकाया'}
+                      </span>
+                    </div>
+                    <h3 className="font-semibold text-sm text-slate-900 mt-1">{inv.title}</h3>
+                    <p className="text-xs text-slate-500">{inv.studentName} • {inv.className}</p>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-xs text-slate-500">कुल राशि</span>
+                    <h4 className="text-base font-bold text-slate-900">₹{inv.totalAmount.toLocaleString('en-IN')}</h4>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs text-slate-600">
+                  <div>
+                    <span>अंतिम तिथि: <strong>{inv.dueDate}</strong></span>
+                    {inv.paidAt && <span className="ml-3 text-emerald-600">भुगतान तिथि: {inv.paidAt}</span>}
+                  </div>
+
+                  {inv.status !== 'Paid' ? (
+                    <button
+                      onClick={() => setActivePayInvoice(inv)}
+                      className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg shadow-xs active:scale-95 transition-all"
+                    >
+                      ₹{dueAmt.toLocaleString('en-IN')} जमा करें
+                    </button>
+                  ) : (
+                    <span className="flex items-center gap-1 text-emerald-700 font-semibold text-xs">
+                      <CheckCircle2 className="h-4 w-4" /> रसीद उपलब्ध
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Pay Modal */}
+      <PayFeeModal
+        invoice={activePayInvoice}
+        onClose={() => setActivePayInvoice(null)}
+        onPaymentSuccess={() => {
+          setRefreshKey((k) => k + 1);
+        }}
+      />
+    </div>
+  );
+}

@@ -1,0 +1,79 @@
+name = "vidyasetu-school-management"
+main = "./api/index.ts"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Assets configuration for Cloudflare Workers with Assets
+[assets]
+directory = "./out"
+binding = "ASSETS"
+
+# Default (Development/Local) Bindings
+[[d1_databases]]
+binding = "DB"
+database_name = "vidyasetu-school-db-dev"
+database_id = "d1-dev-vidyasetu-local-mock-id"
+migrations_dir = "./db_migrations"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "vidyasetu-media-dev"
+
+[[kv_namespaces]]
+binding = "CONFIG_KV"
+id = "kv-dev-vidyasetu-local-id"
+
+[vars]
+ENVIRONMENT = "development"
+FCM_PROJECT_ID = "vidyasetu-school-fcm"
+SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Public School)"
+
+# -------------------------------------------------------------
+# Preview Environment: Risk-free staging that mirrors production
+# -------------------------------------------------------------
+[env.preview]
+name = "vidyasetu-school-management-preview"
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "vidyasetu-school-db-preview"
+database_id = "d1-preview-school-db-uuid-8899"
+migrations_dir = "./db_migrations"
+
+[[env.preview.r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "vidyasetu-media-preview"
+
+[[env.preview.kv_namespaces]]
+binding = "CONFIG_KV"
+id = "kv-preview-vidyasetu-uuid-1122"
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+FCM_PROJECT_ID = "vidyasetu-school-fcm-preview"
+SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Preview)"
+
+# -------------------------------------------------------------
+# Production Environment: High reliability and segregated storage
+# -------------------------------------------------------------
+[env.production]
+name = "vidyasetu-school-management-prod"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "vidyasetu-school-db-prod"
+database_id = "d1-prod-school-db-uuid-1234"
+migrations_dir = "./db_migrations"
+
+[[env.production.r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "vidyasetu-media-prod"
+
+[[env.production.kv_namespaces]]
+binding = "CONFIG_KV"
+id = "kv-prod-vidyasetu-uuid-5678"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+FCM_PROJECT_ID = "vidyasetu-school-fcm-prod"
+SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Public School)"
