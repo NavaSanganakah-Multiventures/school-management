@@ -102,6 +102,14 @@ export function NoticesScreen({ onOpenFcmModal }: NoticesScreenProps) {
 
           {loading ? (
             <div className="p-8 text-center text-xs text-slate-500">नोटिस लोड हो रहे हैं...</div>
+          ) : notices.length === 0 ? (
+            <div className="p-12 text-center bg-white border border-slate-200 rounded-2xl shadow-xs">
+              <Bell className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+              <p className="text-sm font-bold text-slate-700">वर्तमान में कोई सूचना अथवा परिपत्र प्रकाशित नहीं है</p>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                डिजिटल सूचना पट्ट रिक्त है। अभिभावकों, छात्रों या शिक्षकों के लिए नया परिपत्र प्रसारित करने के लिए ऊपर &quot;नया सूचना अलर्ट प्रसारित करें&quot; बटन का उपयोग करें।
+              </p>
+            </div>
           ) : (
             notices.map((n) => (
               <div

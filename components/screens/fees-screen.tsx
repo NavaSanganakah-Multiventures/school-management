@@ -79,8 +79,12 @@ export function FeesScreen() {
         {loading ? (
           <div className="p-8 text-center text-xs text-slate-500">फीस चालान लोड हो रहे हैं...</div>
         ) : invoices.length === 0 ? (
-          <div className="p-10 text-center bg-white rounded-2xl border border-slate-200">
-            <p className="text-sm font-semibold text-slate-700">कोई चालान नहीं मिला</p>
+          <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-xs">
+            <IndianRupee className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+            <p className="text-sm font-bold text-slate-700">वर्तमान में कोई फीस चालान नहीं है</p>
+            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              सत्र में अभी कोई बकाया या भुगतान चालान दर्ज नहीं है। जब छात्रों का नामांकन होगा और फीस चालान बनाए जाएंगे, तो वे यहाँ प्रदर्शित होंगे।
+            </p>
           </div>
         ) : (
           invoices.map((inv) => {

@@ -128,26 +128,46 @@ export function StaffScreen({ userRole }: StaffScreenProps) {
       </div>
 
       {/* Staff Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {staffList.map((staff) => (
-          <div key={staff.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between hover:shadow-md transition-shadow">
-            <div>
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="h-11 w-11 rounded-xl bg-indigo-50 text-indigo-700 font-bold flex items-center justify-center text-sm">
-                    {staff.name.slice(0, 1)}
+      {loading ? (
+        <div className="p-12 text-center text-xs text-slate-500">स्टाफ निर्देशिका लोड हो रही है...</div>
+      ) : staffList.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-xs">
+          <GraduationCap className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+          <h3 className="text-sm font-bold text-slate-700">कोई शिक्षक या स्टाफ सदस्य दर्ज नहीं है</h3>
+          <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+            स्टाफ निर्देशिका स्वच्छ है। विद्यालय के शिक्षकों एवं शैक्षणिक कर्मचारियों का रिकॉर्ड जोड़ने के लिए नीचे दिए बटन पर क्लिक करें।
+          </p>
+          {canManage && (
+            <button
+              onClick={() => setIsAddOpen(true)}
+              className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              <span>पहला शिक्षक / स्टाफ जोड़ें</span>
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {staffList.map((staff) => (
+            <div key={staff.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between hover:shadow-md transition-shadow">
+              <div>
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-11 w-11 rounded-xl bg-indigo-50 text-indigo-700 font-bold flex items-center justify-center text-sm">
+                      {staff.name.slice(0, 1)}
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">{staff.name}</h3>
+                      <p className="text-[11px] text-slate-500">{staff.designation}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">{staff.name}</h3>
-                    <p className="text-[11px] text-slate-500">{staff.designation}</p>
-                  </div>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700">
+                    {staff.employeeCode}
+                  </span>
                 </div>
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700">
-                  {staff.employeeCode}
-                </span>
-              </div>
 
-              <div className="mt-4 space-y-1.5 text-xs text-slate-600 border-t border-slate-100 pt-3">
+                <div className="mt-4 space-y-1.5 text-xs text-slate-600 border-t border-slate-100 pt-3">
                 <p className="flex items-center gap-2">
                   <GraduationCap className="h-3.5 w-3.5 text-slate-400" />
                   <span>विभाग: <strong className="text-slate-800">{staff.department}</strong> ({staff.subject})</span>
@@ -183,6 +203,7 @@ export function StaffScreen({ userRole }: StaffScreenProps) {
           </div>
         ))}
       </div>
+      )}
 
       {/* Add Staff Modal */}
       {isAddOpen && (

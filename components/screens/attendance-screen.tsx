@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { CheckCircle2, XCircle, Clock, Check, Sparkles } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, Check, Sparkles, CalendarCheck } from 'lucide-react';
 
 interface AttendanceScreenProps {
   onOpenFcmModal: () => void;
@@ -143,6 +143,14 @@ export function AttendanceScreen({ onOpenFcmModal }: AttendanceScreenProps) {
       <div className="space-y-2">
         {loading ? (
           <div className="p-8 text-center text-xs text-slate-500">हाजिरी लोड हो रही है...</div>
+        ) : records.length === 0 ? (
+          <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-xs">
+            <CalendarCheck className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+            <p className="text-sm font-bold text-slate-700">{selectedClass} में अभी कोई छात्र नामांकित नहीं है</p>
+            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              दैनिक उपस्थिति दर्ज करने के लिए पहले स्कॉलर रजिस्टर में विद्यार्थियों का प्रवेश दर्ज करें।
+            </p>
+          </div>
         ) : (
           records.map((rec) => (
             <div
