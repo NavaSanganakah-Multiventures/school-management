@@ -44,14 +44,14 @@ export const PLAN_ACCESS = {
   },
 };
 
-export function getPlanAccess(planId) {
+export function getPlanAccess(planId: any) {
   return PLAN_ACCESS[planId] || PLAN_ACCESS.trial;
 }
 
-export function planAllowsModule(planId, moduleId) {
+export function planAllowsModule(planId: any, moduleId: any) {
   return getPlanAccess(planId).modules.indexOf(moduleId) !== -1;
 }
 
-export function planAllowsFeature(planId, feature) {
+export function planAllowsFeature(planId: any, feature: any) {
   return !!getPlanAccess(planId).features[feature];
 }
