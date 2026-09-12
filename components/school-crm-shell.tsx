@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   LogOut,
   Lock,
+  CreditCard,
 } from 'lucide-react';
 
 import { DashboardScreen } from './screens/dashboard-screen';
@@ -28,6 +29,7 @@ import { NoticesScreen } from './screens/notices-screen';
 import { PrincipalManagementScreen } from './screens/principal-management-screen';
 import { StaffScreen } from './screens/staff-screen';
 import { SchoolSettingsScreen } from './screens/school-settings-screen';
+import { BillingPlansScreen } from './screens/billing-plans-screen';
 import { LoginScreen } from './screens/login-screen';
 
 import { AddScholarModal } from './modals/add-scholar-modal';
@@ -138,9 +140,9 @@ export function SchoolCrmShell() {
       localStorage.setItem('vidyasetu_user', JSON.stringify(selectedUser));
     }
     // If on a tab restricted to higher roles, redirect to dashboard
-    if (newRole === 'Staff' && (activeTab === 'principal' || activeTab === 'settings' || activeTab === 'fees')) {
+    if (newRole === 'Staff' && (activeTab === 'principal' || activeTab === 'settings' || activeTab === 'fees' || activeTab === 'billing')) {
       setActiveTab('dashboard');
-    } else if (newRole === 'Principal' && (activeTab === 'principal' || activeTab === 'settings')) {
+    } else if (newRole === 'Principal' && (activeTab === 'principal' || activeTab === 'settings' || activeTab === 'billing')) {
       setActiveTab('dashboard');
     }
   };
@@ -221,6 +223,13 @@ export function SchoolCrmShell() {
       label: 'स्कूल प्रोफ़ाइल व सेटिंग्स',
       icon: Settings,
       allowedRoles: ['Director'], // Only Director can configure school
+    },
+    {
+      id: 'billing',
+      label: 'प्लान, ऑटो-पे व डोमेन ईमेल',
+      icon: CreditCard,
+      allowedRoles: ['Director'], // Only Director can manage subscriptions & billing
+      badge: 'एंटरप्राइज',
     },
   ];
 
@@ -522,6 +531,13 @@ export function SchoolCrmShell() {
           )}
 
           {activeTab === 'settings' && <SchoolSettingsScreen userRole={userRole} />}
+
+          {activeTab === 'billing' && (
+            <BillingPlansScreen
+              userRole={userRole}
+              onOpenFcmModal={() => setIsBroadcastOpen(true)}
+            />
+          )}
         </main>
       </div>
 

@@ -11,6 +11,7 @@ import dashboardStatsApp from './dashboard-stats';
 import { principalApp } from './principal';
 import { staffApp } from './staff';
 import { schoolProfileApp } from './school-profile';
+import billingApp from './billing';
 
 // Main Hono application instance
 const app = new Hono().basePath('/api');
@@ -43,5 +44,6 @@ app.route('/exams', examsApp);
 app.route('/notices', noticesApp);
 app.route('/notifications', notificationsApp);
 app.route('/dashboard-stats', dashboardStatsApp);
+app.route('/billing', billingApp);
 
 export default app;
