@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
-const attendanceApp = new Hono();
+const attendanceApp = new Hono<{ Bindings: any }>();
 
 // GET /api/attendance
 attendanceApp.get('/', async (c) => {
