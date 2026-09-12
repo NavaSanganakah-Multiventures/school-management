@@ -67,13 +67,13 @@ export function AdminConsoleScreen() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const [showAddForm, setShowAddForm] = useState(false);
-  const [addForm, setAddForm] = useState(emptyAddForm);
+  const [addForm, setAddForm] = useState<any>(emptyAddForm);
   const [editId, setEditId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ schoolName: '', email: '', phone: '', subdomain: '', customDomain: '', status: 'Active' });
+  const [editForm, setEditForm] = useState<any>({ schoolName: '', email: '', phone: '', subdomain: '', customDomain: '', status: 'Active' });
 
   const [showPlanForm, setShowPlanForm] = useState(false);
   const [planEditId, setPlanEditId] = useState<string | null>(null);
-  const [planForm, setPlanForm] = useState(emptyPlanForm);
+  const [planForm, setPlanForm] = useState<any>(emptyPlanForm);
 
   const nonTrialPlans = plans.filter((p) => !p.isTrial && p.active !== false);
 
