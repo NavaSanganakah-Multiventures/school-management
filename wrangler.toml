@@ -16,7 +16,7 @@ migrations_dir = "./db_migrations"
 
 [[r2_buckets]]
 binding = "MEDIA_BUCKET"
-bucket_name = "school_management_production"
+bucket_name = "school-management-production"
 
 [[kv_namespaces]]
 binding = "CONFIG_KV"
@@ -40,7 +40,7 @@ migrations_dir = "./db_migrations"
 
 [[env.preview.r2_buckets]]
 binding = "MEDIA_BUCKET"
-bucket_name = "school_management_preview"
+bucket_name = "school-management-preview"
 
 [[env.preview.kv_namespaces]]
 binding = "CONFIG_KV"
