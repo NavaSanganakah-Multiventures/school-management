@@ -1,7 +1,7 @@
 // Razorpay payment gateway helpers (real API only, no demo/simulated data).
 
 function hexFromBytes(bytes: any) {
-  return Array.from(bytes).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+  return Array.from(bytes).map(function (b: any) { return b.toString(16).padStart(2, '0'); }).join('');
 }
 
 export async function createRazorpayOrder(c: any, amountINR: any, receipt: any) {
