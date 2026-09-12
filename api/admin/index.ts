@@ -3,7 +3,7 @@ import { getDB } from '../db';
 import { getAuthUser } from '../lib/auth';
 import { hashPassword } from '../lib/auth';
 
-const adminApp = new Hono();
+const adminApp = new Hono<{ Bindings: any }>();
 
 async function requireSuperAdmin(c: any) {
   const authUser = await getAuthUser(c);
