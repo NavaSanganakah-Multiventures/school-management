@@ -42,12 +42,13 @@ jobs:
           packageManager: npm
           secrets: |
             RAZORPAY_KEY_ID
-            ${{ secrets.RAZORPAY_KEY_ID }}
             RAZORPAY_KEY_SECRET
-            ${{ secrets.RAZORPAY_KEY_SECRET }}
             AUTH_SECRET
-            ${{ secrets.AUTH_SECRET }}
             PLATFORM_ADMIN_EMAIL
-            ${{ secrets.PLATFORM_ADMIN_EMAIL }}
             PLATFORM_ADMIN_PASSWORD
-            ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+        env:
+          RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
+          RAZORPAY_KEY_SECRET: ${{ secrets.RAZORPAY_KEY_SECRET }}
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
