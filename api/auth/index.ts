@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { hashPassword, verifyPassword, signToken, getAuthUser } from '../lib/auth';
 
-const authApp = new Hono();
+const authApp = new Hono<{ Bindings: any }>();
 
 // POST /api/auth/login - role is auto-detected from the real user record.
 // There is deliberately no role parameter and no demo/quick login fallback.
