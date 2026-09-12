@@ -1,8 +1,8 @@
-// Production-Ready Master State & Schema for VidyaSetu School Management CRM
-// Roles: Director (Super Admin), Principal (Academic Head), Staff (Teachers)
-// Real Data Store for Scholar Register (दाखिला-खारिज रजिस्टर), Attendance, Fees, Exams, Notices
+// Shared types, plan definitions and empty (no-demo-data) fallback stores.
+// Real data is read/written through Cloudflare D1 via c.env.DB in each API route.
 
 export type UserRole = 'Director' | 'Principal' | 'Staff';
+export type PlatformRole = 'SuperAdmin' | UserRole;
 
 export interface SchoolProfile {
   id: string;
@@ -27,7 +27,7 @@ export interface SchoolProfile {
 export interface SystemUser {
   id: string;
   username: string;
-  password?: string;
+  passwordHash?: string;
   fullName: string;
   email: string;
   phone: string;
@@ -37,12 +37,24 @@ export interface SystemUser {
   qualification: string;
   salary: number;
   status: 'Active' | 'Inactive';
+  schoolId: string;
   lastLogin?: string;
+  createdAt: string;
+}
+
+export interface PlatformAdmin {
+  id: string;
+  email: string;
+  passwordHash: string;
+  fullName: string;
+  phone: string;
+  status: 'Active' | 'Inactive';
   createdAt: string;
 }
 
 export interface PrincipalHistoryRecord {
   id: string;
+  schoolId: string;
   fullName: string;
   email: string;
   phone: string;
@@ -56,33 +68,33 @@ export interface PrincipalHistoryRecord {
 
 export interface StudentScholar {
   id: string;
-  scholarNumber: string; // स्कॉलर क्रमांक (e.g. "SR-2026/001")
-  rollNumber: string;    // रोल नंबर
-  fullName: string;      // विद्यार्थी का नाम
-  fatherName: string;    // पिता का नाम
-  fatherOccupation: string; // पिता का व्यवसाय
-  motherName: string;    // माता का नाम
-  className: string;     // कक्षा (Class 1 to 12)
-  section: string;       // वर्ग (A, B, C, Science, Commerce)
-  dob: string;           // जन्म तिथि (YYYY-MM-DD)
+  scholarNumber: string;
+  rollNumber: string;
+  fullName: string;
+  fatherName: string;
+  fatherOccupation: string;
+  motherName: string;
+  className: string;
+  section: string;
+  dob: string;
   gender: 'Male' | 'Female' | 'Other';
   category: 'General' | 'OBC' | 'SC' | 'ST' | 'EWS';
-  religion: string;      // धर्म
-  aadhaarNumber: string; // आधार कार्ड संख्या (12 अंक)
-  samagraId: string;     // समग्र आईडी / परिवार आईडी
-  bloodGroup: string;    // रक्त समूह
-  parentPhone: string;   // अभिभावक का मोबाइल नंबर
-  whatsappNumber: string;// व्हाट्सएप नंबर
-  email: string;         // ईमेल
-  currentAddress: string;// वर्तमान पता
-  permanentAddress: string;// स्थायी पता
-  previousSchool: string;// पूर्व विद्यालय
-  previousTcNo: string;  // पूर्व टीसी क्रमांक
-  admissionDate: string; // प्रवेश दिनांक
-  bankAccountNo: string; // बैंक खाता संख्या
-  bankName: string;      // बैंक का नाम
-  ifscCode: string;      // IFSC कोड
-  status: 'Active' | 'TC_Issued' | 'Suspended' | 'Passed_Out';
+  religion: string;
+  aadhaarNumber: string;
+  samagraId: string;
+  bloodGroup: string;
+  parentPhone: string;
+  whatsappNumber: string;
+  email: string;
+  currentAddress: string;
+  permanentAddress: string;
+  previousSchool: string;
+  previousTcNo: string;
+  admissionDate: string;
+  bankAccountNo: string;
+  bankName: string;
+  ifscCode: string;
+  status: 'Active' | 'TC_Issued' | 'Suspended' | 'Passed_Out' | 'Inactive';
   tcIssueDate?: string;
   remarks?: string;
 }
@@ -142,7 +154,6 @@ export interface Notice {
   publishedDate: string;
   priority: 'Low' | 'Normal' | 'High' | 'Urgent';
   alertSent: boolean;
-  fcmSent?: boolean;
 }
 
 export interface TeacherStaff {
@@ -160,131 +171,6 @@ export interface TeacherStaff {
   joiningDate: string;
 }
 
-// -----------------------------------------------------------------------------
-// School Profile Master
-// -----------------------------------------------------------------------------
-export const schoolProfile: SchoolProfile = {
-  id: 'school-01',
-  schoolName: 'विद्या सेतु पब्लिक सीनियर सेकेंडरी स्कूल',
-  affiliationNumber: 'CBSE/AFF/2026/89412',
-  boardName: 'केंद्रीय माध्यमिक शिक्षा बोर्ड (CBSE)',
-  schoolCode: 'SCH-DEL-4019',
-  email: 'info@vidyasetuschool.edu.in',
-  phone: '+91 11 2789 4500',
-  alternatePhone: '+91 98100 12345',
-  address: 'संस्थानिक क्षेत्र, फेज-2, रोहिणी',
-  city: 'नई दिल्ली',
-  state: 'दिल्ली',
-  pincode: '110085',
-  academicSession: '2026-2027',
-  directorName: 'सत्यप्रकाश शर्मा',
-  principalName: 'डॉ. आनंद मोहन त्रिवेदी',
-  updatedAt: '2026-09-10',
-};
-
-// -----------------------------------------------------------------------------
-// System Users (Director, Principal, Staff with Email/Password Auth)
-// -----------------------------------------------------------------------------
-export const systemUsers: SystemUser[] = [
-  {
-    id: 'usr-director',
-    username: 'director',
-    password: 'director123',
-    fullName: 'सत्यप्रकाश शर्मा',
-    email: 'director@vidyasetuschool.edu.in',
-    phone: '+91 98100 12345',
-    role: 'Director',
-    designation: 'स्कूल निदेशक व प्रबंध न्यासी (Director & Managing Trustee)',
-    department: 'प्रबंधन एवं प्रशासन (Management)',
-    qualification: 'M.Sc., M.Ed., Ph.D. (Education Admin)',
-    salary: 0,
-    status: 'Active',
-    createdAt: '2020-04-01',
-  },
-  {
-    id: 'usr-principal',
-    username: 'principal',
-    password: 'principal123',
-    fullName: 'डॉ. आनंद मोहन त्रिवेदी',
-    email: 'principal@vidyasetuschool.edu.in',
-    phone: '+91 98222 34567',
-    role: 'Principal',
-    designation: 'प्रधानाचार्य (Principal & Head of School)',
-    department: 'शैक्षणिक एवं विद्यालय प्रशासन (Academics)',
-    qualification: 'M.A. (English), M.Ed., Ph.D.',
-    salary: 125000,
-    status: 'Active',
-    createdAt: '2022-06-01',
-  },
-  {
-    id: 'usr-staff',
-    username: 'staff',
-    password: 'staff123',
-    fullName: 'श्रीमती रेखा वर्मा',
-    email: 'staff@vidyasetuschool.edu.in',
-    phone: '+91 94123 45678',
-    role: 'Staff',
-    designation: 'वरिष्ठ शिक्षिका (PGT Mathematics & Class Teacher)',
-    department: 'गणित संकाय (Mathematics)',
-    qualification: 'M.Sc. (Maths), B.Ed.',
-    salary: 68000,
-    status: 'Active',
-    createdAt: '2023-07-15',
-  },
-];
-
-// Principal History (Maintained so Director can view & change Principals cleanly)
-export const principalHistory: PrincipalHistoryRecord[] = [
-  {
-    id: 'prn-hist-01',
-    fullName: 'डॉ. आनंद मोहन त्रिवेदी',
-    email: 'principal@vidyasetuschool.edu.in',
-    phone: '+91 98222 34567',
-    qualification: 'M.A. (English), M.Ed., Ph.D.',
-    appointedDate: '2022-06-01',
-    status: 'Active',
-    appointedBy: 'सत्यप्रकाश शर्मा (निदेशक)',
-    remarks: 'वर्तमान कार्यरत प्रधानाचार्य',
-  },
-];
-
-// Student Scholars List (स्कॉलर रजिस्टर दाखिला-खारिज) - Clean Database
-export const studentScholars: StudentScholar[] = [];
-export const initialStudents = studentScholars;
-
-// Staff & Teachers Directory - Clean Database
-export const staffMembers: TeacherStaff[] = [];
-
-// Fee Invoices List - Clean Database
-export const feeInvoices: FeeInvoice[] = [];
-
-// School Notices List - Clean Database
-export const schoolNotices: Notice[] = [];
-export const noticesStore: Notice[] = schoolNotices;
-export const initialNotices = noticesStore;
-
-// Attendance Store (आज की दैनिक उपस्थिति) - Clean Database
-export const attendanceStore: AttendanceRecord[] = [];
-
-// Exam Records - Clean Database
-export const examRecords: ExamRecord[] = [];
-
-// Clean Notification History
-export const notificationHistory: Array<{
-  id: string;
-  schoolId?: string;
-  messageId: string;
-  title: string;
-  body: string;
-  targetTopic: string;
-  recipientToken?: string;
-  deliveryStatus: string;
-  sentAt: string;
-}> = [];
-
-// -----------------------------------------------------------------------------
-// Multi-Tenancy & School Tenants
-// -----------------------------------------------------------------------------
 export interface SchoolTenant {
   id: string;
   schoolName: string;
@@ -293,42 +179,15 @@ export interface SchoolTenant {
   contactEmail: string;
   contactPhone: string;
   status: 'Active' | 'Suspended' | 'Trial';
+  registrationStatus?: 'Pending_Approval' | 'Approved' | 'Rejected' | 'Active';
+  planId?: string;
+  trialEndsAt?: string;
+  approvedAt?: string;
+  approvedBy?: string;
   createdAt: string;
 }
 
-export const schoolTenants: SchoolTenant[] = [
-  {
-    id: 'school-01',
-    schoolName: 'विद्या सेतु पब्लिक सीनियर सेकेंडरी स्कूल',
-    subdomain: 'vidyasetu',
-    customDomain: 'vidyasetuschool.edu.in',
-    contactEmail: 'director@vidyasetuschool.edu.in',
-    contactPhone: '+91 98100 12345',
-    status: 'Active',
-    createdAt: '2024-04-01',
-  },
-  {
-    id: 'school-02',
-    schoolName: 'सरस्वती ज्ञान मंदिर इंटर कॉलेज',
-    subdomain: 'sgm-college',
-    customDomain: '',
-    contactEmail: 'admin@sgmcollege.org',
-    contactPhone: '+91 98765 43210',
-    status: 'Active',
-    createdAt: '2025-06-15',
-  },
-];
-
-// Current active school in session context
-export let currentSchoolId = 'school-01';
-export const setCurrentSchoolId = (id: string) => {
-  currentSchoolId = id;
-};
-
-// -----------------------------------------------------------------------------
-// Enterprise Subscription & Auto-Pay Models
-// -----------------------------------------------------------------------------
-export type SubscriptionPlanId = 'starter' | 'pro' | 'enterprise';
+export type SubscriptionPlanId = 'trial' | 'starter' | 'pro' | 'enterprise';
 export type BillingCycle = 'monthly' | 'quarterly' | 'annual';
 
 export interface PlanFeature {
@@ -342,8 +201,8 @@ export interface SubscriptionPlanDefinition {
   tagline: string;
   badge?: string;
   monthlyPrice: number;
-  quarterlyPrice: number; // 5% discount
-  annualPrice: number;    // 20% discount
+  quarterlyPrice: number;
+  annualPrice: number;
   maxStudents: string;
   features: string[];
   recommended?: boolean;
@@ -351,57 +210,75 @@ export interface SubscriptionPlanDefinition {
 
 export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
   {
+    id: 'trial',
+    name: '7-दिन फ्री ट्रायल',
+    tagline: 'नए स्कूल पंजीकरण हेतु निःशुल्क परीक्षण (Super Admin अप्रूवल के बाद 7 दिन)',
+    badge: 'फ्री',
+    monthlyPrice: 0,
+    quarterlyPrice: 0,
+    annualPrice: 0,
+    maxStudents: '50 विद्यार्थी',
+    features: [
+      'डैशबोर्ड व स्कूल प्रोफ़ाइल सेटअप',
+      'स्कॉलर रजिस्टर (अधिकतम 50 छात्र)',
+      'दैनिक छात्र उपस्थिति',
+      'स्टाफ निर्देशिका (अधिकतम 10 सदस्य)',
+      'नोटिस पट्ट व सूचना',
+      'बुनियादी फीस चालान',
+    ],
+  },
+  {
     id: 'starter',
-    name: 'बेसिक / स्टार्टर प्लान (Starter)',
-    tagline: 'प्राथमिक एवं माध्यमिक विद्यालयों (500 छात्रों तक) के लिए उपयुक्त',
+    name: 'स्टार्टर प्लान (Starter)',
+    tagline: 'प्राथमिक विद्यालयों (500 छात्रों तक) के लिए उपयुक्त',
     monthlyPrice: 2499,
-    quarterlyPrice: 7122,  // 2374/mo (5% off)
-    annualPrice: 23988,    // 1999/mo (20% off)
+    quarterlyPrice: 7122,
+    annualPrice: 23988,
     maxStudents: '500 विद्यार्थी',
     features: [
       'डिजिटल स्कॉलर रजिस्टर (दाखिला-खारिज)',
-      'दैनिक छात्र उपस्थिति एवं त्वरित रोल कॉल',
-      'निदेशक, प्रधानाचार्य एवं शिक्षक 3-रोल व्यवस्था',
-      'नॉर्मल जीमेल / सिस्टम ईमेल सूचना सेवा (शामिल)',
-      'स्कूल-विशिष्ट पृथक FCM टॉपिक्स (डेटा अलगाव)',
-      'बुनियादी फीस रसीद व चालान निर्माण',
+      'दैनिक छात्र उपस्थिति',
+      'निदेशक, प्रधानाचार्य व शिक्षक 3-रोल व्यवस्था',
+      'फीस रसीद व चालान निर्माण',
+      'सामान्य ईमेल सूचना सेवा',
+      'परीक्षा व अंक प्रविष्टि (बेसिक)',
     ],
   },
   {
     id: 'pro',
     name: 'प्रोफेशनल प्लान (Professional)',
-    tagline: 'सीनियर सेकेंडरी व तेजी से बढ़ते विद्यालयों (1500 छात्रों तक) के लिए सर्वश्रेष्ठ',
+    tagline: 'सीनियर सेकेंडरी व तेजी से बढ़ते विद्यालयों (1500 छात्रों तक) के लिए',
     badge: 'सर्वाधिक लोकप्रिय',
     recommended: true,
     monthlyPrice: 5999,
-    quarterlyPrice: 17097, // 5699/mo (5% off)
-    annualPrice: 57588,    // 4799/mo (20% off)
+    quarterlyPrice: 17097,
+    annualPrice: 57588,
     maxStudents: '1500 विद्यार्थी',
     features: [
       'स्टार्टर की सभी सुविधाएं',
-      'प्रधानाचार्य नियुक्ति एवं स्थानांतरण इतिहास',
-      'विस्तृत परीक्षा अंक प्रविष्टि व रिपोर्ट कार्ड',
-      'ऑटो-पे रिकरिंग बिलिंग (UPI AutoPay / e-NACH)',
-      'कस्टम डोमेन ईमेल ऐड-ऑन सपोर्ट (@school.edu.in)',
-      'प्राथमिकता तकनीकी सहायता एवं साप्ताहिक बैकअप',
+      'विस्तृत रिपोर्ट कार्ड व परीक्षा परिणाम',
+      'प्रधानाचार्य नियुक्ति एवं इतिहास',
+      'ऑटो-पे रिकरिंग बिलिंग (UPI/e-NACH)',
+      'कस्टम डोमेन ईमेल ऐड-ऑन',
+      'प्राथमिकता तकनीकी सहायता',
     ],
   },
   {
     id: 'enterprise',
     name: 'एंटरप्राइज प्लान (Enterprise)',
-    tagline: 'बड़े शिक्षण संस्थानों, ट्रस्ट एवं बहु-शाखा (Multi-Branch) ग्रुप ऑफ स्कूल्स के लिए',
+    tagline: 'बड़े संस्थानों, ट्रस्ट व बहु-शाखा ग्रुप ऑफ स्कूल्स के लिए',
     badge: 'असीमित क्षमता',
     monthlyPrice: 11999,
-    quarterlyPrice: 34197, // 11399/mo (5% off)
-    annualPrice: 115188,   // 9599/mo (20% off)
+    quarterlyPrice: 34197,
+    annualPrice: 115188,
     maxStudents: 'असीमित विद्यार्थी',
     features: [
-      'सभी सुविधाएं बिना किसी प्रतिबंध के',
-      'कस्टम डोमेन ऑफिशियल ईमेल (DKIM/SPF/DMARC सम्मिलित)',
-      'मल्टी-स्कूल टेनेंसी मैनेजमेंट (डेटा कभी मिक्स नहीं)',
-      'समर्पित सर्वर रिसोर्स एवं 99.9% अपटाइम SLA',
-      'कस्टम जीएसटी इनवॉइसिंग व सीए ऑडिट रिपोर्ट्स',
-      'व्यक्तिगत खाता प्रबंधक (Dedicated Account Manager)',
+      'प्रो की सभी सुविधाएं',
+      'कस्टम डोमेन ऑफिशियल ईमेल (शामिल)',
+      'मल्टी-स्कूल टेनेंसी मैनेजमेंट',
+      'GST इनवॉइसिंग व ऑडिट रिपोर्ट्स',
+      'डेडिकेटेड अकाउंट मैनेजर',
+      '99.9% अपटाइम SLA',
     ],
   },
 ];
@@ -416,37 +293,19 @@ export interface SchoolSubscription {
   discountPercent: number;
   status: 'Active' | 'Past_Due' | 'Canceled' | 'Trial';
   autoPayEnabled: boolean;
-  paymentMethod: 'UPI AutoPay' | 'e-NACH Mandate' | 'Corporate Card';
+  paymentMethod: string;
   mandateId: string;
   mandateBank: string;
   nextBillingDate: string;
   periodStart: string;
   periodEnd: string;
+  trialEndsAt?: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  razorpaySignature?: string;
   updatedAt: string;
 }
 
-export let schoolSubscriptionStore: SchoolSubscription = {
-  id: 'sub-2026-001',
-  schoolId: 'school-01',
-  planId: 'enterprise',
-  planName: 'एंटरप्राइज प्लान (Enterprise)',
-  billingCycle: 'annual',
-  pricePerCycle: 115188,
-  discountPercent: 20,
-  status: 'Active',
-  autoPayEnabled: true,
-  paymentMethod: 'UPI AutoPay',
-  mandateId: 'MNDT-UPI-SBI-2026-90812',
-  mandateBank: 'State Bank of India (SBI)',
-  nextBillingDate: '2027-04-01',
-  periodStart: '2026-04-01',
-  periodEnd: '2027-03-31',
-  updatedAt: new Date().toISOString(),
-};
-
-// -----------------------------------------------------------------------------
-// Dual Email System & Add-ons
-// -----------------------------------------------------------------------------
 export interface SubscriptionAddon {
   id: string;
   schoolId: string;
@@ -458,20 +317,6 @@ export interface SubscriptionAddon {
   status: 'Active' | 'Inactive';
   createdAt: string;
 }
-
-export const subscriptionAddonsStore: SubscriptionAddon[] = [
-  {
-    id: 'addon-01',
-    schoolId: 'school-01',
-    addonType: 'custom_domain_email',
-    addonName: 'कस्टम डोमेन ऑफिशियल ईमेल पैक (10,000 ऑफिशियल मेल्स/माह)',
-    quantity: 1,
-    unitPrice: 499,
-    billingCycle: 'monthly',
-    status: 'Active',
-    createdAt: '2026-04-01',
-  },
-];
 
 export interface SchoolCustomDomain {
   id: string;
@@ -488,29 +333,6 @@ export interface SchoolCustomDomain {
   createdAt: string;
 }
 
-export const schoolCustomDomainStore: SchoolCustomDomain = {
-  id: 'dom-01',
-  schoolId: 'school-01',
-  domainName: 'vidyasetuschool.edu.in',
-  spfRecordStatus: 'Verified',
-  dkimRecordStatus: 'Verified',
-  mxRecordStatus: 'Verified',
-  dmarcRecordStatus: 'Verified',
-  isActive: true,
-  monthlySendingQuota: 10000,
-  monthlySentCount: 342,
-  configuredMailboxes: [
-    'principal@vidyasetuschool.edu.in',
-    'director@vidyasetuschool.edu.in',
-    'accounts@vidyasetuschool.edu.in',
-    'info@vidyasetuschool.edu.in',
-  ],
-  createdAt: '2026-04-01',
-};
-
-// -----------------------------------------------------------------------------
-// Billing Invoices (Auto-Pay Receipts with GST)
-// -----------------------------------------------------------------------------
 export interface BillingInvoice {
   id: string;
   schoolId: string;
@@ -528,37 +350,14 @@ export interface BillingInvoice {
   invoiceDate: string;
   dueDate: string;
   paidAt: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
 }
 
-export const billingInvoicesStore: BillingInvoice[] = [
-  {
-    id: 'binv-01',
-    schoolId: 'school-01',
-    invoiceNumber: 'VS-INV-2026-0041',
-    description: 'वार्षिक एंटरप्राइज सब्सक्रिप्शन (2026-27) + कस्टम डोमेन ईमेल ऐड-ऑन',
-    planName: 'एंटरप्राइज प्लान (Enterprise)',
-    billingCycle: 'वार्षिक (Annual - 20% छूट)',
-    subtotal: 115188,
-    gstPercent: 18,
-    gstAmount: 20733.84,
-    totalAmount: 135921.84,
-    paymentStatus: 'Paid',
-    paymentMethod: 'UPI AutoPay (मैंडेट द्वारा स्वतः चुकता)',
-    transactionId: 'AUTOPAY-SBI-984021029',
-    invoiceDate: '2026-04-01',
-    dueDate: '2026-04-01',
-    paidAt: '2026-04-01 06:00:12',
-  },
-];
-
-// -----------------------------------------------------------------------------
-// School-Isolated FCM Topics Engine
-// Multi-Tenancy Guarantee: Every topic key is prefixed with `school_${schoolId}_`
-// -----------------------------------------------------------------------------
 export interface SchoolFcmTopic {
   id: string;
   schoolId: string;
-  topicKey: string;      // e.g. "school_school-01_parents"
+  topicKey: string;
   displayName: string;
   targetRole: string;
   subscriberCount: number;
@@ -566,60 +365,37 @@ export interface SchoolFcmTopic {
 }
 
 export const generateSchoolTopics = (schoolId: string): SchoolFcmTopic[] => [
-  {
-    id: `top-${schoolId}-all`,
-    schoolId,
-    topicKey: `school_${schoolId}_all`,
-    displayName: 'संपूर्ण विद्यालय (सभी विद्यार्थी + अभिभावक + शिक्षक)',
-    targetRole: 'All',
-    subscriberCount: 650,
-    description: 'आपातकालीन सूचना, अवकाश व सामान्य परिपत्र के लिए',
-  },
-  {
-    id: `top-${schoolId}-parents`,
-    schoolId,
-    topicKey: `school_${schoolId}_parents`,
-    displayName: 'केवल अभिभावक (Parents Topic)',
-    targetRole: 'Parents',
-    subscriberCount: 420,
-    description: 'पीटीएम, गृहकार्य व अभिभावक बैठक संदेश',
-  },
-  {
-    id: `top-${schoolId}-students`,
-    schoolId,
-    topicKey: `school_${schoolId}_students`,
-    displayName: 'केवल विद्यार्थी (Students Topic)',
-    targetRole: 'Students',
-    subscriberCount: 500,
-    description: 'कक्षा कार्य, परीक्षा सारणी व शैक्षणिक सूचना',
-  },
-  {
-    id: `top-${schoolId}-teachers`,
-    schoolId,
-    topicKey: `school_${schoolId}_teachers`,
-    displayName: 'शिक्षक एवं स्टाफ (Staff & Teachers Topic)',
-    targetRole: 'Teachers',
-    subscriberCount: 38,
-    description: 'स्टाफ बैठक, परिपत्र व प्रशासनिक निर्देश',
-  },
-  {
-    id: `top-${schoolId}-fees-due`,
-    schoolId,
-    topicKey: `school_${schoolId}_fees_due`,
-    displayName: 'शुल्क अनुस्मारक (Fees Due Reminder Topic)',
-    targetRole: 'Parents',
-    subscriberCount: 84,
-    description: 'त्रैमासिक व मासिक फीस देय तिथि अलर्ट',
-  },
-  {
-    id: `top-${schoolId}-board-10`,
-    schoolId,
-    topicKey: `school_${schoolId}_class_10`,
-    displayName: 'कक्षा 10वीं बोर्ड परीक्षार्थी',
-    targetRole: 'Students',
-    subscriberCount: 72,
-    description: 'बोर्ड परीक्षा, प्रैक्टिकल व प्रवेश पत्र सूचना',
-  },
+  { id: 'top-' + schoolId + '-all', schoolId, topicKey: 'school_' + schoolId + '_all', displayName: 'संपूर्ण विद्यालय (सभी)', targetRole: 'All', subscriberCount: 0, description: 'आपातकालीन सूचना, अवकाश व सामान्य परिपत्र' },
+  { id: 'top-' + schoolId + '-parents', schoolId, topicKey: 'school_' + schoolId + '_parents', displayName: 'केवल अभिभावक', targetRole: 'Parents', subscriberCount: 0, description: 'पीटीएम व अभिभावक बैठक संदेश' },
+  { id: 'top-' + schoolId + '-students', schoolId, topicKey: 'school_' + schoolId + '_students', displayName: 'केवल विद्यार्थी', targetRole: 'Students', subscriberCount: 0, description: 'परीक्षा सारणी व शैक्षणिक सूचना' },
+  { id: 'top-' + schoolId + '-teachers', schoolId, topicKey: 'school_' + schoolId + '_teachers', displayName: 'शिक्षक एवं स्टाफ', targetRole: 'Teachers', subscriberCount: 0, description: 'स्टाफ बैठक व प्रशासनिक निर्देश' },
+  { id: 'top-' + schoolId + '-fees-due', schoolId, topicKey: 'school_' + schoolId + '_fees_due', displayName: 'शुल्क अनुस्मारक', targetRole: 'Parents', subscriberCount: 0, description: 'फीस देय तिथि अलर्ट' },
 ];
 
-export let schoolFcmTopicsStore: SchoolFcmTopic[] = generateSchoolTopics('school-01');
+// Empty fallback stores (no demo data). Real routes use D1.
+export const schoolProfile: SchoolProfile = { id: 'school-01', schoolName: '', affiliationNumber: '', boardName: 'CBSE', schoolCode: '', email: '', phone: '', alternatePhone: '', address: '', city: '', state: '', pincode: '', academicSession: '2026-2027', directorName: '', principalName: '', updatedAt: '' };
+export const systemUsers: SystemUser[] = [];
+export const principalHistory: PrincipalHistoryRecord[] = [];
+export const studentScholars: StudentScholar[] = [];
+export const initialStudents = studentScholars;
+export const staffMembers: TeacherStaff[] = [];
+export const feeInvoices: FeeInvoice[] = [];
+export const schoolNotices: Notice[] = [];
+export const noticesStore: Notice[] = schoolNotices;
+export const initialNotices = noticesStore;
+export const attendanceStore: AttendanceRecord[] = [];
+export const examRecords: ExamRecord[] = [];
+export const notificationHistory: any[] = [];
+export const schoolTenants: SchoolTenant[] = [];
+export let currentSchoolId = 'school-01';
+export const setCurrentSchoolId = (id: string) => { currentSchoolId = id; };
+export const schoolSubscriptionStore: SchoolSubscription = { id: '', schoolId: 'school-01', planId: 'trial', planName: '7-दिन फ्री ट्रायल', billingCycle: 'monthly', pricePerCycle: 0, discountPercent: 0, status: 'Trial', autoPayEnabled: false, paymentMethod: '', mandateId: '', mandateBank: '', nextBillingDate: '', periodStart: '', periodEnd: '', updatedAt: '' };
+export const subscriptionAddonsStore: SubscriptionAddon[] = [];
+export const schoolCustomDomainStore: SchoolCustomDomain = { id: '', schoolId: 'school-01', domainName: '', spfRecordStatus: 'Pending', dkimRecordStatus: 'Pending', mxRecordStatus: 'Pending', dmarcRecordStatus: 'Pending', isActive: false, monthlySendingQuota: 10000, monthlySentCount: 0, configuredMailboxes: [], createdAt: '' };
+export const billingInvoicesStore: BillingInvoice[] = [];
+export const schoolFcmTopicsStore: SchoolFcmTopic[] = generateSchoolTopics('school-01');
+
+// D1 access helper. Each route reads/writes real data through this binding.
+export function getDB(c: any) {
+  return c && c.env && c.env.DB ? c.env.DB : null;
+}
