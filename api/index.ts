@@ -12,27 +12,24 @@ import { principalApp } from './principal';
 import { staffApp } from './staff';
 import { schoolProfileApp } from './school-profile';
 import billingApp from './billing';
+import adminApp from './admin';
 
-// Main Hono application instance
 const app = new Hono().basePath('/api');
 
-// Middleware
 app.use('*', cors());
 
-// Health & System Info
 app.get('/health', (c) => {
   return c.json({
     status: 'online',
     timestamp: new Date().toISOString(),
     system: 'VidyaSetu School Management System & CRM API',
     engine: 'Hono.js Engine',
-    rolesSupported: ['Director', 'Principal', 'Staff'],
-    notificationService: 'Active',
-    database: 'Connected',
+    rolesSupported: ['SuperAdmin', 'Director', 'Principal', 'Staff'],
+    paymentGateway: 'Razorpay',
+    database: 'Cloudflare D1 (real data)',
   });
 });
 
-// Mount Nested Modular Routes (Strict Directory Structure in /api)
 app.route('/auth', authApp);
 app.route('/students', studentsApp);
 app.route('/principal', principalApp);
@@ -45,5 +42,6 @@ app.route('/notices', noticesApp);
 app.route('/notifications', notificationsApp);
 app.route('/dashboard-stats', dashboardStatsApp);
 app.route('/billing', billingApp);
+app.route('/admin', adminApp);
 
 export default app;

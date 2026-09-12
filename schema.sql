@@ -1,13 +1,148 @@
--- Cloudflare D1 Database Schema for VidyaSetu School Management System & CRM
--- Database: Cloudflare D1 (SQLite-compatible)
--- Roles: Director (Super Admin), Principal (Academic Head), Staff (Teachers)
+-- VidyaSetu School Management — D1 schema (reference)
+-- This file mirrors db_migrations/0001..0004. Apply changes via wrangler migrations;
+-- use this file only as a human-readable reference of the final schema.
 
--- 1. School Profile & Settings Table
+-- Migration: 0001_initial_schema.sql
+-- Description: Initial schema setup for Cloudflare D1 database (VidyaSetu School Management)
+
+CREATE TABLE IF NOT EXISTS classes (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    section TEXT NOT NULL,
+    room_number TEXT,
+    class_teacher_name TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS students (
+    id TEXT PRIMARY KEY,
+    roll_number TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    class_id TEXT NOT NULL,
+    class_name TEXT NOT NULL,
+    section TEXT NOT NULL,
+    gender TEXT CHECK(gender IN ('Male', 'Female', 'Other')),
+    dob TEXT,
+    parent_name TEXT NOT NULL,
+    parent_phone TEXT NOT NULL,
+    email TEXT,
+    address TEXT,
+    blood_group TEXT,
+    avatar_url TEXT,
+    admission_date TEXT DEFAULT CURRENT_DATE,
+    status TEXT DEFAULT 'Active' CHECK(status IN ('Active', 'Inactive', 'Suspended')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS teachers (
+    id TEXT PRIMARY KEY,
+    employee_code TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    designation TEXT NOT NULL,
+    department TEXT NOT NULL,
+    subject_specialization TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    email TEXT NOT NULL,
+    qualification TEXT,
+    joining_date TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS attendance (
+    id TEXT PRIMARY KEY,
+    student_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('Present', 'Absent', 'Late', 'Leave')),
+    remarks TEXT,
+    marked_by TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS fee_invoices (
+    id TEXT PRIMARY KEY,
+    invoice_number TEXT UNIQUE NOT NULL,
+    student_id TEXT NOT NULL,
+    student_name TEXT NOT NULL,
+    class_name TEXT NOT NULL,
+    title TEXT NOT NULL,
+    total_amount REAL NOT NULL,
+    paid_amount REAL DEFAULT 0,
+    due_date TEXT NOT NULL,
+    status TEXT DEFAULT 'Unpaid' CHECK(status IN ('Paid', 'Partial', 'Unpaid', 'Overdue')),
+    payment_method TEXT,
+    transaction_id TEXT,
+    paid_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS exams (
+    id TEXT PRIMARY KEY,
+    exam_name TEXT NOT NULL,
+    academic_year TEXT NOT NULL,
+    term TEXT NOT NULL,
+    start_date TEXT,
+    end_date TEXT,
+    is_active INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS exam_marks (
+    id TEXT PRIMARY KEY,
+    exam_id TEXT NOT NULL,
+    student_id TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    max_marks REAL DEFAULT 100,
+    marks_obtained REAL NOT NULL,
+    grade TEXT,
+    remarks TEXT
+);
+
+CREATE TABLE IF NOT EXISTS notices (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    category TEXT DEFAULT 'General',
+    target_audience TEXT DEFAULT 'All',
+    published_by TEXT NOT NULL,
+    published_date TEXT DEFAULT CURRENT_DATE,
+    priority TEXT DEFAULT 'Normal',
+    fcm_broadcast_status TEXT DEFAULT 'Sent',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS notifications_log (
+    id TEXT PRIMARY KEY,
+    fcm_message_id TEXT,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    target_topic TEXT,
+    recipient_token TEXT,
+    delivery_status TEXT DEFAULT 'Success',
+    payload_data TEXT,
+    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS timetables (
+    id TEXT PRIMARY KEY,
+    class_id TEXT NOT NULL,
+    day_of_week TEXT NOT NULL,
+    period_number INTEGER NOT NULL,
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    teacher_name TEXT NOT NULL,
+    room_number TEXT
+);
+
+
+-- Migration: 0002_scholar_and_roles.sql
+-- Description: Add School Profile, 3-Role CRM User Auth (Director, Principal, Staff), Principal Change History, and Comprehensive Scholar Register fields
+
 CREATE TABLE IF NOT EXISTS school_profile (
     id TEXT PRIMARY KEY,
     school_name TEXT NOT NULL,
-    affiliation_number TEXT,        -- e.g. "CBSE/AFF/2026/89412"
-    board_name TEXT DEFAULT 'CBSE',  -- CBSE / ICSE / State Board
+    affiliation_number TEXT,
+    board_name TEXT DEFAULT 'CBSE',
     school_code TEXT,
     email TEXT NOT NULL,
     phone TEXT NOT NULL,
@@ -23,7 +158,6 @@ CREATE TABLE IF NOT EXISTS school_profile (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. CRM Users Table (Director, Principal, Staff)
 CREATE TABLE IF NOT EXISTS system_users (
     id TEXT PRIMARY KEY,
     username TEXT UNIQUE NOT NULL,
@@ -41,7 +175,6 @@ CREATE TABLE IF NOT EXISTS system_users (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. Principal Appointment & History Table (For Director to track/change principals)
 CREATE TABLE IF NOT EXISTS principal_history (
     id TEXT PRIMARY KEY,
     principal_user_id TEXT NOT NULL,
@@ -57,156 +190,11 @@ CREATE TABLE IF NOT EXISTS principal_history (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Classes Table
-CREATE TABLE IF NOT EXISTS classes (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,          -- e.g. "Class 10"
-    section TEXT NOT NULL,       -- e.g. "A"
-    stream TEXT,                 -- e.g. "Science", "Commerce", "General"
-    room_number TEXT,
-    class_teacher_id TEXT,
-    class_teacher_name TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
 
--- 5. Comprehensive Students Table (Full Scholar Register / दाखिला-खारिज रजिस्टर)
-CREATE TABLE IF NOT EXISTS students (
-    id TEXT PRIMARY KEY,
-    scholar_number TEXT UNIQUE NOT NULL, -- स्कॉलर क्रमांक (SR No. e.g. "SR-2026/0142")
-    roll_number TEXT NOT NULL,           -- रोल नंबर
-    full_name TEXT NOT NULL,             -- विद्यार्थी का नाम
-    father_name TEXT NOT NULL,           -- पिता का नाम
-    father_occupation TEXT,              -- पिता का व्यवसाय
-    mother_name TEXT NOT NULL,           -- माता का नाम
-    class_name TEXT NOT NULL,            -- कक्षा
-    section TEXT NOT NULL,               -- सेक्शन / वर्ग
-    dob TEXT NOT NULL,                   -- जन्म तिथि (YYYY-MM-DD)
-    gender TEXT CHECK(gender IN ('Male', 'Female', 'Other')),
-    category TEXT DEFAULT 'General',     -- General / OBC / SC / ST / EWS
-    religion TEXT DEFAULT 'Hindu',       -- धर्म
-    aadhaar_number TEXT,                 -- आधार कार्ड नंबर (12 अंक)
-    samagra_id TEXT,                     -- समग्र आईडी / परिवार आईडी
-    blood_group TEXT,                    -- ब्लड ग्रुप
-    parent_phone TEXT NOT NULL,          -- अभिभावक का फोन नंबर
-    whatsapp_number TEXT,                -- व्हाट्सएप नंबर
-    email TEXT,                          -- ईमेल
-    current_address TEXT NOT NULL,       -- वर्तमान पता
-    permanent_address TEXT,              -- स्थायी पता
-    previous_school TEXT,                -- पूर्व विद्यालय का नाम
-    previous_tc_no TEXT,                 -- पूर्व टीसी क्रमांक
-    admission_date TEXT NOT NULL,        -- प्रवेश दिनांक
-    bank_account_no TEXT,                -- छात्र/अभिभावक बैंक खाता संख्या
-    bank_name TEXT,                      -- बैंक का नाम
-    ifsc_code TEXT,                      -- IFSC कोड
-    status TEXT DEFAULT 'Active' CHECK(status IN ('Active', 'TC_Issued', 'Suspended', 'Passed_Out')),
-    tc_issue_date TEXT,
-    remarks TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- Migration: 0003_enterprise_plans_autopay_multitenancy.sql
+-- Description: Multi-Tenancy Architecture, Enterprise Subscription & Auto-Pay, Custom Domain Email Add-on, and Isolated School FCM Topics
 
--- 6. Teachers & Staff Table
-CREATE TABLE IF NOT EXISTS teachers (
-    id TEXT PRIMARY KEY,
-    employee_code TEXT UNIQUE NOT NULL,
-    name TEXT NOT NULL,
-    designation TEXT NOT NULL,           -- PGT, TGT, PRT, Lab Assistant, Accountant
-    department TEXT NOT NULL,
-    subject_specialization TEXT NOT NULL,
-    phone TEXT NOT NULL,
-    email TEXT NOT NULL,
-    qualification TEXT,
-    salary REAL DEFAULT 0,
-    joining_date TEXT,
-    status TEXT DEFAULT 'Active' CHECK(status IN ('Active', 'Inactive')),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 7. Attendance Table (कक्षावार दैनिक उपस्थिति)
-CREATE TABLE IF NOT EXISTS attendance (
-    id TEXT PRIMARY KEY,
-    student_id TEXT NOT NULL,
-    date TEXT NOT NULL,                  -- YYYY-MM-DD
-    status TEXT NOT NULL CHECK(status IN ('Present', 'Absent', 'Late', 'Leave')),
-    remarks TEXT,
-    marked_by TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (student_id) REFERENCES students(id)
-);
-
--- 8. Fee Invoices Table (फीस चालान व रसीदें)
-CREATE TABLE IF NOT EXISTS fee_invoices (
-    id TEXT PRIMARY KEY,
-    invoice_number TEXT UNIQUE NOT NULL,
-    student_id TEXT NOT NULL,
-    student_name TEXT NOT NULL,
-    scholar_number TEXT,
-    class_name TEXT NOT NULL,
-    title TEXT NOT NULL,                 -- e.g. "प्रथम तिमाही शिक्षण शुल्क 2026-27"
-    total_amount REAL NOT NULL,
-    paid_amount REAL DEFAULT 0,
-    due_date TEXT NOT NULL,
-    status TEXT DEFAULT 'Unpaid' CHECK(status IN ('Paid', 'Partial', 'Unpaid', 'Overdue')),
-    payment_method TEXT,                 -- Cash, UPI, Net Banking, Cheque
-    transaction_id TEXT,
-    paid_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (student_id) REFERENCES students(id)
-);
-
--- 9. Exams & Marks Table
-CREATE TABLE IF NOT EXISTS exams (
-    id TEXT PRIMARY KEY,
-    exam_name TEXT NOT NULL,             -- e.g. "अर्धवार्षिक परीक्षा (Half Yearly 2026)"
-    academic_year TEXT NOT NULL,
-    term TEXT NOT NULL,
-    start_date TEXT,
-    end_date TEXT,
-    is_active INTEGER DEFAULT 1
-);
-
-CREATE TABLE IF NOT EXISTS exam_marks (
-    id TEXT PRIMARY KEY,
-    exam_id TEXT NOT NULL,
-    student_id TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    max_marks REAL DEFAULT 100,
-    marks_obtained REAL NOT NULL,
-    grade TEXT,
-    remarks TEXT,
-    FOREIGN KEY (exam_id) REFERENCES exams(id),
-    FOREIGN KEY (student_id) REFERENCES students(id)
-);
-
--- 10. Notices & Announcements Table (स्कूल नोटिस बोर्ड)
-CREATE TABLE IF NOT EXISTS notices (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    content TEXT NOT NULL,
-    category TEXT DEFAULT 'General' CHECK(category IN ('General', 'Academic', 'Holiday', 'Exam', 'Sports', 'Emergency')),
-    target_audience TEXT DEFAULT 'All' CHECK(target_audience IN ('All', 'Students', 'Teachers', 'Parents')),
-    published_by TEXT NOT NULL,
-    published_date TEXT DEFAULT CURRENT_DATE,
-    priority TEXT DEFAULT 'Normal' CHECK(priority IN ('Low', 'Normal', 'High', 'Urgent')),
-    fcm_broadcast_status TEXT DEFAULT 'Sent',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 11. Notifications Log (Firebase Cloud Messaging / FCM integration)
-CREATE TABLE IF NOT EXISTS notifications_log (
-    id TEXT PRIMARY KEY,
-    school_id TEXT DEFAULT 'school-01',
-    fcm_message_id TEXT,
-    title TEXT NOT NULL,
-    body TEXT NOT NULL,
-    target_topic TEXT,                   -- e.g. "school_school-01_parents"
-    recipient_token TEXT,
-    delivery_status TEXT DEFAULT 'Success',
-    payload_data TEXT,
-    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 12. Multi-Tenant School Tenants Table (स्कूल अलगाव एवं डेटा सुरक्षा)
+-- 1. Multi-Tenant Schools Master Table
 CREATE TABLE IF NOT EXISTS school_tenants (
     id TEXT PRIMARY KEY,
     school_name TEXT NOT NULL,
@@ -218,7 +206,7 @@ CREATE TABLE IF NOT EXISTS school_tenants (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 13. School Subscriptions & Auto-Pay (डायरेक्टर अपग्रेड/डाउनग्रेड व रिकरिंग बिलिंग)
+-- 2. School Subscriptions (Starter, Professional, Enterprise with Auto-Pay)
 CREATE TABLE IF NOT EXISTS school_subscriptions (
     id TEXT PRIMARY KEY,
     school_id TEXT NOT NULL,
@@ -229,8 +217,8 @@ CREATE TABLE IF NOT EXISTS school_subscriptions (
     discount_percent REAL DEFAULT 0,
     status TEXT DEFAULT 'Active' CHECK(status IN ('Active', 'Past_Due', 'Canceled', 'Trial')),
     auto_pay_enabled INTEGER DEFAULT 1,   -- 1 = Auto-Pay active, 0 = Manual
-    payment_method TEXT DEFAULT 'UPI AutoPay',
-    mandate_id TEXT,
+    payment_method TEXT DEFAULT 'UPI AutoPay', -- 'UPI AutoPay', 'e-NACH Mandate', 'Corporate Card'
+    mandate_id TEXT,                      -- e.g. 'MANDATE-UPI-2026-09012'
     next_billing_date TEXT NOT NULL,
     period_start TEXT NOT NULL,
     period_end TEXT NOT NULL,
@@ -238,7 +226,7 @@ CREATE TABLE IF NOT EXISTS school_subscriptions (
     FOREIGN KEY (school_id) REFERENCES school_tenants(id)
 );
 
--- 14. Subscription Add-ons (कस्टम डोमेन ऑफिशियल ईमेल व अतिरिक्त क्षमताएं)
+-- 3. Subscription Add-ons (Custom Domain Email, Extra Cloud Storage, SMS Quota)
 CREATE TABLE IF NOT EXISTS subscription_addons (
     id TEXT PRIMARY KEY,
     school_id TEXT NOT NULL,
@@ -252,7 +240,7 @@ CREATE TABLE IF NOT EXISTS subscription_addons (
     FOREIGN KEY (school_id) REFERENCES school_tenants(id)
 );
 
--- 15. Custom School Domain for Official Emails (Cloudflare Email Routing & DNS verification)
+-- 4. Custom School Domain for Official Emails (Cloudflare Email Routing & DNS verification)
 CREATE TABLE IF NOT EXISTS school_custom_domains (
     id TEXT PRIMARY KEY,
     school_id TEXT NOT NULL,
@@ -269,11 +257,11 @@ CREATE TABLE IF NOT EXISTS school_custom_domains (
     FOREIGN KEY (school_id) REFERENCES school_tenants(id)
 );
 
--- 16. Enterprise Billing Invoices & Tax Receipts
+-- 5. Enterprise Billing & Auto-Pay Tax Invoices
 CREATE TABLE IF NOT EXISTS billing_invoices (
     id TEXT PRIMARY KEY,
     school_id TEXT NOT NULL,
-    invoice_number TEXT UNIQUE NOT NULL,
+    invoice_number TEXT UNIQUE NOT NULL, -- e.g. 'VS-INV-2026-0901'
     description TEXT NOT NULL,
     plan_name TEXT NOT NULL,
     billing_cycle TEXT NOT NULL,
@@ -290,7 +278,7 @@ CREATE TABLE IF NOT EXISTS billing_invoices (
     FOREIGN KEY (school_id) REFERENCES school_tenants(id)
 );
 
--- 17. School-Isolated FCM Topics Table (बहु-विद्यालय विषय पृथक्करण)
+-- 6. School-Isolated FCM Topics Table
 CREATE TABLE IF NOT EXISTS school_fcm_topics (
     id TEXT PRIMARY KEY,
     school_id TEXT NOT NULL,
@@ -302,3 +290,93 @@ CREATE TABLE IF NOT EXISTS school_fcm_topics (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (school_id) REFERENCES school_tenants(id)
 );
+
+
+-- Migration: 0004_auth_trial_razorpay_admin.sql
+-- Description: Real auth (hashed passwords, signed sessions), Super Admin, school
+-- registration approval, 7-day free trial, Razorpay billing, and multi-tenant isolation.
+
+-- 1. Platform Super Admins (kept separate so existing school role CHECK stays intact)
+CREATE TABLE IF NOT EXISTS platform_admins (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    phone TEXT,
+    status TEXT DEFAULT 'Active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Auth fields on school users
+ALTER TABLE system_users ADD COLUMN password_hash TEXT;
+ALTER TABLE system_users ADD COLUMN school_id TEXT DEFAULT 'school-01';
+
+-- 3. School tenants: registration approval + plan + trial
+ALTER TABLE school_tenants ADD COLUMN registration_status TEXT DEFAULT 'Active';
+ALTER TABLE school_tenants ADD COLUMN plan_id TEXT DEFAULT 'trial';
+ALTER TABLE school_tenants ADD COLUMN trial_ends_at TEXT;
+ALTER TABLE school_tenants ADD COLUMN approved_at TEXT;
+ALTER TABLE school_tenants ADD COLUMN approved_by TEXT;
+
+-- 4. Subscriptions: trial + Razorpay references
+ALTER TABLE school_subscriptions ADD COLUMN trial_ends_at TEXT;
+ALTER TABLE school_subscriptions ADD COLUMN razorpay_order_id TEXT;
+ALTER TABLE school_subscriptions ADD COLUMN razorpay_payment_id TEXT;
+ALTER TABLE school_subscriptions ADD COLUMN razorpay_signature TEXT;
+
+-- 5. Billing invoices: Razorpay references
+ALTER TABLE billing_invoices ADD COLUMN razorpay_order_id TEXT;
+ALTER TABLE billing_invoices ADD COLUMN razorpay_payment_id TEXT;
+
+-- 6. Scholar register: upgrade students to full register + school isolation
+ALTER TABLE students ADD COLUMN school_id TEXT DEFAULT 'school-01';
+ALTER TABLE students ADD COLUMN scholar_number TEXT;
+ALTER TABLE students ADD COLUMN father_name TEXT;
+ALTER TABLE students ADD COLUMN father_occupation TEXT;
+ALTER TABLE students ADD COLUMN mother_name TEXT;
+ALTER TABLE students ADD COLUMN category TEXT DEFAULT 'General';
+ALTER TABLE students ADD COLUMN religion TEXT DEFAULT 'Hindu';
+ALTER TABLE students ADD COLUMN aadhaar_number TEXT;
+ALTER TABLE students ADD COLUMN samagra_id TEXT;
+ALTER TABLE students ADD COLUMN whatsapp_number TEXT;
+ALTER TABLE students ADD COLUMN current_address TEXT;
+ALTER TABLE students ADD COLUMN permanent_address TEXT;
+ALTER TABLE students ADD COLUMN previous_school TEXT;
+ALTER TABLE students ADD COLUMN previous_tc_no TEXT;
+ALTER TABLE students ADD COLUMN bank_account_no TEXT;
+ALTER TABLE students ADD COLUMN bank_name TEXT;
+ALTER TABLE students ADD COLUMN ifsc_code TEXT;
+ALTER TABLE students ADD COLUMN tc_issue_date TEXT;
+ALTER TABLE students ADD COLUMN remarks TEXT;
+ALTER TABLE students ADD COLUMN updated_at TEXT;
+
+-- 7. Staff / teachers: school isolation + salary/status
+ALTER TABLE teachers ADD COLUMN school_id TEXT DEFAULT 'school-01';
+ALTER TABLE teachers ADD COLUMN salary REAL DEFAULT 0;
+ALTER TABLE teachers ADD COLUMN status TEXT DEFAULT 'Active';
+
+-- 8. Attendance: school isolation
+ALTER TABLE attendance ADD COLUMN school_id TEXT DEFAULT 'school-01';
+
+-- 9. Fees: school isolation + scholar/section
+ALTER TABLE fee_invoices ADD COLUMN school_id TEXT DEFAULT 'school-01';
+ALTER TABLE fee_invoices ADD COLUMN scholar_number TEXT;
+ALTER TABLE fee_invoices ADD COLUMN section TEXT;
+
+-- 10. Exams: school isolation
+ALTER TABLE exams ADD COLUMN school_id TEXT DEFAULT 'school-01';
+ALTER TABLE exam_marks ADD COLUMN school_id TEXT DEFAULT 'school-01';
+
+-- 11. Notices: school isolation
+ALTER TABLE notices ADD COLUMN school_id TEXT DEFAULT 'school-01';
+
+-- 12. Principal history: school isolation
+ALTER TABLE principal_history ADD COLUMN school_id TEXT DEFAULT 'school-01';
+
+-- 13. Classes: school isolation
+ALTER TABLE classes ADD COLUMN school_id TEXT DEFAULT 'school-01';
+
+-- 14. Notification log: school isolation
+ALTER TABLE notifications_log ADD COLUMN school_id TEXT DEFAULT 'school-01';
+

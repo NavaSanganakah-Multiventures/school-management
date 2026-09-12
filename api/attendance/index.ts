@@ -1,35 +1,41 @@
 import { Hono } from 'hono';
-import { studentScholars, attendanceStore, AttendanceRecord } from '../db';
+import { getDB } from '../db';
+import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
 const attendanceApp = new Hono();
 
-// GET /api/attendance - तारीख और कक्षा अनुसार उपस्थिति
-attendanceApp.get('/', (c) => {
+// GET /api/attendance
+attendanceApp.get('/', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  const schoolId = getRequestSchoolId(c, authUser);
   const date = c.req.query('date') || new Date().toISOString().split('T')[0];
   const className = c.req.query('class');
 
-  // सुनिश्चित करें कि छात्रों के लिए उस तारीख का रिकॉर्ड उपलब्ध है
-  const activeStudents = studentScholars.filter((s) => s.status === 'Active');
+  const sRows = await db.prepare('SELECT id, first_name, last_name, class_name, section, roll_number, scholar_number, status FROM students WHERE school_id = ? AND status = ?').bind(schoolId, 'Active').all();
+  const students = (sRows.results || []);
+  const aRows = await db.prepare('SELECT * FROM attendance WHERE school_id = ? AND date = ?').bind(schoolId, date).all();
+  const attMap = {};
+  (aRows.results || []).forEach((a) => { attMap[a.student_id] = a; });
 
-  // उस तारीख के लिए रिकॉर्ड तैयार करें यदि पहले से न हों
-  activeStudents.forEach((student) => {
-    const exists = attendanceStore.some((r) => r.studentId === student.id && r.date === date);
-    if (!exists) {
-      attendanceStore.push({
-        id: `att-${student.id}-${date}`,
-        studentId: student.id,
-        studentName: student.fullName,
-        scholarNumber: student.scholarNumber,
-        className: student.className,
-        section: student.section,
-        date,
-        status: 'Present',
-        markedBy: 'कक्षा अध्यापक (Class Teacher)',
-      });
-    }
+  let list = students.map((s) => {
+    const a = attMap[s.id];
+    const fullName = (s.first_name || '') + (s.last_name ? ' ' + s.last_name : '');
+    return {
+      id: a ? a.id : ('att-' + s.id + '-' + date),
+      studentId: s.id,
+      studentName: fullName,
+      scholarNumber: s.scholar_number || s.roll_number || '',
+      className: s.class_name,
+      section: s.section,
+      date,
+      status: a ? a.status : 'Present',
+      remarks: a ? (a.remarks || '') : '',
+      markedBy: a ? (a.marked_by || '') : 'कक्षा अध्यापक (Class Teacher)',
+    };
   });
 
-  let list = attendanceStore.filter((r) => r.date === date);
   if (className && className !== 'All') {
     list = list.filter((r) => r.className.toLowerCase() === className.toLowerCase());
   }
@@ -40,66 +46,57 @@ attendanceApp.get('/', (c) => {
   const leave = list.filter((r) => r.status === 'Leave').length;
   const rate = total > 0 ? Math.round((present / total) * 100) : 0;
 
-  return c.json({
-    success: true,
-    date,
-    stats: { total, present, absent, leave, rate },
-    records: list,
-  });
+  return c.json({ success: true, date, stats: { total, present, absent, leave, rate }, records: list });
 });
 
-// POST /api/attendance/mark - एकल छात्र की स्थिति बदलना
+// POST /api/attendance/mark
 attendanceApp.post('/mark', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  const schoolId = getRequestSchoolId(c, authUser);
   const body = await c.req.json().catch(() => ({}));
-  const { studentId, status, date, remarks, markedBy } = body;
-  const targetDate = date || new Date().toISOString().split('T')[0];
+  const studentId = body.studentId;
+  const status = body.status || 'Present';
+  const targetDate = body.date || new Date().toISOString().split('T')[0];
+  if (!studentId) return c.json({ success: false, message: 'studentId आवश्यक है।' }, 400);
+  if (['Present', 'Absent', 'Late', 'Leave'].indexOf(status) === -1) return c.json({ success: false, message: 'अमान्य उपस्थिति स्थिति।' }, 400);
 
-  const existingIdx = attendanceStore.findIndex(
-    (r) => r.studentId === studentId && r.date === targetDate
-  );
+  const student = await db.prepare('SELECT id FROM students WHERE id = ? AND school_id = ?').bind(studentId, schoolId).first();
+  if (!student) return c.json({ success: false, message: 'छात्र नहीं मिला।' }, 404);
 
-  if (existingIdx >= 0) {
-    attendanceStore[existingIdx].status = status;
-    if (remarks !== undefined) attendanceStore[existingIdx].remarks = remarks;
-    if (markedBy) attendanceStore[existingIdx].markedBy = markedBy;
-  } else {
-    const student = studentScholars.find((s) => s.id === studentId);
-    attendanceStore.push({
-      id: `att-${Date.now()}-${studentId}`,
-      studentId,
-      studentName: student?.fullName || 'छात्र',
-      scholarNumber: student?.scholarNumber || '',
-      className: student?.className || 'Class 10',
-      section: student?.section || 'A',
-      date: targetDate,
-      status: status || 'Present',
-      remarks,
-      markedBy: markedBy || 'स्टाफ शिक्षक',
-    });
-  }
+  const id = 'att-' + studentId + '-' + targetDate;
+  await db.prepare('INSERT INTO attendance (id, student_id, date, status, remarks, marked_by, school_id) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, remarks=excluded.remarks, marked_by=excluded.marked_by')
+    .bind(id, studentId, targetDate, status, body.remarks || '', body.markedBy || 'स्टाफ शिक्षक', schoolId).run();
 
-  return c.json({
-    success: true,
-    message: 'उपस्थिति दर्ज की गई।',
-  });
+  return c.json({ success: true, message: 'उपस्थिति दर्ज की गई।' });
 });
 
-// POST /api/attendance/mark-all-present - कक्षा के सभी विद्यार्थियों को उपस्थित मार्क करना
+// POST /api/attendance/mark-all-present
 attendanceApp.post('/mark-all-present', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  const schoolId = getRequestSchoolId(c, authUser);
   const body = await c.req.json().catch(() => ({}));
   const targetDate = body.date || new Date().toISOString().split('T')[0];
   const className = body.className;
 
-  attendanceStore.forEach((r) => {
-    if (r.date === targetDate && (!className || className === 'All' || r.className === className)) {
-      r.status = 'Present';
-    }
-  });
-
-  return c.json({
-    success: true,
-    message: 'कक्षा के सभी छात्रों की उपस्थिति Present मार्क कर दी गई।',
-  });
+  let sRows;
+  if (className && className !== 'All') {
+    sRows = await db.prepare('SELECT id FROM students WHERE school_id = ? AND status = ? AND class_name = ?').bind(schoolId, 'Active', className).all();
+  } else {
+    sRows = await db.prepare('SELECT id FROM students WHERE school_id = ? AND status = ?').bind(schoolId, 'Active').all();
+  }
+  const students = (sRows.results || []);
+  for (const s of students) {
+    const id = 'att-' + s.id + '-' + targetDate;
+    await db.prepare('INSERT INTO attendance (id, student_id, date, status, remarks, marked_by, school_id) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status')
+      .bind(id, s.id, targetDate, 'Present', '', 'कक्षा अध्यापक', schoolId).run();
+  }
+  return c.json({ success: true, message: 'कक्षा के सभी छात्रों की उपस्थिति Present मार्क कर दी गई।' });
 });
 
 export default attendanceApp;
