@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Bell, Send, CheckCircle2, Radio, ShieldCheck, Mail, Globe } from 'lucide-react';
+import { X, Bell, Send, CheckCircle2, Radio, ShieldAlert, ShieldCheck, Mail, Globe } from 'lucide-react';
 
 interface FcmBroadcastModalProps {
   isOpen: boolean;
@@ -25,6 +25,7 @@ export function FcmBroadcastModal({
   const [emailDispatchMode, setEmailDispatchMode] = useState<'standard_gmail' | 'domain_official' | 'fcm_only'>('domain_official');
   const [isSending, setIsSending] = useState(false);
   const [successInfo, setSuccessInfo] = useState<any>(null);
+  const [errorInfo, setErrorInfo] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -48,6 +49,7 @@ export function FcmBroadcastModal({
     if (!title || !body) return;
 
     setIsSending(true);
+    setErrorInfo(null);
     try {
       const res = await fetch('/api/notifications/fcm-broadcast', {
         method: 'POST',
@@ -74,20 +76,11 @@ export function FcmBroadcastModal({
           setSuccessInfo(null);
           onClose();
         }, 1800);
+      } else {
+        setErrorInfo((data && data.message) ? data.message : 'सूचना भेजने में त्रुटि हुई।');
       }
     } catch {
-      const fallbackRecord = {
-        id: `fcm-${Date.now()}`,
-        schoolId,
-        title,
-        body,
-        targetTopic: selectedTopicKey,
-        targetRole,
-        status: 'Delivered',
-        timestamp: new Date().toLocaleTimeString(),
-      };
-      onBroadcastSent?.(fallbackRecord);
-      onClose();
+      setErrorInfo('नेटवर्क त्रुटि: सूचना भेजी नहीं जा सकी। कृपया पुनः प्रयास करें।');
     } finally {
       setIsSending(false);
     }
@@ -255,7 +248,13 @@ export function FcmBroadcastModal({
               </span>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                        {errorInfo && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2">
+                <ShieldAlert className="h-4 w-4 text-rose-600 mt-0.5 shrink-0" />
+                <span>{errorInfo}</span>
+              </div>
+            )}
+<div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
               <button
                 type="button"
                 onClick={onClose}
