@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId, hashPassword } from '../lib/auth';
 
-export const principalApp = new Hono();
+export const principalApp = new Hono<{ Bindings: any }>();
 
 function mapUser(r: any) {
   if (!r) return null;
