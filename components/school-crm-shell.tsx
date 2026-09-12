@@ -51,13 +51,6 @@ interface CurrentUser {
   schoolId?: string;
 }
 
-const PLAN_MODULES: Record<string, string[]> = {
-  trial: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'settings', 'billing'],
-  starter: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'settings', 'billing'],
-  pro: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'principal', 'settings', 'billing'],
-  enterprise: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'principal', 'settings', 'billing'],
-};
-
 function roleEmoji(role: UserRole) {
   if (role === 'Director') return '👑 निदेशक';
   if (role === 'Principal') return '🏛️ प्रधानाचार्य';
@@ -95,7 +88,7 @@ interface NavItem {
   icon: any;
   superAdminOnly?: boolean;
   allowedRoles?: UserRole[];
-  planModules?: string[];
+  requiredModule?: string;
   badge?: string;
 }
 
@@ -104,6 +97,7 @@ export function SchoolCrmShell() {
   const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login');
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => readStoredUser());
   const [planId, setPlanId] = useState('trial');
+  const [planModules, setPlanModules] = useState<string[]>(['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'settings', 'billing']);
   const [trialInfo, setTrialInfo] = useState<{ trialEndsAt: string; status: string } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddScholarOpen, setIsAddScholarOpen] = useState(false);
@@ -155,6 +149,7 @@ export function SchoolCrmShell() {
       .then((data) => {
         if (!active || !data || !data.success) return;
         setPlanId(data.planId || 'trial');
+        setPlanModules((data.planDetails && Array.isArray(data.planDetails.modules) && data.planDetails.modules.length) ? data.planDetails.modules : ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'settings', 'billing']);
         setTrialInfo(data.subscription ? { trialEndsAt: data.trialEndsAt || '', status: data.subscription.status } : null);
       })
       .catch(() => {});
@@ -205,9 +200,9 @@ export function SchoolCrmShell() {
     { id: 'staff', label: 'स्टाफ एवं शिक्षक निर्देशिका', icon: GraduationCap, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'attendance', label: 'दैनिक छात्र उपस्थिति', icon: CalendarCheck, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'fees', label: 'फीस पोर्टल एवं चालान', icon: IndianRupee, allowedRoles: ['Director', 'Principal'] },
-    { id: 'exams', label: 'परीक्षा एवं अंक प्रविष्टि', icon: FileSpreadsheet, allowedRoles: ['Director', 'Principal', 'Staff'], planModules: ['starter', 'pro', 'enterprise'] },
+    { id: 'exams', label: 'परीक्षा एवं अंक प्रविष्टि', icon: FileSpreadsheet, allowedRoles: ['Director', 'Principal', 'Staff'], requiredModule: 'exams' },
     { id: 'notices', label: 'सूचना पट्ट एवं अलर्ट', icon: Bell, allowedRoles: ['Director', 'Principal', 'Staff'] },
-    { id: 'principal', label: 'प्रधानाचार्य प्रबंधन', icon: UserCheck, allowedRoles: ['Director'], planModules: ['pro', 'enterprise'], badge: 'प्रो' },
+    { id: 'principal', label: 'प्रधानाचार्य प्रबंधन', icon: UserCheck, allowedRoles: ['Director'], requiredModule: 'principal', badge: 'प्रो' },
     { id: 'settings', label: 'स्कूल प्रोफ़ाइल व सेटिंग्स', icon: Settings, allowedRoles: ['Director'] },
     { id: 'billing', label: 'प्लान व बिलिंग', icon: CreditCard, allowedRoles: ['Director'], badge: 'अपग्रेड' },
   ];
@@ -215,7 +210,7 @@ export function SchoolCrmShell() {
   const filteredNavItems = navItems.filter((item) => {
     if (item.superAdminOnly) return userRole === 'SuperAdmin';
     if (!item.allowedRoles || item.allowedRoles.indexOf(userRole) === -1) return false;
-    if (item.planModules && item.planModules.indexOf(planId) === -1) return false;
+    if (item.requiredModule && planModules.indexOf(item.requiredModule) === -1) return false;
     return true;
   });
 
