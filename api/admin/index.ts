@@ -107,7 +107,7 @@ adminApp.post('/schools/plan', async (c) => {
   if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
   const allowed = ['starter', 'pro', 'enterprise'];
   if (allowed.indexOf(planId) === -1) return c.json({ success: false, message: 'अमान्य प्लान।' }, 400);
-  const planNames = { starter: 'स्टार्टर प्लान (Starter)', pro: 'प्रोफेशनल प्लान (Professional)', enterprise: 'एंटरप्राइज प्लान (Enterprise)' };
+  const planNames: Record<string, string> = { starter: 'स्टार्टर प्लान (Starter)', pro: 'प्रोफेशनल प्लान (Professional)', enterprise: 'एंटरप्राइज प्लान (Enterprise)' };
   await db.prepare('UPDATE school_subscriptions SET plan_id=?, plan_name=?, status=?, updated_at=? WHERE school_id=?')
     .bind(planId, planNames[planId], 'Active', new Date().toISOString(), schoolId).run();
   await db.prepare('UPDATE school_tenants SET plan_id=?, status=?, registration_status=?, trial_ends_at=? WHERE id=?')
