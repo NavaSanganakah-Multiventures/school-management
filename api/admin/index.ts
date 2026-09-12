@@ -14,6 +14,7 @@ async function requireSuperAdmin(c) {
 }
 
 function tenantToJson(row) {
+  const trial = row.status === 'Trial';
   return {
     id: row.id,
     schoolName: row.school_name,
@@ -23,8 +24,8 @@ function tenantToJson(row) {
     contactPhone: row.contact_phone,
     status: row.status,
     registrationStatus: row.registration_status || 'Active',
-    planId: row.sub_plan_id || row.plan_id || 'trial',
-    planName: row.sub_plan_name || row.plan_name || '7-दिन फ्री ट्रायल',
+    planId: trial ? 'trial' : (row.sub_plan_id || row.plan_id || 'trial'),
+    planName: trial ? '7-दिन फ्री ट्रायल' : (row.sub_plan_name || row.plan_name || '7-दिन फ्री ट्रायल'),
     trialEndsAt: row.trial_ends_at || '',
     createdAt: row.created_at,
   };
