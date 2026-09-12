@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getDB, generateSchoolTopics } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
-const notificationsApp = new Hono();
+const notificationsApp = new Hono<{ Bindings: any }>();
 
 // GET /api/notifications/topics
 notificationsApp.get('/topics', async (c) => {
@@ -47,7 +47,7 @@ notificationsApp.get('/history', async (c) => {
   return c.json({ success: true, schoolId, history });
 });
 
-async function handleBroadcast(c) {
+async function handleBroadcast(c: any) {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);

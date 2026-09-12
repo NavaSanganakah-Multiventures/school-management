@@ -1,10 +1,10 @@
 // Razorpay payment gateway helpers (real API only, no demo/simulated data).
 
-function hexFromBytes(bytes) {
-  return Array.from(bytes).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+function hexFromBytes(bytes: any) {
+  return Array.from(bytes).map(function (b: any) { return b.toString(16).padStart(2, '0'); }).join('');
 }
 
-export async function createRazorpayOrder(c, amountINR, receipt) {
+export async function createRazorpayOrder(c: any, amountINR: any, receipt: any) {
   const keyId = (c.env && c.env.RAZORPAY_KEY_ID) || '';
   const keySecret = (c.env && c.env.RAZORPAY_KEY_SECRET) || '';
   if (!keyId || !keySecret) {
@@ -25,12 +25,12 @@ export async function createRazorpayOrder(c, amountINR, receipt) {
       return { error: (data && data.error && data.error.description) || 'Razorpay ऑर्डर बनाने में त्रुटि हुई।' };
     }
     return { id: data.id, amount: data.amount, currency: data.currency };
-  } catch (e) {
+  } catch (e: any) {
     return { error: (e && e.message) ? e.message : 'Razorpay नेटवर्क त्रुटि' };
   }
 }
 
-export async function verifyRazorpaySignature(orderId, paymentId, signature, secret) {
+export async function verifyRazorpaySignature(orderId: any, paymentId: any, signature: any, secret: any) {
   try {
     const body = orderId + '|' + paymentId;
     const encoder = new TextEncoder();

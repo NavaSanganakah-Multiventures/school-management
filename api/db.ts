@@ -395,7 +395,19 @@ export const schoolCustomDomainStore: SchoolCustomDomain = { id: '', schoolId: '
 export const billingInvoicesStore: BillingInvoice[] = [];
 export const schoolFcmTopicsStore: SchoolFcmTopic[] = generateSchoolTopics('school-01');
 
+// Minimal D1 typing so route handlers get contextual types for rows/results.
+export interface D1Row { [key: string]: any; }
+export interface D1Statement {
+  bind(...values: any[]): D1Statement;
+  first(): Promise<any>;
+  all(): Promise<{ results?: any[] }>;
+  run(): Promise<any>;
+}
+export interface MiniD1 {
+  prepare(query: string): D1Statement;
+}
+
 // D1 access helper. Each route reads/writes real data through this binding.
-export function getDB(c: any) {
-  return c && c.env && c.env.DB ? c.env.DB : null;
+export function getDB(c: any): MiniD1 {
+  return (c && c.env && c.env.DB) as MiniD1;
 }

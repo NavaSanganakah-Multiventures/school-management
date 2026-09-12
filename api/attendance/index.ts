@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
-const attendanceApp = new Hono();
+const attendanceApp = new Hono<{ Bindings: any }>();
 
 // GET /api/attendance
 attendanceApp.get('/', async (c) => {
@@ -16,7 +16,7 @@ attendanceApp.get('/', async (c) => {
   const sRows = await db.prepare('SELECT id, first_name, last_name, class_name, section, roll_number, scholar_number, status FROM students WHERE school_id = ? AND status = ?').bind(schoolId, 'Active').all();
   const students = (sRows.results || []);
   const aRows = await db.prepare('SELECT * FROM attendance WHERE school_id = ? AND date = ?').bind(schoolId, date).all();
-  const attMap = {};
+  const attMap: Record<string, any> = {};
   (aRows.results || []).forEach((a) => { attMap[a.student_id] = a; });
 
   let list = students.map((s) => {

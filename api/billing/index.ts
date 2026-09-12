@@ -3,16 +3,16 @@ import { getDB, SUBSCRIPTION_PLANS, BillingCycle, SubscriptionPlanId } from '../
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { createRazorpayOrder, verifyRazorpaySignature } from '../lib/razorpay';
 
-const billingApp = new Hono();
+const billingApp = new Hono<{ Bindings: any }>();
 
-function priceForPlan(plan, cycle) {
+function priceForPlan(plan: any, cycle: any) {
   const c = cycle || 'annual';
   if (c === 'quarterly') return plan.quarterlyPrice;
   if (c === 'annual') return plan.annualPrice;
   return plan.monthlyPrice;
 }
 
-function subToJson(row) {
+function subToJson(row: any) {
   if (!row) return null;
   return {
     id: row.id,

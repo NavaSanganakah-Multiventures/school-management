@@ -2,9 +2,9 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
-const noticesApp = new Hono();
+const noticesApp = new Hono<{ Bindings: any }>();
 
-function mapNotice(r) {
+function mapNotice(r: any): any {
   if (!r) return null;
   return {
     id: r.id,

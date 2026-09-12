@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
-const dashboardStatsApp = new Hono();
+const dashboardStatsApp = new Hono<{ Bindings: any }>();
 
 dashboardStatsApp.get('/', async (c) => {
   const db = getDB(c);

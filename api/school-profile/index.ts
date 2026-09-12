@@ -2,9 +2,9 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
-export const schoolProfileApp = new Hono();
+export const schoolProfileApp = new Hono<{ Bindings: any }>();
 
-function rowToProfile(row) {
+function rowToProfile(row: any) {
   return {
     id: row.id,
     schoolName: row.school_name,
@@ -51,7 +51,7 @@ schoolProfileApp.put('/', async (c) => {
   const existing = await db.prepare('SELECT * FROM school_profile WHERE id = ?').bind(schoolId).first();
   if (!existing) return c.json({ success: false, message: 'स्कूल प्रोफ़ाइल नहीं मिली।' }, 404);
 
-  const val = (field, fallback) => (body[field] !== undefined && body[field] !== null && body[field] !== '') ? body[field] : fallback;
+  const val = (field: any, fallback: any) => (body[field] !== undefined && body[field] !== null && body[field] !== '') ? body[field] : fallback;
   const now = new Date().toISOString().split('T')[0];
 
   await db.prepare('UPDATE school_profile SET school_name=?, affiliation_number=?, board_name=?, school_code=?, email=?, phone=?, alternate_phone=?, address=?, city=?, state=?, pincode=?, academic_session=?, director_name=?, principal_name=?, updated_at=? WHERE id=?')

@@ -3,9 +3,9 @@ import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { getPlanAccess } from '../lib/plan-access';
 
-const studentsApp = new Hono();
+const studentsApp = new Hono<{ Bindings: any }>();
 
-function mapStudent(r) {
+function mapStudent(r: any): any {
   if (!r) return null;
   const full = (r.first_name || '') + (r.last_name ? ' ' + r.last_name : '');
   let status = r.status || 'Active';
@@ -44,13 +44,13 @@ function mapStudent(r) {
   };
 }
 
-async function getPlanId(db, schoolId) {
+async function getPlanId(db: any, schoolId: any) {
   const sub = await db.prepare('SELECT plan_id, status FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
   if (!sub) return 'trial';
   return sub.status === 'Trial' ? 'trial' : sub.plan_id;
 }
 
-function camelToWrite(body) {
+function camelToWrite(body: any) {
   const fullName = String(body.fullName || '').trim();
   const names = fullName.split(/\s+/);
   const first = names[0] || '';
@@ -96,7 +96,7 @@ function camelToWrite(body) {
   };
 }
 
-async function writeStudent(db, schoolId, id, v) {
+async function writeStudent(db: any, schoolId: any, id: any, v: any) {
   await db.prepare('INSERT OR REPLACE INTO students (id, roll_number, first_name, last_name, class_id, class_name, section, gender, dob, parent_name, parent_phone, email, address, blood_group, avatar_url, admission_date, status, school_id, scholar_number, father_name, father_occupation, mother_name, category, religion, aadhaar_number, samagra_id, whatsapp_number, current_address, permanent_address, previous_school, previous_tc_no, bank_account_no, bank_name, ifsc_code, tc_issue_date, remarks, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .bind(id, v.rollNumber, v.first, v.last, v.classId, v.className, v.section, v.gender, v.dob, v.parentName, v.parentPhone, v.email, v.address, v.bloodGroup, '', v.admissionDate, v.status, schoolId, v.scholarNumber, v.fatherName, v.fatherOccupation, v.motherName, v.category, v.religion, v.aadhaarNumber, v.samagraId, v.whatsappNumber, v.currentAddress, v.permanentAddress, v.previousSchool, v.previousTcNo, v.bankAccountNo, v.bankName, v.ifscCode, v.tcIssueDate, v.remarks, new Date().toISOString())
     .run();
