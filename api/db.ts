@@ -504,3 +504,17 @@ export interface MiniD1 {
 export function getDB(c: any): MiniD1 {
   return (c && c.env && c.env.DB) as MiniD1;
 }
+
+// Generates a collision-free username for school users. The username column is UNIQUE,
+// but registrations derive it from the email prefix, so two different emails with the same
+// prefix (e.g. john@gmail.com vs john@yahoo.com) would otherwise collide on INSERT.
+export async function makeUniqueUsername(db: any, email: string): Promise<string> {
+  const base = String(email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9._-]/g, '') || ('user' + Date.now().toString().slice(-6));
+  let username = base;
+  for (let i = 0; i < 5; i++) {
+    const taken = await db.prepare('SELECT id FROM system_users WHERE LOWER(username) = ?').bind(username).first();
+    if (!taken) return username;
+    username = base + '-' + Date.now().toString().slice(-6);
+  }
+  return base + '-' + Date.now().toString() + '-' + Math.floor(Math.random() * 1000);
+}
