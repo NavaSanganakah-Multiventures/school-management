@@ -37,6 +37,7 @@ import { AdminConsoleScreen } from './screens/admin-console-screen';
 
 import { AddScholarModal } from './modals/add-scholar-modal';
 import { FcmBroadcastModal } from './modals/fcm-broadcast-modal';
+import { registerFcmWebToken, onForegroundFcmMessage, onFcmTokenRefresh } from '../lib/firebase-web-push';
 
 type UserRole = 'Director' | 'Principal' | 'Staff' | 'SuperAdmin';
 
@@ -102,6 +103,7 @@ export function SchoolCrmShell() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddScholarOpen, setIsAddScholarOpen] = useState(false);
   const [isBroadcastOpen, setIsBroadcastOpen] = useState(false);
+  const [pushToast, setPushToast] = useState<{ title: string; body: string } | null>(null);
 
   const [schoolProfile, setSchoolProfile] = useState<any>({
     schoolName: 'विद्या सेतु स्कूल प्रबंधन',
@@ -156,7 +158,44 @@ export function SchoolCrmShell() {
     return () => { active = false; };
   }, [currentUser]);
 
-  const handleLogout = async () => {
+  
+  // Website (web push) registration for the logged-in staff user.
+  useEffect(() => {
+    if (!currentUser) return;
+    let disposeForeground: (() => void) | null = null;
+    let disposeRefresh: (() => void) | null = null;
+
+    const sendTokenToServer = async (token: string) => {
+      try {
+        await fetch('/api/notifications/register-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: token, deviceType: 'web', role: currentUser.role, schoolId: currentUser.schoolId, platform: 'web' }),
+        });
+      } catch (e) {}
+    };
+
+    registerFcmWebToken().then((token) => {
+      if (token) sendTokenToServer(token);
+    }).catch(() => {});
+
+    onForegroundFcmMessage((payload) => {
+      const n = payload && payload.notification;
+      if (n && n.title) {
+        setPushToast({ title: n.title, body: n.body || '' });
+        setTimeout(() => setPushToast(null), 6000);
+      }
+    }).then((dispose) => { disposeForeground = dispose; }).catch(() => {});
+
+    onFcmTokenRefresh((token) => { sendTokenToServer(token); }).then((dispose) => { disposeRefresh = dispose; }).catch(() => {});
+
+    return () => {
+      if (disposeForeground) disposeForeground();
+      if (disposeRefresh) disposeRefresh();
+    };
+  }, [currentUser]);
+
+const handleLogout = async () => {
     try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) {}
     localStorage.removeItem('vidyasetu_user');
     localStorage.removeItem('vidyasetu_token');
@@ -262,6 +301,19 @@ export function SchoolCrmShell() {
           </div>
         </div>
       </header>
+      {pushToast && (
+        <div className="fixed top-16 right-4 z-50 max-w-sm rounded-2xl bg-slate-900 text-white shadow-xl p-4">
+          <div className="flex items-start gap-3">
+            <Bell className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-sm font-bold">{pushToast.title}</p>
+              {pushToast.body ? <p className="text-xs text-slate-300 mt-1">{pushToast.body}</p> : null}
+            </div>
+            <button onClick={() => setPushToast(null)} className="ml-2 text-slate-400 hover:text-white cursor-pointer"><X className="h-4 w-4" /></button>
+          </div>
+        </div>
+      )}
+
 
       <div className="flex grow">
         <aside className={'fixed inset-y-0 left-0 z-30 w-64 bg-white border-r border-slate-200 pt-16 lg:pt-0 transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static flex flex-col justify-between shrink-0 shadow-sm ' + (isSidebarOpen ? 'translate-x-0' : '-translate-x-full')}>
