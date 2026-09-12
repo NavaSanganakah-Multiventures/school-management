@@ -60,6 +60,15 @@ adminApp.get('/schools', async (c) => {
   return c.json({ success: true, schools });
 });
 
+// GET /api/admin/schools/deleted - हटाए गए स्कूलों की सूची (restore के लिए)
+adminApp.get('/schools/deleted', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  const rows = await db.prepare('SELECT s.*, sub.plan_id AS sub_plan_id, sub.plan_name AS sub_plan_name, sub.status AS sub_status, sub.trial_ends_at AS trial_ends_at FROM school_tenants s LEFT JOIN school_subscriptions sub ON sub.school_id = s.id WHERE s.deleted_at IS NOT NULL ORDER BY s.deleted_at DESC').all();
+  return c.json({ success: true, schools: (rows.results || []).map(tenantToJson) });
+});
+
 // GET /api/admin/registrations - pending approvals
 adminApp.get('/registrations', async (c) => {
   const guard = await requireSuperAdmin(c);
