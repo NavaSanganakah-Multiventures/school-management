@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getDB, SUBSCRIPTION_PLANS, BillingCycle, SubscriptionPlanId } from '../db';
+import { getDB, SUBSCRIPTION_PLANS, loadSubscriptionPlans, loadSubscriptionPlanById, BillingCycle } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { createRazorpayOrder, verifyRazorpaySignature } from '../lib/razorpay';
 
@@ -35,11 +35,14 @@ function subToJson(row: any) {
   };
 }
 
-// GET /api/billing/plans - subscription plans (real pricing matrix)
-billingApp.get('/plans', (c) => {
+// GET /api/billing/plans - subscription plans (real pricing matrix, DB-backed)
+billingApp.get('/plans', async (c) => {
+  const db = getDB(c);
+  const all = await loadSubscriptionPlans(db);
+  const plans = all.filter((p) => !p.isTrial && p.active !== false);
   return c.json({
     success: true,
-    plans: SUBSCRIPTION_PLANS,
+    plans,
     billingCycles: [
       { id: 'monthly', label: 'मासिक (Monthly)', discount: 0, tag: 'मानक बिलिंग' },
       { id: 'quarterly', label: 'त्रैमासिक (Quarterly)', discount: 5, tag: '5% बचत' },
@@ -64,7 +67,7 @@ billingApp.get('/subscription', async (c) => {
   const tenant = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
   const subscription = subToJson(subRow);
   const planId = subscription && subscription.status === 'Trial' ? 'trial' : (subscription ? subscription.planId : 'trial');
-  const planDetails = SUBSCRIPTION_PLANS.find((p) => p.id === planId) || SUBSCRIPTION_PLANS[0];
+  const planDetails = await loadSubscriptionPlanById(db, planId) || SUBSCRIPTION_PLANS[0];
   return c.json({
     success: true,
     school: tenant || { id: schoolId, schoolName: '', status: 'Trial' },
@@ -88,7 +91,8 @@ billingApp.post('/subscribe', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const planId = body.planId;
   const billingCycle = body.billingCycle || 'annual';
-  const plan = SUBSCRIPTION_PLANS.find((p) => p.id === planId && p.id !== 'trial');
+  const allPlans = await loadSubscriptionPlans(db);
+  const plan = allPlans.find((p) => p.id === planId && !p.isTrial);
   if (!plan) return c.json({ success: false, message: 'अमान्य प्लान चयन।' }, 400);
 
   const amount = priceForPlan(plan, billingCycle);
@@ -140,7 +144,11 @@ billingApp.post('/razorpay/verify', async (c) => {
 
   const schoolId = authUser ? (authUser.role === 'SuperAdmin' ? getRequestSchoolId(c, authUser) : authUser.schoolId) : getRequestSchoolId(c, null);
   const subRow = await db.prepare('SELECT * FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
-  const plan = SUBSCRIPTION_PLANS.find((p) => p.id === planId && p.id !== 'trial') || SUBSCRIPTION_PLANS.find((p) => p.id === (subRow ? subRow.plan_id : 'starter')) || SUBSCRIPTION_PLANS[1];
+  const allPlans = await loadSubscriptionPlans(db);
+  let plan = allPlans.find((p) => p.id === planId && !p.isTrial);
+  if (!plan && subRow) plan = allPlans.find((p) => p.id === subRow.plan_id && !p.isTrial);
+  if (!plan) plan = allPlans.find((p) => !p.isTrial);
+  if (!plan) plan = SUBSCRIPTION_PLANS[1];
   const amount = priceForPlan(plan, billingCycle);
   const now = new Date().toISOString();
 
