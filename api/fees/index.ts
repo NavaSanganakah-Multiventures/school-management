@@ -4,7 +4,7 @@ import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
 const feesApp = new Hono();
 
-function mapFee(r) {
+function mapFee(r: any) {
   if (!r) return null;
   return {
     id: r.id,
