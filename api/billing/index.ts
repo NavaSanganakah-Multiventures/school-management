@@ -3,7 +3,7 @@ import { getDB, SUBSCRIPTION_PLANS, BillingCycle, SubscriptionPlanId } from '../
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { createRazorpayOrder, verifyRazorpaySignature } from '../lib/razorpay';
 
-const billingApp = new Hono();
+const billingApp = new Hono<{ Bindings: any }>();
 
 function priceForPlan(plan: any, cycle: any) {
   const c = cycle || 'annual';
