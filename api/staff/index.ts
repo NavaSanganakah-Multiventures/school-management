@@ -5,7 +5,7 @@ import { getPlanAccess } from '../lib/plan-access';
 
 export const staffApp = new Hono<{ Bindings: any }>();
 
-function mapStaff(r: any) {
+function mapStaff(r: any): any {
   if (!r) return null;
   return {
     id: r.id,
