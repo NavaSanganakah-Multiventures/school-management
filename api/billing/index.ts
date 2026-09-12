@@ -94,12 +94,12 @@ billingApp.post('/subscribe', async (c) => {
   const amount = priceForPlan(plan, billingCycle);
   if (amount <= 0) return c.json({ success: false, message: 'प्लान की राशि अमान्य है।' }, 400);
 
-  const receipt = 'VS-' + schoolId + '-' + Date.now();
-  const order = await createRazorpayOrder(c, amount, receipt);
-  if (order.error) return c.json({ success: false, message: order.error }, 400);
-
   const gst = +(amount * 0.18).toFixed(2);
   const total = +(amount + gst).toFixed(2);
+  const receipt = 'VS-' + schoolId + '-' + Date.now();
+  const order = await createRazorpayOrder(c, total, receipt);
+  if (order.error) return c.json({ success: false, message: order.error }, 400);
+
   const invoiceNumber = 'VS-INV-' + Date.now().toString().slice(-6);
   const now = new Date().toISOString();
 
@@ -111,10 +111,10 @@ billingApp.post('/subscribe', async (c) => {
   return c.json({
     success: true,
     message: 'Razorpay ऑर्डर बन गया। पेमेंट पूरा करें।',
-    order: { id: order.id, amount: amount, currency: 'INR', keyId: (c.env && c.env.RAZORPAY_KEY_ID) || '' },
+    order: { id: order.id, amount: total, currency: 'INR', keyId: (c.env && c.env.RAZORPAY_KEY_ID) || '' },
     plan: { id: plan.id, name: plan.name },
     billingCycle,
-    amount,
+    amount: total,
   });
 });
 
