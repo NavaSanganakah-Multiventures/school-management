@@ -4,7 +4,7 @@ import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
 const noticesApp = new Hono();
 
-function mapNotice(r) {
+function mapNotice(r: any) {
   if (!r) return null;
   return {
     id: r.id,
