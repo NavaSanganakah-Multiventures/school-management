@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getDB, generateSchoolTopics } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
-const notificationsApp = new Hono();
+const notificationsApp = new Hono<{ Bindings: any }>();
 
 // GET /api/notifications/topics
 notificationsApp.get('/topics', async (c) => {
