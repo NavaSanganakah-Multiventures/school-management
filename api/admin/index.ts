@@ -203,14 +203,15 @@ adminApp.post('/schools/update', async (c) => {
       schoolId
     ).run();
 
+  const tenant = await db.prepare('SELECT subdomain, custom_domain, status FROM school_tenants WHERE id = ?').bind(schoolId).first();
   await db.prepare('UPDATE school_tenants SET school_name=?, contact_email=?, contact_phone=?, subdomain=?, custom_domain=?, status=? WHERE id=?')
     .bind(
       val('schoolName', existing.school_name),
       val('email', existing.email),
       val('phone', existing.phone),
-      val('subdomain', (await db.prepare('SELECT subdomain FROM school_tenants WHERE id = ?').bind(schoolId).first()).subdomain),
-      val('customDomain', (await db.prepare('SELECT custom_domain FROM school_tenants WHERE id = ?').bind(schoolId).first()).custom_domain),
-      val('status', (await db.prepare('SELECT status FROM school_tenants WHERE id = ?').bind(schoolId).first()).status),
+      val('subdomain', tenant ? tenant.subdomain : ''),
+      val('customDomain', tenant ? tenant.custom_domain : ''),
+      val('status', tenant ? tenant.status : 'Active'),
       schoolId
     ).run();
 
