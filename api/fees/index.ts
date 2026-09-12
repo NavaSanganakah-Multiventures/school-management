@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
-const feesApp = new Hono();
+const feesApp = new Hono<{ Bindings: any }>();
 
 function mapFee(r: any) {
   if (!r) return null;
