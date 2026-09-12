@@ -228,8 +228,7 @@ export function AdminConsoleScreen() {
       isTrial: !!p.isTrial,
       sortOrder: String(p.sortOrder || 0),
       modules: Array.isArray(p.modules) ? p.modules.slice() : [],
-      features: (p.features || []).join('
-'),
+      features: (p.features || []).join('\n'),
       reportCards: !!p.featureFlags.reportCards,
       principalHistory: !!p.featureFlags.principalHistory,
       autopay: !!p.featureFlags.autopay,
@@ -258,8 +257,7 @@ export function AdminConsoleScreen() {
       isTrial: planForm.isTrial,
       sortOrder: Number(planForm.sortOrder) || 0,
       modules: planForm.modules,
-      features: planForm.features.split('
-').map((t) => t.trim()).filter((t) => t.length > 0),
+      features: planForm.features.split('\n').map((t) => t.trim()).filter((t) => t.length > 0),
       featureFlags: {
         reportCards: planForm.reportCards,
         principalHistory: planForm.principalHistory,
