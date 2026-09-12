@@ -37,7 +37,7 @@ function loadScript(src: string): Promise<void> {
   });
 }
 
-export function BillingPlansScreen({ userRole }: { userRole: string; onOpenFcmModal?: () => void }) {
+export function BillingPlansScreen(_props: { userRole: string; onOpenFcmModal?: () => void }) {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [cycles, setCycles] = useState<{ id: string; label: string; discount: number; tag: string }[]>([]);
   const [cycle, setCycle] = useState('annual');
