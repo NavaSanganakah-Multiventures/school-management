@@ -1,128 +1,72 @@
 import { Hono } from 'hono';
-import { studentScholars } from '../db';
+import { getDB } from '../db';
+import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
 const examsApp = new Hono();
 
-export interface SubjectMarks {
-  subject: string;
-  marks: number;
-  maxMarks: number;
-  grade: string;
+function gradeFor(p) {
+  if (p >= 90) return 'A+';
+  if (p >= 75) return 'A';
+  if (p >= 60) return 'B+';
+  if (p >= 45) return 'B';
+  if (p >= 33) return 'C';
+  return 'D';
 }
 
-export interface ReportCard {
-  studentId: string;
-  studentName: string;
-  rollNumber: string;
-  className: string;
-  term: string;
-  subjects: SubjectMarks[];
-  totalMarks: number;
-  maxTotal: number;
-  percentage: number;
-  finalGrade: string;
-  result: 'Pass' | 'Fail';
-}
-
-const mockReportCards: Record<string, ReportCard> = {
-  'std-101': {
-    studentId: 'std-101',
-    studentName: 'आरव शर्मा',
-    rollNumber: '101',
-    className: 'Class 10',
-    term: 'प्रथम सत्र परीक्षा (Term 1 Examination 2026)',
-    subjects: [
-      { subject: 'गणित (Mathematics)', marks: 95, maxMarks: 100, grade: 'A+' },
-      { subject: 'विज्ञान (Science)', marks: 88, maxMarks: 100, grade: 'A' },
-      { subject: 'अंग्रेजी (English)', marks: 84, maxMarks: 100, grade: 'A' },
-      { subject: 'हिंदी (Hindi)', marks: 91, maxMarks: 100, grade: 'A+' },
-      { subject: 'सामाजिक विज्ञान (Social Studies)', marks: 86, maxMarks: 100, grade: 'A' },
-    ],
-    totalMarks: 444,
-    maxTotal: 500,
-    percentage: 88.8,
-    finalGrade: 'A+',
-    result: 'Pass',
-  },
-  'std-102': {
-    studentId: 'std-102',
-    studentName: 'अनन्या पटेल',
-    rollNumber: '102',
-    className: 'Class 10',
-    term: 'प्रथम सत्र परीक्षा (Term 1 Examination 2026)',
-    subjects: [
-      { subject: 'गणित (Mathematics)', marks: 98, maxMarks: 100, grade: 'A+' },
-      { subject: 'विज्ञान (Science)', marks: 96, maxMarks: 100, grade: 'A+' },
-      { subject: 'अंग्रेजी (English)', marks: 92, maxMarks: 100, grade: 'A+' },
-      { subject: 'हिंदी (Hindi)', marks: 89, maxMarks: 100, grade: 'A' },
-      { subject: 'कंप्यूटर (Computer Science)', marks: 99, maxMarks: 100, grade: 'A+' },
-    ],
-    totalMarks: 474,
-    maxTotal: 500,
-    percentage: 94.8,
-    finalGrade: 'A+',
-    result: 'Pass',
-  },
-};
-
-// GET all exam schedules and overview
-examsApp.get('/', (c) => {
-  return c.json({
-    success: true,
-    exams: [
-      {
-        id: 'ex-01',
-        name: 'द्वितीय सावधिक परीक्षा (Mid-Term Exam 2026)',
-        classes: 'Class 9th to 12th',
-        startDate: '2026-09-25',
-        endDate: '2026-10-05',
-        status: 'Upcoming',
-      },
-      {
-        id: 'ex-02',
-        name: 'मासिक इकाई परीक्षा (Monthly Unit Test 3)',
-        classes: 'Class 1st to 8th',
-        startDate: '2026-09-18',
-        endDate: '2026-09-22',
-        status: 'Scheduled',
-      },
-    ],
-  });
+// GET /api/exams - real exam schedule from D1 (no demo data)
+examsApp.get('/', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  const schoolId = getRequestSchoolId(c, authUser);
+  const rows = await db.prepare('SELECT * FROM exams WHERE school_id = ? ORDER BY start_date ASC').bind(schoolId).all();
+  const exams = (rows.results || []).map((r) => ({
+    id: r.id,
+    name: r.exam_name,
+    classes: r.term || '',
+    startDate: r.start_date || '',
+    endDate: r.end_date || '',
+    status: r.is_active ? 'Scheduled' : 'Completed',
+  }));
+  return c.json({ success: true, exams });
 });
 
-// GET report card for a student
-examsApp.get('/report-card/:studentId', (c) => {
+// GET /api/exams/report-card/:studentId - real report card computed from marks (no demo data)
+examsApp.get('/report-card/:studentId', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  const schoolId = getRequestSchoolId(c, authUser);
   const studentId = c.req.param('studentId');
-  const card = mockReportCards[studentId];
 
-  if (!card) {
-    const student = studentScholars.find((s) => s.id === studentId);
-    if (!student) {
-      return c.json({ success: false, message: 'छात्र रिपोर्ट कार्ड नहीं मिला' }, 404);
-    }
+  const st = await db.prepare('SELECT * FROM students WHERE school_id = ? AND id = ?').bind(schoolId, studentId).first();
+  if (!st) return c.json({ success: false, message: 'छात्र रिपोर्ट कार्ड नहीं मिला' }, 404);
 
-    const defaultCard: ReportCard = {
-      studentId: student.id,
-      studentName: student.fullName,
-      rollNumber: student.rollNumber,
-      className: student.className,
-      term: 'प्रथम सत्र परीक्षा (Term 1 Examination 2026)',
-      subjects: [
-        { subject: 'गणित (Mathematics)', marks: 82, maxMarks: 100, grade: 'A' },
-        { subject: 'विज्ञान (Science)', marks: 79, maxMarks: 100, grade: 'B+' },
-        { subject: 'अंग्रेजी (English)', marks: 85, maxMarks: 100, grade: 'A' },
-        { subject: 'हिंदी (Hindi)', marks: 88, maxMarks: 100, grade: 'A' },
-      ],
-      totalMarks: 334,
-      maxTotal: 400,
-      percentage: 83.5,
-      finalGrade: 'A',
-      result: 'Pass',
-    };
-    return c.json({ success: true, reportCard: defaultCard });
+  const mRows = await db.prepare('SELECT em.subject, em.max_marks, em.marks_obtained, em.grade, e.exam_name, e.academic_year, e.term FROM exam_marks em LEFT JOIN exams e ON e.id = em.exam_id WHERE em.student_id = ? AND em.school_id = ?').bind(studentId, schoolId).all();
+  const marks = mRows.results || [];
+  if (marks.length === 0) {
+    return c.json({ success: false, message: 'अभी तक इस छात्र के लिए कोई परीक्षा अंक दर्ज नहीं हैं।' }, 404);
   }
-
-  return c.json({ success: true, reportCard: card });
+  const subjects = marks.map((m) => ({ subject: m.subject, marks: m.marks_obtained, maxMarks: m.max_marks, grade: m.grade || gradeFor(m.max_marks ? (m.marks_obtained / m.max_marks) * 100 : 0) }));
+  const totalMarks = subjects.reduce((a, s) => a + s.marks, 0);
+  const maxTotal = subjects.reduce((a, s) => a + s.maxMarks, 0);
+  const percentage = maxTotal > 0 ? +((totalMarks / maxTotal) * 100).toFixed(1) : 0;
+  const firstMark = marks[0];
+  const fullName = (st.first_name || '') + (st.last_name ? ' ' + st.last_name : '');
+  const reportCard = {
+    studentId,
+    studentName: fullName,
+    rollNumber: st.roll_number,
+    className: st.class_name,
+    term: firstMark.exam_name || firstMark.term || '',
+    subjects,
+    totalMarks,
+    maxTotal,
+    percentage,
+    finalGrade: gradeFor(percentage),
+    result: percentage >= 33 ? 'Pass' : 'Fail',
+  };
+  return c.json({ success: true, reportCard });
 });
 
 export default examsApp;
