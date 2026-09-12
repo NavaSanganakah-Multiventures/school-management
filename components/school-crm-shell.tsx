@@ -16,7 +16,6 @@ import {
   UserCheck,
   CheckCircle2,
   LogOut,
-  Lock,
   CreditCard,
   ShieldCheck,
   AlertTriangle,
@@ -88,6 +87,16 @@ function readStoredUser(): CurrentUser | null {
     }
   } catch (e) {}
   return null;
+}
+
+interface NavItem {
+  id: string;
+  label: string;
+  icon: any;
+  superAdminOnly?: boolean;
+  allowedRoles?: UserRole[];
+  planModules?: string[];
+  badge?: string;
 }
 
 export function SchoolCrmShell() {
@@ -187,8 +196,9 @@ export function SchoolCrmShell() {
   }
 
   const userRole: UserRole = currentUser.role || 'Staff';
+  const screenRole: 'Director' | 'Principal' | 'Staff' = userRole === 'SuperAdmin' ? 'Director' : userRole;
 
-  const navItems = [
+  const navItems: NavItem[] = [
     { id: 'admin', label: 'Super Admin कंसोल', icon: ShieldCheck, superAdminOnly: true },
     { id: 'dashboard', label: 'डैशबोर्ड (Overview)', icon: LayoutDashboard, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'students', label: 'स्कॉलर रजिस्टर', icon: Users, allowedRoles: ['Director', 'Principal', 'Staff'] },
@@ -321,9 +331,9 @@ export function SchoolCrmShell() {
           {activeTab === 'dashboard' && (
             <DashboardScreen onNavigate={(tab) => setActiveTab(tab)} onOpenAddStudent={() => setIsAddScholarOpen(true)} onOpenFcmModal={() => setIsBroadcastOpen(true)} userRole={userRole} currentUser={currentUser} schoolProfile={schoolProfile} />
           )}
-          {activeTab === 'students' && <StudentsScreen userRole={userRole} />}
+          {activeTab === 'students' && <StudentsScreen userRole={screenRole} />}
           {activeTab === 'principal' && <PrincipalManagementScreen userRole={userRole} />}
-          {activeTab === 'staff' && <StaffScreen userRole={userRole} />}
+          {activeTab === 'staff' && <StaffScreen userRole={screenRole} />}
           {activeTab === 'attendance' && <AttendanceScreen onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
           {activeTab === 'fees' && <FeesScreen />}
           {activeTab === 'exams' && <ExamsScreen />}
