@@ -329,7 +329,7 @@ export function SchoolCrmShell() {
 
           {activeTab === 'admin' && <AdminConsoleScreen />}
           {activeTab === 'dashboard' && (
-            <DashboardScreen onNavigate={(tab) => setActiveTab(tab)} onOpenAddStudent={() => setIsAddScholarOpen(true)} onOpenFcmModal={() => setIsBroadcastOpen(true)} userRole={userRole} currentUser={currentUser} schoolProfile={schoolProfile} />
+            <DashboardScreen onNavigate={(tab) => setActiveTab(tab)} onOpenAddStudent={() => setIsAddScholarOpen(true)} onOpenFcmModal={() => setIsBroadcastOpen(true)} userRole={screenRole} currentUser={currentUser} schoolProfile={schoolProfile} />
           )}
           {activeTab === 'students' && <StudentsScreen userRole={screenRole} />}
           {activeTab === 'principal' && <PrincipalManagementScreen userRole={userRole} />}
