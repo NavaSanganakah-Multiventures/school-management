@@ -170,7 +170,7 @@ billingApp.get('/invoices', async (c) => {
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
   const schoolId = getRequestSchoolId(c, authUser);
-  const rows = await db.prepare('SELECT * FROM billing_invoices WHERE school_id = ? ORDER BY created_at DESC').bind(schoolId).all();
+  const rows = await db.prepare('SELECT * FROM billing_invoices WHERE school_id = ? ORDER BY invoice_date DESC').bind(schoolId).all();
   return c.json({ success: true, invoices: rows.results || [] });
 });
 
