@@ -18,6 +18,7 @@ interface SchoolRow {
 }
 
 const PLAN_OPTIONS = [
+  { id: 'trial', label: 'ट्रायल (7 दिन)' },
   { id: 'starter', label: 'स्टार्टर' },
   { id: 'pro', label: 'प्रोफेशनल' },
   { id: 'enterprise', label: 'एंटरप्राइज' },
@@ -210,7 +211,7 @@ export function AdminConsoleScreen() {
                     </td>
                     <td className="py-3 px-3">
                       <select value={s.planId} onChange={(e) => setPlan(s.id, e.target.value)} className="px-2 py-1 border border-slate-200 rounded-lg text-xs bg-white">
-                        {PLAN_OPTIONS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                        {PLAN_OPTIONS.map((p) => <option key={p.id} value={p.id} disabled={p.id === 'trial'}>{p.label}</option>)}
                       </select>
                     </td>
                     <td className="py-3 px-3 text-slate-600">{s.trialEndsAt || '—'}</td>
