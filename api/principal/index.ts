@@ -4,7 +4,7 @@ import { getAuthUser, getRequestSchoolId, hashPassword } from '../lib/auth';
 
 export const principalApp = new Hono();
 
-function mapUser(r) {
+function mapUser(r: any) {
   if (!r) return null;
   return {
     id: r.id,
@@ -24,7 +24,7 @@ function mapUser(r) {
   };
 }
 
-function mapHistory(r) {
+function mapHistory(r: any) {
   if (!r) return null;
   return {
     id: r.id,
