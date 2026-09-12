@@ -257,7 +257,7 @@ export function AdminConsoleScreen() {
       isTrial: planForm.isTrial,
       sortOrder: Number(planForm.sortOrder) || 0,
       modules: planForm.modules,
-      features: planForm.features.split('\n').map((t) => t.trim()).filter((t) => t.length > 0),
+      features: String(planForm.features).split('\n').map((t: string) => t.trim()).filter((t: string) => t.length > 0),
       featureFlags: {
         reportCards: planForm.reportCards,
         principalHistory: planForm.principalHistory,
