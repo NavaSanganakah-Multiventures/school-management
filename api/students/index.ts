@@ -5,7 +5,7 @@ import { getPlanAccess } from '../lib/plan-access';
 
 const studentsApp = new Hono<{ Bindings: any }>();
 
-function mapStudent(r: any) {
+function mapStudent(r: any): any {
   if (!r) return null;
   const full = (r.first_name || '') + (r.last_name ? ' ' + r.last_name : '');
   let status = r.status || 'Active';
