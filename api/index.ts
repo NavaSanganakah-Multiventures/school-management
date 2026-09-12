@@ -14,7 +14,7 @@ import { schoolProfileApp } from './school-profile';
 import billingApp from './billing';
 import adminApp from './admin';
 
-const app = new Hono().basePath('/api');
+const app = new Hono<{ Bindings: any }>().basePath('/api');
 
 app.use('*', cors());
 
