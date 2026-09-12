@@ -214,7 +214,7 @@ export function SchoolCrmShell() {
 
   const filteredNavItems = navItems.filter((item) => {
     if (item.superAdminOnly) return userRole === 'SuperAdmin';
-    if (item.allowedRoles.indexOf(userRole) === -1) return false;
+    if (!item.allowedRoles || item.allowedRoles.indexOf(userRole) === -1) return false;
     if (item.planModules && item.planModules.indexOf(planId) === -1) return false;
     return true;
   });
