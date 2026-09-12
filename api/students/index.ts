@@ -3,7 +3,7 @@ import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { getPlanAccess } from '../lib/plan-access';
 
-const studentsApp = new Hono();
+const studentsApp = new Hono<{ Bindings: any }>();
 
 function mapStudent(r: any) {
   if (!r) return null;
