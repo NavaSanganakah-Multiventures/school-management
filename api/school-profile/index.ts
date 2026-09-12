@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
-export const schoolProfileApp = new Hono();
+export const schoolProfileApp = new Hono<{ Bindings: any }>();
 
 function rowToProfile(row: any) {
   return {
