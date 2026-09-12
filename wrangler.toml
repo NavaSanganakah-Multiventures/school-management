@@ -18,6 +18,10 @@ migrations_dir = "./db_migrations"
 binding = "MEDIA_BUCKET"
 bucket_name = "school_management_production"
 
+[[kv_namespaces]]
+binding = "CONFIG_KV"
+id = "393901911be84d558822c78070a82e94"
+
 [vars]
 ENVIRONMENT = "production"
 FCM_PROJECT_ID = "vidyasetu-school-fcm"
@@ -37,6 +41,10 @@ migrations_dir = "./db_migrations"
 [[env.preview.r2_buckets]]
 binding = "MEDIA_BUCKET"
 bucket_name = "school_management_preview"
+
+[[env.preview.kv_namespaces]]
+binding = "CONFIG_KV"
+id = "9158f79162824ee1b52e75fe51af71f8"
 
 [env.preview.vars]
 ENVIRONMENT = "preview"
