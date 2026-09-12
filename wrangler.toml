@@ -8,13 +8,37 @@ compatibility_flags = ["nodejs_compat"]
 directory = "./out"
 binding = "ASSETS"
 
-# D1 database (production)
+# Production bindings (top-level — used by `npx wrangler deploy` without --env)
 [[d1_databases]]
 binding = "DB"
 database_id = "16648fed-788d-4780-a877-fac56d9b5d27"
 migrations_dir = "./db_migrations"
 
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "school_management_production"
+
 [vars]
 ENVIRONMENT = "production"
 FCM_PROJECT_ID = "vidyasetu-school-fcm"
 SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Public School)"
+
+# -------------------------------------------------------------
+# Preview Environment
+# -------------------------------------------------------------
+[env.preview]
+name = "school-management-preview"
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_id = "5d969580-4ef9-42eb-9d07-f1e08e1dc599"
+migrations_dir = "./db_migrations"
+
+[[env.preview.r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "school_management_preview"
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+FCM_PROJECT_ID = "vidyasetu-school-fcm-preview"
+SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Preview)"
