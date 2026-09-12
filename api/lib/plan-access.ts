@@ -45,7 +45,7 @@ export const PLAN_ACCESS = {
 };
 
 export function getPlanAccess(planId: any) {
-  return PLAN_ACCESS[planId] || PLAN_ACCESS.trial;
+  return (PLAN_ACCESS as any)[planId] || PLAN_ACCESS.trial;
 }
 
 export function planAllowsModule(planId: any, moduleId: any) {
