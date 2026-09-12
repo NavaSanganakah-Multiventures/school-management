@@ -4,7 +4,7 @@ import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
 const examsApp = new Hono();
 
-function gradeFor(p) {
+function gradeFor(p: any) {
   if (p >= 90) return 'A+';
   if (p >= 75) return 'A';
   if (p >= 60) return 'B+';
