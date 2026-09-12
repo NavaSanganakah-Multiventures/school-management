@@ -25,7 +25,7 @@ export async function createRazorpayOrder(c: any, amountINR: any, receipt: any) 
       return { error: (data && data.error && data.error.description) || 'Razorpay ऑर्डर बनाने में त्रुटि हुई।' };
     }
     return { id: data.id, amount: data.amount, currency: data.currency };
-  } catch (e) {
+  } catch (e: any) {
     return { error: (e && e.message) ? e.message : 'Razorpay नेटवर्क त्रुटि' };
   }
 }
