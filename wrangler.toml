@@ -1,79 +1,52 @@
-name = "vidyasetu-school-management"
+name = "school-management"
 main = "./api/index.ts"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Assets configuration for Cloudflare Workers with Assets
+# Cloudflare Workers + Assets: static frontend (out/) + Worker API (api/index.ts)
 [assets]
 directory = "./out"
 binding = "ASSETS"
 
-# Default (Development/Local) Bindings
+# Production bindings (top-level — used by `npx wrangler deploy` without --env)
 [[d1_databases]]
 binding = "DB"
-database_name = "vidyasetu-school-db-dev"
-database_id = "d1-dev-vidyasetu-local-mock-id"
+database_id = "16648fed-788d-4780-a877-fac56d9b5d27"
 migrations_dir = "./db_migrations"
 
 [[r2_buckets]]
 binding = "MEDIA_BUCKET"
-bucket_name = "vidyasetu-media-dev"
+bucket_name = "school_management_production"
 
 [[kv_namespaces]]
 binding = "CONFIG_KV"
-id = "kv-dev-vidyasetu-local-id"
+id = "393901911be84d558822c78070a82e94"
 
 [vars]
-ENVIRONMENT = "development"
+ENVIRONMENT = "production"
 FCM_PROJECT_ID = "vidyasetu-school-fcm"
 SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Public School)"
 
 # -------------------------------------------------------------
-# Preview Environment: Risk-free staging that mirrors production
+# Preview Environment
 # -------------------------------------------------------------
 [env.preview]
-name = "vidyasetu-school-management-preview"
+name = "school-management-preview"
 
 [[env.preview.d1_databases]]
 binding = "DB"
-database_name = "vidyasetu-school-db-preview"
-database_id = "d1-preview-school-db-uuid-8899"
+database_id = "5d969580-4ef9-42eb-9d07-f1e08e1dc599"
 migrations_dir = "./db_migrations"
 
 [[env.preview.r2_buckets]]
 binding = "MEDIA_BUCKET"
-bucket_name = "vidyasetu-media-preview"
+bucket_name = "school_management_preview"
 
 [[env.preview.kv_namespaces]]
 binding = "CONFIG_KV"
-id = "kv-preview-vidyasetu-uuid-1122"
+id = "9158f79162824ee1b52e75fe51af71f8"
 
 [env.preview.vars]
 ENVIRONMENT = "preview"
 FCM_PROJECT_ID = "vidyasetu-school-fcm-preview"
 SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Preview)"
-
-# -------------------------------------------------------------
-# Production Environment: High reliability and segregated storage
-# -------------------------------------------------------------
-[env.production]
-name = "vidyasetu-school-management-prod"
-
-[[env.production.d1_databases]]
-binding = "DB"
-database_name = "vidyasetu-school-db-prod"
-database_id = "d1-prod-school-db-uuid-1234"
-migrations_dir = "./db_migrations"
-
-[[env.production.r2_buckets]]
-binding = "MEDIA_BUCKET"
-bucket_name = "vidyasetu-media-prod"
-
-[[env.production.kv_namespaces]]
-binding = "CONFIG_KV"
-id = "kv-prod-vidyasetu-uuid-5678"
-
-[env.production.vars]
-ENVIRONMENT = "production"
-FCM_PROJECT_ID = "vidyasetu-school-fcm-prod"
-SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Public School)"
