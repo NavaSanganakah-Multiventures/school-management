@@ -20,6 +20,8 @@ jobs:
           node-version: "24"
       - run: npm install
       - run: npm run build
+        env:
+          NEXT_PUBLIC_FIREBASE_WEB_CONFIG_JSON: ${{ secrets.FIREBASE_WEB_CONFIG_JSON }}
       - run: test -f api/index.ts
 
   deploy:
@@ -33,6 +35,8 @@ jobs:
           node-version: "24"
       - run: npm install
       - run: npm run build
+        env:
+          NEXT_PUBLIC_FIREBASE_WEB_CONFIG_JSON: ${{ secrets.FIREBASE_WEB_CONFIG_JSON }}
       - name: Apply D1 database migrations
         run: npx --yes wrangler@3.90.0 d1 migrations apply DB --remote
         env:
