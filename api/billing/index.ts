@@ -1,24 +1,41 @@
 import { Hono } from 'hono';
-import {
-  SUBSCRIPTION_PLANS,
-  schoolSubscriptionStore,
-  subscriptionAddonsStore,
-  schoolCustomDomainStore,
-  billingInvoicesStore,
-  schoolTenants,
-  currentSchoolId,
-  setCurrentSchoolId,
-  generateSchoolTopics,
-  schoolFcmTopicsStore,
-  BillingCycle,
-  SubscriptionPlanId,
-} from '../db';
+import { getDB, SUBSCRIPTION_PLANS, BillingCycle, SubscriptionPlanId } from '../db';
+import { getAuthUser, getRequestSchoolId } from '../lib/auth';
+import { createRazorpayOrder, verifyRazorpaySignature } from '../lib/razorpay';
 
 const billingApp = new Hono();
 
-// -----------------------------------------------------------------------------
-// 1. Get Subscription Plans & Pricing Matrix
-// -----------------------------------------------------------------------------
+function priceForPlan(plan, cycle) {
+  const c = cycle || 'annual';
+  if (c === 'quarterly') return plan.quarterlyPrice;
+  if (c === 'annual') return plan.annualPrice;
+  return plan.monthlyPrice;
+}
+
+function subToJson(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    schoolId: row.school_id,
+    planId: row.plan_id,
+    planName: row.plan_name,
+    billingCycle: row.billing_cycle,
+    pricePerCycle: row.price_per_cycle,
+    discountPercent: row.discount_percent,
+    status: row.status,
+    autoPayEnabled: !!row.auto_pay_enabled,
+    paymentMethod: row.payment_method,
+    mandateId: row.mandate_id,
+    mandateBank: row.mandate_bank,
+    nextBillingDate: row.next_billing_date,
+    periodStart: row.period_start,
+    periodEnd: row.period_end,
+    trialEndsAt: row.trial_ends_at || '',
+    updatedAt: row.updated_at,
+  };
+}
+
+// GET /api/billing/plans - subscription plans (real pricing matrix)
 billingApp.get('/plans', (c) => {
   return c.json({
     success: true,
@@ -32,351 +49,135 @@ billingApp.get('/plans', (c) => {
   });
 });
 
-// -----------------------------------------------------------------------------
-// 2. Get Current School's Active Subscription
-// -----------------------------------------------------------------------------
-billingApp.get('/subscription', (c) => {
-  const currentSchool = schoolTenants.find((s) => s.id === currentSchoolId) || schoolTenants[0];
-  const plan = SUBSCRIPTION_PLANS.find((p) => p.id === schoolSubscriptionStore.planId) || SUBSCRIPTION_PLANS[2];
+// GET /api/billing/razorpay/config - client-safe Razorpay key id
+billingApp.get('/razorpay/config', (c) => {
+  return c.json({ success: true, keyId: (c.env && c.env.RAZORPAY_KEY_ID) || '' });
+});
 
+// GET /api/billing/subscription - current school subscription
+billingApp.get('/subscription', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  const schoolId = getRequestSchoolId(c, authUser);
+  const subRow = await db.prepare('SELECT * FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+  const tenant = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  const subscription = subToJson(subRow);
+  const planId = subscription && subscription.status === 'Trial' ? 'trial' : (subscription ? subscription.planId : 'trial');
+  const planDetails = SUBSCRIPTION_PLANS.find((p) => p.id === planId) || SUBSCRIPTION_PLANS[0];
   return c.json({
     success: true,
-    school: currentSchool,
-    subscription: schoolSubscriptionStore,
-    planDetails: plan,
-    autoPayStatus: {
-      enabled: schoolSubscriptionStore.autoPayEnabled,
-      mandateId: schoolSubscriptionStore.mandateId,
-      mandateBank: schoolSubscriptionStore.mandateBank,
-      paymentMethod: schoolSubscriptionStore.paymentMethod,
-      nextBillingDate: schoolSubscriptionStore.nextBillingDate,
-      amountDue: schoolSubscriptionStore.pricePerCycle,
-    },
+    school: tenant || { id: schoolId, schoolName: '', status: 'Trial' },
+    subscription,
+    planId,
+    planDetails,
+    trialEndsAt: subscription ? subscription.trialEndsAt : '',
   });
 });
 
-// -----------------------------------------------------------------------------
-// 3. Upgrade or Downgrade Subscription Plan
-// -----------------------------------------------------------------------------
+// POST /api/billing/subscribe - create a real Razorpay order (no fake payment)
 billingApp.post('/subscribe', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  if (authUser.role !== 'Director' && authUser.role !== 'SuperAdmin') {
+    return c.json({ success: false, message: 'केवल निदेशक या Super Admin प्लान खरीद सकते हैं।' }, 403);
+  }
+  const schoolId = authUser.role === 'SuperAdmin' ? getRequestSchoolId(c, authUser) : authUser.schoolId;
   const body = await c.req.json().catch(() => ({}));
-  const { planId, billingCycle, autoPayEnabled, paymentMethod } = body as {
-    planId: SubscriptionPlanId;
-    billingCycle: BillingCycle;
-    autoPayEnabled?: boolean;
-    paymentMethod?: string;
-  };
+  const planId = body.planId;
+  const billingCycle = body.billingCycle || 'annual';
+  const plan = SUBSCRIPTION_PLANS.find((p) => p.id === planId && p.id !== 'trial');
+  if (!plan) return c.json({ success: false, message: 'अमान्य प्लान चयन।' }, 400);
 
-  const selectedPlan = SUBSCRIPTION_PLANS.find((p) => p.id === planId);
-  if (!selectedPlan) {
-    return c.json({ success: false, message: 'अमान्य प्लान चयन।' }, 400);
-  }
+  const amount = priceForPlan(plan, billingCycle);
+  if (amount <= 0) return c.json({ success: false, message: 'प्लान की राशि अमान्य है।' }, 400);
 
-  const cycle: BillingCycle = billingCycle || 'annual';
-  let price = selectedPlan.monthlyPrice;
-  let discount = 0;
+  const receipt = 'VS-' + schoolId + '-' + Date.now();
+  const order = await createRazorpayOrder(c, amount, receipt);
+  if (order.error) return c.json({ success: false, message: order.error }, 400);
 
-  if (cycle === 'quarterly') {
-    price = selectedPlan.quarterlyPrice;
-    discount = 5;
-  } else if (cycle === 'annual') {
-    price = selectedPlan.annualPrice;
-    discount = 20;
-  }
+  const gst = +(amount * 0.18).toFixed(2);
+  const total = +(amount + gst).toFixed(2);
+  const invoiceNumber = 'VS-INV-' + Date.now().toString().slice(-6);
+  const now = new Date().toISOString();
 
-  const prevPlan = schoolSubscriptionStore.planName;
-  const isUpgrade =
-    (planId === 'enterprise' && schoolSubscriptionStore.planId !== 'enterprise') ||
-    (planId === 'pro' && schoolSubscriptionStore.planId === 'starter');
+  await db.prepare('UPDATE school_subscriptions SET razorpay_order_id = ?, updated_at = ? WHERE school_id = ?').bind(order.id, now, schoolId).run();
 
-  schoolSubscriptionStore.planId = planId;
-  schoolSubscriptionStore.planName = selectedPlan.name;
-  schoolSubscriptionStore.billingCycle = cycle;
-  schoolSubscriptionStore.pricePerCycle = price;
-  schoolSubscriptionStore.discountPercent = discount;
-  if (typeof autoPayEnabled === 'boolean') {
-    schoolSubscriptionStore.autoPayEnabled = autoPayEnabled;
-  }
-  if (paymentMethod) {
-    schoolSubscriptionStore.paymentMethod = paymentMethod as any;
-  }
-  schoolSubscriptionStore.updatedAt = new Date().toISOString();
-
-  // Create Tax Invoice for the change
-  const invoiceId = `VS-INV-${Date.now().toString().slice(-6)}`;
-  const gst = +(price * 0.18).toFixed(2);
-  const total = +(price + gst).toFixed(2);
-
-  const newInvoice = {
-    id: `binv-${Date.now()}`,
-    schoolId: currentSchoolId,
-    invoiceNumber: invoiceId,
-    description: `${selectedPlan.name} (${cycle === 'annual' ? 'वार्षिक' : cycle === 'quarterly' ? 'त्रैमासिक' : 'मासिक'} सदस्यता नवीनीकरण)`,
-    planName: selectedPlan.name,
-    billingCycle: cycle === 'annual' ? 'वार्षिक (20% छूट)' : cycle === 'quarterly' ? 'त्रैमासिक (5% छूट)' : 'मासिक',
-    subtotal: price,
-    gstPercent: 18,
-    gstAmount: gst,
-    totalAmount: total,
-    paymentStatus: 'Paid' as const,
-    paymentMethod: schoolSubscriptionStore.autoPayEnabled ? `${schoolSubscriptionStore.paymentMethod} (स्वतः भुगतान)` : 'ऑनलाइन नेटबैंकिंग',
-    transactionId: `TXN-${Date.now()}`,
-    invoiceDate: new Date().toISOString().split('T')[0],
-    dueDate: new Date().toISOString().split('T')[0],
-    paidAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
-  };
-
-  billingInvoicesStore.unshift(newInvoice);
+  await db.prepare('INSERT INTO billing_invoices (id, school_id, invoice_number, description, plan_name, billing_cycle, subtotal, gst_percent, gst_amount, total_amount, payment_status, payment_method, transaction_id, invoice_date, due_date, paid_at, razorpay_order_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind('binv-' + Date.now(), schoolId, invoiceNumber, plan.name + ' सदस्यता', plan.name, billingCycle, amount, 18, gst, total, 'Processing', 'Razorpay', '', now.split('T')[0], now.split('T')[0], '', order.id).run();
 
   return c.json({
     success: true,
-    message: isUpgrade
-      ? `बधाई हो! आपका स्कूल सफलतापूर्वक ${selectedPlan.name} में अपग्रेड कर दिया गया है।`
-      : `प्लान सफलतापूर्वक अपडेट कर दिया गया है। नया प्लान: ${selectedPlan.name}।`,
-    previousPlan: prevPlan,
-    currentSubscription: schoolSubscriptionStore,
-    invoice: newInvoice,
+    message: 'Razorpay ऑर्डर बन गया। पेमेंट पूरा करें।',
+    order: { id: order.id, amount: amount, currency: 'INR', keyId: (c.env && c.env.RAZORPAY_KEY_ID) || '' },
+    plan: { id: plan.id, name: plan.name },
+    billingCycle,
+    amount,
   });
 });
 
-// -----------------------------------------------------------------------------
-// 4. Toggle Auto-Pay Mandate Status
-// -----------------------------------------------------------------------------
-billingApp.post('/autopay/toggle', async (c) => {
+// POST /api/billing/razorpay/verify - verify signature and activate the plan
+billingApp.post('/razorpay/verify', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
   const body = await c.req.json().catch(() => ({}));
-  const { enable, paymentMethod, bankName } = body;
+  const razorpay_order_id = body.razorpay_order_id;
+  const razorpay_payment_id = body.razorpay_payment_id;
+  const razorpay_signature = body.razorpay_signature;
+  const planId = body.planId;
+  const billingCycle = body.billingCycle || 'annual';
 
-  const willEnable = typeof enable === 'boolean' ? enable : !schoolSubscriptionStore.autoPayEnabled;
-  schoolSubscriptionStore.autoPayEnabled = willEnable;
-
-  if (willEnable) {
-    if (paymentMethod) schoolSubscriptionStore.paymentMethod = paymentMethod;
-    if (bankName) schoolSubscriptionStore.mandateBank = bankName;
-    schoolSubscriptionStore.mandateId = `MNDT-AUTO-${Date.now().toString().slice(-8)}`;
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    return c.json({ success: false, message: 'पेमेंट विवरण अधूरा है।' }, 400);
   }
 
-  schoolSubscriptionStore.updatedAt = new Date().toISOString();
+  const secret = (c.env && c.env.RAZORPAY_KEY_SECRET) || '';
+  const ok = await verifyRazorpaySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature, secret);
+  if (!ok) return c.json({ success: false, message: 'पेमेंट सिग्नेचर वेरिफिकेशन विफल।' }, 400);
 
-  return c.json({
-    success: true,
-    message: willEnable
-      ? 'ऑटो-पे (Auto-Pay) मैंडेट सफलतापूर्वक सक्रिय कर दिया गया है। अगली देय तिथि पर शुल्क स्वतः कटेगा।'
-      : 'ऑटो-पे निष्क्रिय कर दिया गया है। अब आपको देय तिथि पर मैन्युअल भुगतान करना होगा।',
-    autoPayStatus: {
-      enabled: schoolSubscriptionStore.autoPayEnabled,
-      mandateId: schoolSubscriptionStore.mandateId,
-      mandateBank: schoolSubscriptionStore.mandateBank,
-      paymentMethod: schoolSubscriptionStore.paymentMethod,
-      nextBillingDate: schoolSubscriptionStore.nextBillingDate,
-    },
-  });
+  const schoolId = authUser ? (authUser.role === 'SuperAdmin' ? getRequestSchoolId(c, authUser) : authUser.schoolId) : getRequestSchoolId(c, null);
+  const subRow = await db.prepare('SELECT * FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+  const plan = SUBSCRIPTION_PLANS.find((p) => p.id === planId && p.id !== 'trial') || SUBSCRIPTION_PLANS.find((p) => p.id === (subRow ? subRow.plan_id : 'starter')) || SUBSCRIPTION_PLANS[1];
+  const amount = priceForPlan(plan, billingCycle);
+  const now = new Date().toISOString();
+
+  await db.prepare('UPDATE school_subscriptions SET plan_id=?, plan_name=?, billing_cycle=?, price_per_cycle=?, status=?, razorpay_order_id=?, razorpay_payment_id=?, razorpay_signature=?, trial_ends_at=?, updated_at=? WHERE school_id=?')
+    .bind(plan.id, plan.name, billingCycle, amount, 'Active', razorpay_order_id, razorpay_payment_id, razorpay_signature, '', now, schoolId).run();
+
+  await db.prepare('UPDATE school_tenants SET plan_id=?, status=?, registration_status=?, trial_ends_at=? WHERE id=?')
+    .bind(plan.id, 'Active', 'Approved', '', schoolId).run();
+
+  await db.prepare('UPDATE billing_invoices SET payment_status=?, razorpay_payment_id=?, transaction_id=?, paid_at=? WHERE razorpay_order_id=?')
+    .bind('Paid', razorpay_payment_id, razorpay_payment_id, now.split('T')[0] + ' ' + now.split('T')[1].slice(0, 8), razorpay_order_id).run();
+
+  return c.json({ success: true, message: 'पेमेंट सफल। ' + plan.name + ' सक्रिय हो गया।' });
 });
 
-// -----------------------------------------------------------------------------
-// 5. Add-ons: Dual Email (Normal Gmail vs Official Custom Domain) & Others
-// -----------------------------------------------------------------------------
-billingApp.get('/addons', (c) => {
-  return c.json({
-    success: true,
-    emailServices: {
-      standardEmail: {
-        type: 'standard_gmail_system',
-        name: 'सामान्य जीमेल / सिस्टम ईमेल सेवा (Standard Email)',
-        costText: 'सभी प्लान्स में शामिल (निःशुल्क)',
-        price: 0,
-        senderDomain: 'notifications@vidyasetuschool-system.com / Linked Gmail',
-        features: ['दैनिक उपस्थिति अलर्ट', 'सामान्य नोटिस प्रेषण', 'शून्य अतिरिक्त शुल्क'],
-        status: 'Active',
-      },
-      domainEmail: {
-        type: 'custom_domain_email',
-        name: 'कस्टम डोमेन ऑफिशियल ईमेल सेवा (Official Domain Email - Add-on)',
-        costText: '₹499/माह (प्रति 10,000 ऑफिशियल ईमेल)',
-        price: 499,
-        senderDomain: `@${schoolCustomDomainStore.domainName}`,
-        features: [
-          'सीबीएसई व बोर्ड पत्राचार हेतु स्कूल के आधिकारिक डोमेन से ईमेल',
-          'Cloudflare Email Routing + SPF/DKIM/DMARC 100% इनबॉक्स डिलीवरी',
-          'समर्पित मेलबॉक्स (@principal, @accounts, @director)',
-          'अनुकूलित स्कूल हेडर, सील एवं डिजिटल हस्ताक्षर',
-        ],
-        status: schoolCustomDomainStore.isActive ? 'Active' : 'Not_Configured',
-        quota: {
-          monthlyLimit: schoolCustomDomainStore.monthlySendingQuota,
-          sentThisMonth: schoolCustomDomainStore.monthlySentCount,
-          remaining: schoolCustomDomainStore.monthlySendingQuota - schoolCustomDomainStore.monthlySentCount,
-        },
-      },
-    },
-    activeAddons: subscriptionAddonsStore,
-  });
+// GET /api/billing/invoices - real invoices from D1
+billingApp.get('/invoices', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  const schoolId = getRequestSchoolId(c, authUser);
+  const rows = await db.prepare('SELECT * FROM billing_invoices WHERE school_id = ? ORDER BY created_at DESC').bind(schoolId).all();
+  return c.json({ success: true, invoices: rows.results || [] });
 });
 
-// Purchase Add-on (e.g. Extra Custom Domain Emails or Storage)
-billingApp.post('/addons/purchase', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const { addonType, quantity = 1 } = body;
-
-  if (addonType === 'custom_domain_email') {
-    const unitPrice = 499;
-    const existing = subscriptionAddonsStore.find((a) => a.addonType === 'custom_domain_email');
-    if (existing) {
-      existing.quantity += quantity;
-      existing.addonName = `कस्टम डोमेन ऑफिशियल ईमेल पैक (${existing.quantity * 10000} मेल्स/माह)`;
-    } else {
-      subscriptionAddonsStore.push({
-        id: `addon-${Date.now()}`,
-        schoolId: currentSchoolId,
-        addonType: 'custom_domain_email',
-        addonName: `कस्टम डोमेन ऑफिशियल ईमेल पैक (${quantity * 10000} मेल्स/माह)`,
-        quantity,
-        unitPrice,
-        billingCycle: 'monthly',
-        status: 'Active',
-        createdAt: new Date().toISOString().split('T')[0],
-      });
-    }
-
-    schoolCustomDomainStore.monthlySendingQuota += quantity * 10000;
-
-    return c.json({
-      success: true,
-      message: `सफलतापूर्वक ${quantity * 10000} अतिरिक्त कस्टम डोमेन ऑफिशियल ईमेल कोटा जोड़ दिया गया।`,
-      quota: {
-        monthlyLimit: schoolCustomDomainStore.monthlySendingQuota,
-        sentCount: schoolCustomDomainStore.monthlySentCount,
-      },
-    });
+// GET /api/billing/schools - current school summary (multi-school console lives in /api/admin)
+billingApp.get('/schools', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (authUser && authUser.role === 'SuperAdmin') {
+    const rows = await db.prepare('SELECT id, school_name, status, plan_id, trial_ends_at FROM school_tenants ORDER BY created_at DESC').all();
+    return c.json({ success: true, schools: rows.results || [], currentSchoolId: '' });
   }
-
-  return c.json({ success: false, message: 'अमान्य ऐड-ऑन प्रकार।' }, 400);
-});
-
-// -----------------------------------------------------------------------------
-// 6. Custom School Domain Configuration & DNS Status Check
-// -----------------------------------------------------------------------------
-billingApp.get('/domain', (c) => {
-  return c.json({
-    success: true,
-    domain: schoolCustomDomainStore,
-    dnsVerificationRecords: [
-      {
-        type: 'TXT (SPF)',
-        host: '@',
-        value: 'v=spf1 include:_spf.cloudflare.net ~all',
-        status: schoolCustomDomainStore.spfRecordStatus,
-        requiredFor: 'ईमेल स्पैम रोकथाम एवं प्रेषक सत्यापन',
-      },
-      {
-        type: 'CNAME (DKIM)',
-        host: 'cf2026._domainkey',
-        value: 'cf2026._domainkey.vidyasetu-school.cloudflare.net',
-        status: schoolCustomDomainStore.dkimRecordStatus,
-        requiredFor: 'डिजिटल हस्ताक्षर एवं टेंपर-प्रूफ प्रेषण',
-      },
-      {
-        type: 'MX (Mail Routing)',
-        host: '@',
-        value: 'isaac.mx.cloudflare.net (Priority 10)',
-        status: schoolCustomDomainStore.mxRecordStatus,
-        requiredFor: 'आधिकारिक इनबाउंड व आउटबाउंड ईमेल रूटिंग',
-      },
-      {
-        type: 'TXT (DMARC)',
-        host: '_dmarc',
-        value: 'v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@vidyasetuschool.edu.in',
-        status: schoolCustomDomainStore.dmarcRecordStatus,
-        requiredFor: 'डोमेन स्पूफिंग सुरक्षा व बोर्ड अनुपालन',
-      },
-    ],
-  });
-});
-
-// Configure or Verify Custom Domain
-billingApp.post('/domain/configure', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const { domainName } = body;
-
-  if (domainName) {
-    schoolCustomDomainStore.domainName = domainName.trim().toLowerCase();
-  }
-
-  // Simulate Cloudflare DNS verification
-  schoolCustomDomainStore.spfRecordStatus = 'Verified';
-  schoolCustomDomainStore.dkimRecordStatus = 'Verified';
-  schoolCustomDomainStore.mxRecordStatus = 'Verified';
-  schoolCustomDomainStore.dmarcRecordStatus = 'Verified';
-  schoolCustomDomainStore.isActive = true;
-
-  return c.json({
-    success: true,
-    message: `डोमेन @${schoolCustomDomainStore.domainName} के सभी Cloudflare DNS रिकॉर्ड्स (SPF, DKIM, DMARC) सफलतापूर्वक सत्यापित (Verified) हो गए हैं। अब आप ऑफिशियल ईमेल भेजने के लिए तैयार हैं।`,
-    domain: schoolCustomDomainStore,
-  });
-});
-
-// Add Mailbox to Custom Domain
-billingApp.post('/domain/add-mailbox', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const { prefix } = body;
-
-  if (!prefix) {
-    return c.json({ success: false, message: 'ईमेल प्रिफिक्स आवश्यक है (उदा. principal, accounts)' }, 400);
-  }
-
-  const cleanPrefix = prefix.replace(/[^a-zA-Z0-9._-]/g, '').toLowerCase();
-  const fullEmail = `${cleanPrefix}@${schoolCustomDomainStore.domainName}`;
-
-  if (schoolCustomDomainStore.configuredMailboxes.includes(fullEmail)) {
-    return c.json({ success: false, message: 'यह ईमेल पहले से ही पंजीकृत है।' }, 400);
-  }
-
-  schoolCustomDomainStore.configuredMailboxes.push(fullEmail);
-
-  return c.json({
-    success: true,
-    message: `नया आधिकारिक मेलबॉक्स ${fullEmail} सफलतापूर्वक सक्रिय किया गया।`,
-    mailboxes: schoolCustomDomainStore.configuredMailboxes,
-  });
-});
-
-// -----------------------------------------------------------------------------
-// 7. Get Tax Invoices & Auto-Pay Receipts
-// -----------------------------------------------------------------------------
-billingApp.get('/invoices', (c) => {
-  return c.json({
-    success: true,
-    invoices: billingInvoicesStore,
-  });
-});
-
-// -----------------------------------------------------------------------------
-// 8. Multi-Tenancy Management (Switch Schools & Tenant Isolation)
-// -----------------------------------------------------------------------------
-billingApp.get('/schools', (c) => {
-  return c.json({
-    success: true,
-    currentSchoolId,
-    schools: schoolTenants,
-  });
-});
-
-billingApp.post('/schools/switch', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const { schoolId } = body;
-
-  const found = schoolTenants.find((s) => s.id === schoolId);
-  if (!found) {
-    return c.json({ success: false, message: 'स्कूल आईडी नहीं मिली।' }, 404);
-  }
-
-  setCurrentSchoolId(schoolId);
-  return c.json({
-    success: true,
-    message: `सफलतापूर्वक विद्यालय बदला गया: ${found.schoolName}`,
-    currentSchoolId: found.id,
-    currentSchool: found,
-  });
+  const schoolId = getRequestSchoolId(c, authUser);
+  const tenant = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  return c.json({ success: true, schools: tenant ? [tenant] : [], currentSchoolId: schoolId });
 });
 
 export default billingApp;
