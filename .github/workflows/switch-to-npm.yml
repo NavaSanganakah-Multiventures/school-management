@@ -1,4 +1,4 @@
-name: Regenerate bun.lock
+name: Switch to npm
 
 on:
   workflow_dispatch:
@@ -7,31 +7,31 @@ permissions:
   contents: write
 
 jobs:
-  regenerate-lockfile:
+  switch-to-npm:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          bun-version: 1.2.15
+          node-version: "24"
 
-      - name: Remove incompatible lockfile
+      - name: Remove bun lockfile
         run: rm -f bun.lock bun.lockb
 
-      - name: Regenerate lockfile with Bun 1.2.15
-        run: bun install
+      - name: Generate package-lock.json
+        run: npm install
 
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add bun.lock
+          git add -A
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Regenerate bun.lock for Bun 1.2.15"
+            git commit -m "Switch from bun to npm (add package-lock.json)"
             git push
           fi
