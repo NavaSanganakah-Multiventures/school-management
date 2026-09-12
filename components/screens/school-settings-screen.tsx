@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 
-export function SchoolSettingsScreen({ userRole }: { userRole: string }) {
+export function SchoolSettingsScreen(_props: { userRole: string }) {
   const [form, setForm] = useState({
     schoolName: '',
     affiliationNumber: '',
