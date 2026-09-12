@@ -3,7 +3,7 @@ import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { getPlanAccess } from '../lib/plan-access';
 
-export const staffApp = new Hono();
+export const staffApp = new Hono<{ Bindings: any }>();
 
 function mapStaff(r: any) {
   if (!r) return null;
