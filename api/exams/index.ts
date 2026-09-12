@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
-const examsApp = new Hono();
+const examsApp = new Hono<{ Bindings: any }>();
 
 function gradeFor(p: any) {
   if (p >= 90) return 'A+';
