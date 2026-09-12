@@ -40,15 +40,26 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
           packageManager: npm
-          secrets: |
-            RAZORPAY_KEY_ID
-            RAZORPAY_KEY_SECRET
-            AUTH_SECRET
-            PLATFORM_ADMIN_EMAIL
-            PLATFORM_ADMIN_PASSWORD
+          postCommands: |
+            echo "$RAZORPAY_KEY_ID" | npx wrangler secret put RAZORPAY_KEY_ID
+            echo "$RAZORPAY_KEY_SECRET" | npx wrangler secret put RAZORPAY_KEY_SECRET
+            echo "$AUTH_SECRET" | npx wrangler secret put AUTH_SECRET
+            echo "$PLATFORM_ADMIN_EMAIL" | npx wrangler secret put PLATFORM_ADMIN_EMAIL
+            echo "$PLATFORM_ADMIN_PASSWORD" | npx wrangler secret put PLATFORM_ADMIN_PASSWORD
         env:
           RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
           RAZORPAY_KEY_SECRET: ${{ secrets.RAZORPAY_KEY_SECRET }}
           AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+      - name: Dump wrangler logs (diagnostic)
+        if: always()
+        run: |
+          echo "=== wrangler log files ==="
+          ls -la "$HOME/.config/.wrangler/logs" || true
+          for f in "$HOME"/.config/.wrangler/logs/*.log
+          do
+            echo "=== $f ==="
+            cat "$f" || true
+          done
+        shell: bash
