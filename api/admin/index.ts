@@ -5,7 +5,7 @@ import { hashPassword } from '../lib/auth';
 
 const adminApp = new Hono();
 
-async function requireSuperAdmin(c) {
+async function requireSuperAdmin(c: any) {
   const authUser = await getAuthUser(c);
   if (!authUser || authUser.role !== 'SuperAdmin') {
     return { ok: false, authUser, error: c.json({ success: false, message: 'केवल Super Admin की अनुमति है।' }, 403) };
@@ -13,7 +13,7 @@ async function requireSuperAdmin(c) {
   return { ok: true, authUser };
 }
 
-function tenantToJson(row) {
+function tenantToJson(row: any) {
   const trial = row.status === 'Trial';
   return {
     id: row.id,
@@ -125,7 +125,7 @@ adminApp.post('/schools/update', async (c) => {
   if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
   const existing = await db.prepare('SELECT * FROM school_profile WHERE id = ?').bind(schoolId).first();
   if (!existing) return c.json({ success: false, message: 'स्कूल प्रोफ़ाइल नहीं मिली।' }, 404);
-  const val = (field, fallback) => (body[field] !== undefined && body[field] !== null && body[field] !== '') ? body[field] : fallback;
+  const val = (field: any, fallback: any) => (body[field] !== undefined && body[field] !== null && body[field] !== '') ? body[field] : fallback;
   await db.prepare('UPDATE school_profile SET school_name=?, affiliation_number=?, board_name=?, school_code=?, email=?, phone=?, address=?, city=?, state=?, pincode=?, director_name=?, principal_name=?, updated_at=? WHERE id=?')
     .bind(
       val('schoolName', existing.school_name),
