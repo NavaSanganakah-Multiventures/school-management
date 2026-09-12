@@ -179,15 +179,16 @@ export interface SchoolTenant {
   contactEmail: string;
   contactPhone: string;
   status: 'Active' | 'Suspended' | 'Trial';
-  registrationStatus?: 'Pending_Approval' | 'Approved' | 'Rejected' | 'Active';
+  registrationStatus?: 'Pending_Approval' | 'Approved' | 'Rejected' | 'Active' | 'Deleted';
   planId?: string;
   trialEndsAt?: string;
   approvedAt?: string;
   approvedBy?: string;
+  deletedAt?: string;
   createdAt: string;
 }
 
-export type SubscriptionPlanId = 'trial' | 'starter' | 'pro' | 'enterprise';
+export type SubscriptionPlanId = string;
 export type BillingCycle = 'monthly' | 'quarterly' | 'annual';
 
 export interface PlanFeature {
@@ -196,7 +197,7 @@ export interface PlanFeature {
 }
 
 export interface SubscriptionPlanDefinition {
-  id: SubscriptionPlanId;
+  id: string;
   name: string;
   tagline: string;
   badge?: string;
@@ -206,6 +207,14 @@ export interface SubscriptionPlanDefinition {
   maxStudents: string;
   features: string[];
   recommended?: boolean;
+  modules?: string[];
+  featureFlags?: Record<string, boolean>;
+  maxStudentsLimit?: number | null;
+  maxStaffLimit?: number | null;
+  maxStaff?: number | null;
+  active?: boolean;
+  isTrial?: boolean;
+  sortOrder?: number;
 }
 
 export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
@@ -218,6 +227,10 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
     quarterlyPrice: 0,
     annualPrice: 0,
     maxStudents: '50 विद्यार्थी',
+    maxStudentsLimit: 50,
+    maxStaffLimit: 10,
+    maxStaff: 10,
+    modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'settings', 'billing'],
     features: [
       'डैशबोर्ड व स्कूल प्रोफ़ाइल सेटअप',
       'स्कॉलर रजिस्टर (अधिकतम 50 छात्र)',
@@ -226,6 +239,10 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
       'नोटिस पट्ट व सूचना',
       'बुनियादी फीस चालान',
     ],
+    featureFlags: { reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false },
+    active: true,
+    isTrial: true,
+    sortOrder: 0,
   },
   {
     id: 'starter',
@@ -235,6 +252,10 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
     quarterlyPrice: 7122,
     annualPrice: 23988,
     maxStudents: '500 विद्यार्थी',
+    maxStudentsLimit: 500,
+    maxStaffLimit: 25,
+    maxStaff: 25,
+    modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'settings', 'billing'],
     features: [
       'डिजिटल स्कॉलर रजिस्टर (दाखिला-खारिज)',
       'दैनिक छात्र उपस्थिति',
@@ -243,6 +264,10 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
       'सामान्य ईमेल सूचना सेवा',
       'परीक्षा व अंक प्रविष्टि (बेसिक)',
     ],
+    featureFlags: { reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false },
+    active: true,
+    isTrial: false,
+    sortOrder: 1,
   },
   {
     id: 'pro',
@@ -254,6 +279,10 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
     quarterlyPrice: 17097,
     annualPrice: 57588,
     maxStudents: '1500 विद्यार्थी',
+    maxStudentsLimit: 1500,
+    maxStaffLimit: 100,
+    maxStaff: 100,
+    modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'principal', 'settings', 'billing'],
     features: [
       'स्टार्टर की सभी सुविधाएं',
       'विस्तृत रिपोर्ट कार्ड व परीक्षा परिणाम',
@@ -262,6 +291,10 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
       'कस्टम डोमेन ईमेल ऐड-ऑन',
       'प्राथमिकता तकनीकी सहायता',
     ],
+    featureFlags: { reportCards: true, principalHistory: true, autopay: true, domainEmail: true, multiSchool: false, prioritySupport: true, customDomainIncluded: false },
+    active: true,
+    isTrial: false,
+    sortOrder: 2,
   },
   {
     id: 'enterprise',
@@ -272,6 +305,10 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
     quarterlyPrice: 34197,
     annualPrice: 115188,
     maxStudents: 'असीमित विद्यार्थी',
+    maxStudentsLimit: null,
+    maxStaffLimit: null,
+    maxStaff: null,
+    modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'principal', 'settings', 'billing'],
     features: [
       'प्रो की सभी सुविधाएं',
       'कस्टम डोमेन ऑफिशियल ईमेल (शामिल)',
@@ -280,8 +317,64 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
       'डेडिकेटेड अकाउंट मैनेजर',
       '99.9% अपटाइम SLA',
     ],
+    featureFlags: { reportCards: true, principalHistory: true, autopay: true, domainEmail: true, multiSchool: true, prioritySupport: true, customDomainIncluded: true },
+    active: true,
+    isTrial: false,
+    sortOrder: 3,
   },
 ];
+
+function parseJson(value: any, fallback: any) {
+  try { return JSON.parse(value); } catch (e) { return fallback; }
+}
+
+export function planRowToDefinition(row: any): SubscriptionPlanDefinition {
+  const maxStudentsLimit = row.max_students === null || row.max_students === undefined ? null : Number(row.max_students);
+  const maxStaffLimit = row.max_staff === null || row.max_staff === undefined ? null : Number(row.max_staff);
+  return {
+    id: row.id,
+    name: row.name,
+    tagline: row.tagline || '',
+    badge: row.badge || undefined,
+    monthlyPrice: Number(row.monthly_price) || 0,
+    quarterlyPrice: Number(row.quarterly_price) || 0,
+    annualPrice: Number(row.annual_price) || 0,
+    maxStudents: row.max_students_label || (maxStudentsLimit === null ? 'असीमित विद्यार्थी' : maxStudentsLimit + ' विद्यार्थी'),
+    features: parseJson(row.features, []),
+    recommended: !!row.recommended,
+    modules: parseJson(row.modules, []),
+    featureFlags: parseJson(row.feature_flags, {}),
+    maxStudentsLimit,
+    maxStaffLimit,
+    maxStaff: maxStaffLimit,
+    active: row.active === undefined ? true : !!row.active,
+    isTrial: !!row.is_trial,
+    sortOrder: Number(row.sort_order) || 0,
+  };
+}
+
+export async function loadSubscriptionPlans(db: any): Promise<SubscriptionPlanDefinition[]> {
+  if (!db) return SUBSCRIPTION_PLANS;
+  try {
+    const res = await db.prepare('SELECT * FROM subscription_plans ORDER BY sort_order ASC, created_at ASC').all();
+    const rows = (res && res.results) || [];
+    if (!rows.length) return SUBSCRIPTION_PLANS;
+    return rows.map(planRowToDefinition);
+  } catch (e) {
+    return SUBSCRIPTION_PLANS;
+  }
+}
+
+export async function loadSubscriptionPlanById(db: any, id: any): Promise<SubscriptionPlanDefinition | undefined> {
+  if (!db) return SUBSCRIPTION_PLANS.find((p) => p.id === id);
+  try {
+    const row = await db.prepare('SELECT * FROM subscription_plans WHERE id = ?').bind(id).first();
+    if (!row) return SUBSCRIPTION_PLANS.find((p) => p.id === id);
+    return planRowToDefinition(row);
+  } catch (e) {
+    return SUBSCRIPTION_PLANS.find((p) => p.id === id);
+  }
+}
 
 export interface SchoolSubscription {
   id: string;

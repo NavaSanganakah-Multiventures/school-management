@@ -68,7 +68,7 @@ staffApp.post('/', async (c) => {
 
   const sub = await db.prepare('SELECT plan_id, status FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
   const planId = sub && sub.status !== 'Trial' ? sub.plan_id : 'trial';
-  const access = getPlanAccess(planId);
+  const access = await getPlanAccess(planId, db);
   if (access.maxStaff !== null) {
     const cnt = await db.prepare('SELECT COUNT(*) AS n FROM teachers WHERE school_id = ? AND status = ?').bind(schoolId, 'Active').first();
     if (cnt && cnt.n >= access.maxStaff) {

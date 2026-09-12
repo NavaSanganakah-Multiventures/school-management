@@ -161,7 +161,7 @@ studentsApp.post('/', async (c) => {
   }
 
   const planId = await getPlanId(db, schoolId);
-  const access = getPlanAccess(planId);
+  const access = await getPlanAccess(planId, db);
   if (access.maxStudents !== null) {
     const cnt = await db.prepare('SELECT COUNT(*) AS n FROM students WHERE school_id = ? AND status = ?').bind(schoolId, 'Active').first();
     if (cnt && cnt.n >= access.maxStudents) {
