@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getDB } from '../db';
+import { getDB, makeUniqueUsername } from '../db';
 import { hashPassword, verifyPassword, signToken, getAuthUser } from '../lib/auth';
 
 const authApp = new Hono<{ Bindings: any }>();
@@ -98,6 +98,7 @@ authApp.post('/register', async (c) => {
   const subdomain = String(body.subdomain || ('school' + Date.now().toString().slice(-6))).toLowerCase().replace(/[^a-z0-9-]/g, '');
   const passwordHash = await hashPassword(password);
   const now = new Date().toISOString();
+  const username = await makeUniqueUsername(db, email);
 
   await db.prepare('INSERT INTO school_tenants (id, school_name, subdomain, custom_domain, contact_email, contact_phone, status, registration_status, plan_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
     .bind(schoolId, schoolName, subdomain, body.customDomain || '', email, phone, 'Suspended', 'Pending_Approval', 'trial', now).run();
@@ -106,7 +107,7 @@ authApp.post('/register', async (c) => {
     .bind(schoolId, schoolName, body.affiliationNumber || '', body.boardName || 'CBSE', body.schoolCode || '', email, phone, body.alternatePhone || '', body.address || '', body.city || '', body.state || '', body.pincode || '', body.academicSession || '2026-2027', directorName, body.principalName || directorName, now.split('T')[0]).run();
 
   await db.prepare('INSERT INTO system_users (id, username, full_name, email, phone, role, designation, department, qualification, salary, status, school_id, password_hash, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind(userId, email.split('@')[0], directorName, email, phone, 'Director', body.designation || 'स्कूल निदेशक (Director)', 'प्रबंधन एवं प्रशासन', body.qualification || '', 0, 'Active', schoolId, passwordHash, now).run();
+    .bind(userId, username, directorName, email, phone, 'Director', body.designation || 'स्कूल निदेशक (Director)', 'प्रबंधन एवं प्रशासन', body.qualification || '', 0, 'Active', schoolId, passwordHash, now).run();
 
   await db.prepare('INSERT INTO school_subscriptions (id, school_id, plan_id, plan_name, billing_cycle, price_per_cycle, discount_percent, status, auto_pay_enabled, payment_method, mandate_id, next_billing_date, period_start, period_end, trial_ends_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .bind('sub-' + Date.now(), schoolId, 'starter', '7-दिन फ्री ट्रायल', 'monthly', 0, 0, 'Trial', 0, '', '', '', '', '', '', now).run();

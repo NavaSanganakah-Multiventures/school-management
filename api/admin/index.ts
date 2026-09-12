@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getDB, loadSubscriptionPlans, loadSubscriptionPlanById } from '../db';
+import { getDB, loadSubscriptionPlans, loadSubscriptionPlanById, makeUniqueUsername } from '../db';
 import { getAuthUser, hashPassword } from '../lib/auth';
 
 const adminApp = new Hono<{ Bindings: any }>();
@@ -138,6 +138,7 @@ adminApp.post('/schools/create', async (c) => {
 
   const now = new Date().toISOString();
   const passwordHash = await hashPassword(password);
+  const username = await makeUniqueUsername(db, email);
 
   await db.prepare('INSERT INTO school_tenants (id, school_name, subdomain, custom_domain, contact_email, contact_phone, status, registration_status, plan_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
     .bind(schoolId, schoolName, subdomain, body.customDomain || '', email, phone, 'Active', 'Approved', planId, now).run();
@@ -146,7 +147,7 @@ adminApp.post('/schools/create', async (c) => {
     .bind(schoolId, schoolName, body.affiliationNumber || '', body.boardName || 'CBSE', body.schoolCode || '', email, phone, body.alternatePhone || '', body.address || '-', body.city || '-', body.state || '-', body.pincode || '-', body.academicSession || '2026-2027', directorName, body.principalName || directorName, now.split('T')[0]).run();
 
   await db.prepare('INSERT INTO system_users (id, username, full_name, email, phone, role, designation, department, qualification, salary, status, school_id, password_hash, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind(userId, email.split('@')[0], directorName, email, phone, 'Director', body.designation || 'स्कूल निदेशक (Director)', 'प्रबंधन एवं प्रशासन', body.qualification || '', 0, 'Active', schoolId, passwordHash, now).run();
+    .bind(userId, username, directorName, email, phone, 'Director', body.designation || 'स्कूल निदेशक (Director)', 'प्रबंधन एवं प्रशासन', body.qualification || '', 0, 'Active', schoolId, passwordHash, now).run();
 
   await db.prepare('INSERT INTO school_subscriptions (id, school_id, plan_id, plan_name, billing_cycle, price_per_cycle, discount_percent, status, auto_pay_enabled, payment_method, mandate_id, next_billing_date, period_start, period_end, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .bind('sub-' + Date.now(), schoolId, plan.id, plan.name, body.billingCycle || 'annual', plan.annualPrice || 0, 0, 'Active', 1, 'Manual', '', now.split('T')[0], now.split('T')[0], now.split('T')[0], now).run();

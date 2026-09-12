@@ -207,10 +207,12 @@ CREATE TABLE IF NOT EXISTS school_tenants (
 );
 
 -- 2. School Subscriptions (Starter, Professional, Enterprise with Auto-Pay)
+-- NOTE (migration 0005): this table is rebuilt — the old plan_id CHECK was removed so
+-- Super Admin can assign dynamic/custom plan IDs, and trial/Razorpay columns were added.
 CREATE TABLE IF NOT EXISTS school_subscriptions (
     id TEXT PRIMARY KEY,
     school_id TEXT NOT NULL,
-    plan_id TEXT NOT NULL CHECK(plan_id IN ('starter', 'pro', 'enterprise')),
+    plan_id TEXT NOT NULL,
     plan_name TEXT NOT NULL,
     billing_cycle TEXT NOT NULL CHECK(billing_cycle IN ('monthly', 'quarterly', 'annual')),
     price_per_cycle REAL NOT NULL,
@@ -223,6 +225,10 @@ CREATE TABLE IF NOT EXISTS school_subscriptions (
     period_start TEXT NOT NULL,
     period_end TEXT NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    trial_ends_at TEXT,
+    razorpay_order_id TEXT,
+    razorpay_payment_id TEXT,
+    razorpay_signature TEXT,
     FOREIGN KEY (school_id) REFERENCES school_tenants(id)
 );
 
