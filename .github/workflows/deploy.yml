@@ -33,6 +33,11 @@ jobs:
           node-version: "24"
       - run: npm install
       - run: npm run build
+      - name: Apply D1 database migrations
+        run: npx --yes wrangler@3.90.0 d1 migrations apply DB --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
@@ -52,6 +57,20 @@ jobs:
           AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+      - name: Bootstrap platform Super Admin (idempotent)
+        run: |
+          set +e
+          for i in 1 2 3 4 5; do
+            echo "--- bootstrap attempt $i ---"
+            RESP=$(curl -sS -X POST "https://school-management.nssite.workers.dev/api/admin/bootstrap" -H "Content-Type: application/json" -d "{}")
+            echo "$RESP"
+            if echo "$RESP" | grep -q '"success":true'; then
+              echo "BOOTSTRAP_OK"
+              break
+            fi
+            sleep 4
+          done
+        shell: bash
       - name: Dump wrangler logs (diagnostic)
         if: always()
         run: |
