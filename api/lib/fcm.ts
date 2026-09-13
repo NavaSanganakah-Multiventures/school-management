@@ -61,7 +61,15 @@ function parseServiceAccount(raw: string): ServiceAccount {
   try {
     sa = JSON.parse(raw);
   } catch (e) {
-    throw new Error('FCM_SERVICE_ACCOUNT_JSON अमान्य JSON है।');
+    const trimmed = (raw || '').trim();
+    const first = trimmed.slice(0, 1);
+    let hint = ' (JSON length=' + raw.length + ', पहला अक्षर=' + JSON.stringify(first) + ')।';
+    if (first === "'" || first.charCodeAt(0) === 34) {
+      hint = hint + ' संभवतः आगे/पीछे quotes लगे हैं — GitHub Secret में सिर्फ raw JSON रखें (बिना quotes/prefix के)।';
+    } else if (trimmed.indexOf('FCM_SERVICE_ACCOUNT_JSON=') === 0) {
+      hint = hint + ' मान में prefix है — हटा दें, सिर्फ raw JSON रखें।';
+    }
+    throw new Error('FCM_SERVICE_ACCOUNT_JSON अमान्य JSON है।' + hint);
   }
   if (!sa.client_email || !sa.private_key) {
     throw new Error('FCM service account में client_email / private_key आवश्यक हैं।');
