@@ -66,7 +66,7 @@ export async function sendPasswordResetEmail(env: any, input: PasswordResetEmail
   try {
     await binding.send({
       to: input.to,
-      from: { email: 'noreply@setu.navasanganakah.com', name: 'Pragnya Mitra' },
+      from: { email: 'pragnya@navasanganakah.com', name: 'Pragnya Mitra' },
       subject: subject,
       html: html,
       text: text
