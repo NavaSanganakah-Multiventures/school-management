@@ -166,7 +166,7 @@ export function SchoolCrmShell() {
     let disposeRefresh: (() => void) | null = null;
 
     const schoolId = currentUser.schoolId || 'school-01';
-    const role = currentUser.role || 'Staff';
+    const role: string = currentUser.role || 'Staff';
     const roleTopic = role === 'Students'
       ? 'school_' + schoolId + '_students'
       : (role === 'Parents' ? 'school_' + schoolId + '_parents' : 'school_' + schoolId + '_teachers');
