@@ -169,16 +169,16 @@ export function NoticesScreen({ onOpenFcmModal }: NoticesScreenProps) {
                 className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs space-y-2 text-xs"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-[10px] text-slate-400">{item.alertId || item.fcmMessageId || item.id}</span>
-                  <span className="bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full text-[10px]">
-                    {item.status || 'प्रसारित'} (सफल)
+                  <span className="font-mono text-[10px] text-slate-400">{item.fcmMessageId || item.id}</span>
+                  <span className={item.deliveryStatus === 'Delivered' ? 'bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full text-[10px]' : item.deliveryStatus === 'Failed' ? 'bg-rose-100 text-rose-800 font-semibold px-2 py-0.5 rounded-full text-[10px]' : 'bg-amber-100 text-amber-800 font-semibold px-2 py-0.5 rounded-full text-[10px]'}>
+                    {item.deliveryStatus === 'Delivered' ? 'प्रसारित (सफल)' : item.deliveryStatus === 'Failed' ? 'असफल' : item.deliveryStatus || 'प्रसारित'}
                   </span>
                 </div>
                 <h4 className="font-bold text-sm text-slate-900">{item.title}</h4>
                 <p className="text-slate-600">{item.body}</p>
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
                   <span>टॉपिक: <strong>{item.targetTopic}</strong></span>
-                  <span>समय: {item.timestamp}</span>
+                  <span>समय: {item.sentAt ? new Date(item.sentAt).toLocaleString('hi-IN') : ''}</span>
                 </div>
               </div>
             ))
