@@ -23,6 +23,15 @@ function derivedTopics(schoolId: string, role: string): string[] {
   return ['school_' + schoolId + '_all', roleTopic(schoolId, role)];
 }
 
+function parseTopics(raw: any): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) { return []; }
+}
+
 function roleInTarget(targetRole: string, deviceRole: string): boolean {
   const t = String(targetRole || 'All');
   if (t === 'All') return true;
@@ -76,24 +85,36 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
     }
   }
 
-  let deviceTokens: Array<{ token: string; role: string }> = [];
+  let deviceTokens: Array<{ token: string; role: string; deviceType: string; subscribedTopics: string[] }> = [];
   try {
     const rows = await db.prepare(
-      'SELECT device_token, role FROM fcm_device_tokens WHERE school_id = ? AND is_active = 1'
+      'SELECT device_token, role, device_type, subscribed_topics FROM fcm_device_tokens WHERE school_id = ? AND is_active = 1'
     ).bind(activeSchoolId).all();
     deviceTokens = (rows.results || [])
       .filter((r: any) => roleInTarget(targetRole, r.role))
-      .map((r: any) => ({ token: r.device_token as string, role: r.role as string }));
+      .map((r: any) => ({ token: r.device_token as string, role: r.role as string, deviceType: (r.device_type as string) || '', subscribedTopics: parseTopics(r.subscribed_topics) }));
   } catch (e) {
     deviceTokens = [];
   }
+
+  // Web device जो इस topic पर असल में subscribe है उसे topic से ही message मिल जाएगा;
+  // duplicate direct token भेजने से बचें (सिर्फ तब, जब topic भेजना सफल रहा हो)।
+  let tokenSkipped = 0;
+  const canSkipViaTopic = fcmConfigured && !!topicResult.success;
+  const directTokens = deviceTokens.filter((d) => {
+    if (canSkipViaTopic && String(d.deviceType || '') === 'web' && d.subscribedTopics.indexOf(resolvedTopicKey) >= 0) {
+      tokenSkipped++;
+      return false;
+    }
+    return true;
+  });
 
   let tokenSuccess = 0;
   let tokenFailed = 0;
   const tokenErrors: string[] = [];
   if (fcmConfigured) {
-    for (let i = 0; i < deviceTokens.length; i++) {
-      const token = deviceTokens[i].token;
+    for (let i = 0; i < directTokens.length; i++) {
+      const token = directTokens[i].token;
       try {
         const r = await sendFcmMessage(env, buildTokenMessage(token, opts.title, opts.body, dataPayload, priority));
         if (r.success) tokenSuccess++;
@@ -123,7 +144,7 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
       resolvedTopicKey,
       deviceTokens.length ? (deviceTokens.length + ' devices') : '',
       overallStatus,
-      JSON.stringify({ schoolId: activeSchoolId, targetRole: targetRole, topic: resolvedTopicKey, topicSuccess: !!topicResult.success, fcmConfigured: fcmConfigured, deviceCount: deviceTokens.length, tokenSuccess: tokenSuccess, tokenFailed: tokenFailed, tokenErrors: tokenErrors.slice(0, 5) }),
+      JSON.stringify({ schoolId: activeSchoolId, targetRole: targetRole, topic: resolvedTopicKey, topicSuccess: !!topicResult.success, fcmConfigured: fcmConfigured, deviceCount: deviceTokens.length, directCount: directTokens.length, topicDedupCount: tokenSkipped, tokenSuccess: tokenSuccess, tokenFailed: tokenFailed, tokenErrors: tokenErrors.slice(0, 5) }),
       timestamp,
       activeSchoolId,
     ).run();
@@ -173,7 +194,7 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
     status: 201,
     payload: {
       success: true,
-      message: 'अलर्ट टॉपिक [' + resolvedTopicKey + '] पर भेजा गया' + (deviceTokens.length ? (' तथा ' + tokenSuccess + ' डिवाइस को प्रेषित हुआ।') : '।'),
+      message: 'अलर्ट टॉपिक [' + resolvedTopicKey + '] पर भेजा गया' + (deviceTokens.length ? ('; ' + tokenSuccess + ' डिवाइस को direct तथा ' + tokenSkipped + ' डिवाइस को टॉपिक से भेजा गया।') : '।'),
       alertResponse: {
         fcmMessageId: fcmMessageId,
         schoolId: activeSchoolId,
@@ -286,7 +307,7 @@ notificationsApp.post('/register-token', async (c) => {
   const userId = body.userId || (authUser && (authUser.sub || authUser.id || authUser.userId)) || 'anonymous';
   const deviceType = body.deviceType || 'mobile_app';
   const platform = body.platform || (deviceType === 'web' ? 'web' : 'flutter');
-  const topics = (body.topics && Array.isArray(body.topics) && body.topics.length) ? body.topics : derivedTopics(schoolId, role);
+  const topics = Array.isArray(body.topics) ? body.topics : (deviceType === 'web' ? [] : derivedTopics(schoolId, role));
 
   const subscription = { userId: userId, schoolId: schoolId, role: role, device: deviceType, platform: platform, subscribedTopics: topics };
 
