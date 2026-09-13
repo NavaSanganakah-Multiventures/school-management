@@ -113,7 +113,7 @@ staffApp.post('/', async (c) => {
   if (!passwordHash) {
     const issued = await issueResetToken(db, userId, 'system', 'invite');
     if (issued.token) {
-      inviteLink = getRequestOrigin(c) + '/?reset=' + issued.token;
+      inviteLink = getRequestOrigin(c, c.env) + '/?reset=' + issued.token;
       await sendPasswordResetEmail(c.env, { to: email, name: name, resetLink: inviteLink, invite: true });
     }
   }
@@ -178,7 +178,7 @@ staffApp.post('/:id/login', async (c) => {
     return c.json({ success: true, message: 'हाल ही में रीसेट लिंक भेजा जा चुका है। कृपया ईमेल जाँचें या 2 मिनट बाद पुनः प्रयास करें।' });
   }
 
-  const resetLink = getRequestOrigin(c) + '/?reset=' + issued.token;
+  const resetLink = getRequestOrigin(c, c.env) + '/?reset=' + issued.token;
   await sendPasswordResetEmail(c.env, { to: email, name: teacher.name, resetLink: resetLink, invite: true });
   return c.json({ success: true, message: teacher.name + ' के ईमेल पर पासवर्ड सेट करने का लिंक भेज दिया गया है।', resetLink: resetLink, username: username });
 });
