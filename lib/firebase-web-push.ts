@@ -61,6 +61,27 @@ export async function registerFcmWebToken(): Promise<string | null> {
   }
 }
 
+export async function subscribeFcmWebTopics(token: string, topics: string[]): Promise<string[]> {
+  if (!isWebPushSupported()) return [];
+  if (!FIREBASE_WEB_CONFIG.apiKey || !FIREBASE_WEB_CONFIG.projectId || !FIREBASE_WEB_CONFIG.appId) return [];
+  if (!token || !topics || !topics.length) return [];
+  const subscribed: string[] = [];
+  try {
+    const messaging = await getMessaging();
+    for (const topic of topics) {
+      try {
+        await messaging.subscribeToTopic(token, topic);
+        subscribed.push(topic);
+      } catch (e) {
+        console.error('Web push topic subscription failed: ' + topic, e);
+      }
+    }
+  } catch (e) {
+    console.error('Web push topic subscription failed', e);
+  }
+  return subscribed;
+}
+
 export async function onForegroundFcmMessage(callback: (payload: any) => void): Promise<() => void> {
   if (!isWebPushSupported()) return function () {};
   if (!FIREBASE_WEB_CONFIG.apiKey || !FIREBASE_WEB_CONFIG.projectId || !FIREBASE_WEB_CONFIG.appId) return function () {};
