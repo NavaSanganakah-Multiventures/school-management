@@ -73,6 +73,8 @@ authApp.post('/login', async (c) => {
       schoolId,
     },
   });
+});
+
 // POST /api/auth/forgot-password - email पर एक बार उपयोग होने वाला रीसेट लिंक भेजें।
 // Response जानबूझकर generic रखा गया है ताकि किसी ईमेल के पंजीकृत होने की जानकारी leak न हो।
 authApp.post('/forgot-password', async (c) => {
