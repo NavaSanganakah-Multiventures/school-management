@@ -33,6 +33,7 @@ import { SchoolSettingsScreen } from './screens/school-settings-screen';
 import { BillingPlansScreen } from './screens/billing-plans-screen';
 import { LoginScreen } from './screens/login-screen';
 import { RegisterScreen } from './screens/register-screen';
+import { ResetPasswordScreen } from './screens/reset-password-screen';
 import { AdminConsoleScreen } from './screens/admin-console-screen';
 
 import { AddScholarModal } from './modals/add-scholar-modal';
@@ -83,6 +84,13 @@ function readStoredUser(): CurrentUser | null {
   return null;
 }
 
+function readResetToken(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return new URLSearchParams(window.location.search).get('reset') || '';
+  } catch (e) { return ''; }
+}
+
 interface NavItem {
   id: string;
   label: string;
@@ -96,6 +104,7 @@ interface NavItem {
 export function SchoolCrmShell() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login');
+  const [resetToken, setResetToken] = useState<string>(() => readResetToken());
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => readStoredUser());
   const [planId, setPlanId] = useState('trial');
   const [planModules, setPlanModules] = useState<string[]>(['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'settings', 'billing']);
@@ -232,6 +241,16 @@ const handleLogout = async () => {
     setCurrentUser(normalized);
     setActiveTab(normalized.role === 'SuperAdmin' ? 'admin' : 'dashboard');
   };
+
+  // Password reset (magic link) screen — shows before auth gate.
+  if (resetToken) {
+    const clearReset = () => {
+      if (typeof window !== 'undefined') window.history.replaceState({}, '', window.location.pathname);
+      setResetToken('');
+      setAuthScreen('login');
+    };
+    return <ResetPasswordScreen token={resetToken} onDone={clearReset} onBackToLogin={clearReset} />;
+  }
 
   // Auth gate
   if (!currentUser) {
