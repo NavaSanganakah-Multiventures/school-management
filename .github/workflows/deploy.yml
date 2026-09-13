@@ -56,6 +56,7 @@ jobs:
             echo "$PLATFORM_ADMIN_EMAIL" | npx wrangler secret put PLATFORM_ADMIN_EMAIL
             echo "$PLATFORM_ADMIN_PASSWORD" | npx wrangler secret put PLATFORM_ADMIN_PASSWORD
             if [ -n "$FCM_SERVICE_ACCOUNT_JSON" ]; then printf '%s' "$FCM_SERVICE_ACCOUNT_JSON" | npx wrangler secret put FCM_SERVICE_ACCOUNT_JSON; fi
+            printf '%s' "$FIREBASE_WEB_CONFIG_JSON" | npx wrangler secret put FIREBASE_WEB_CONFIG_JSON
         env:
           RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
           RAZORPAY_KEY_SECRET: ${{ secrets.RAZORPAY_KEY_SECRET }}
@@ -63,6 +64,7 @@ jobs:
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_WEB_CONFIG_JSON: ${{ secrets.FIREBASE_WEB_CONFIG_JSON }}
       - name: Bootstrap platform Super Admin (idempotent)
         run: |
           set +e
