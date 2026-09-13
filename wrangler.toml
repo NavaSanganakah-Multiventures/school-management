@@ -24,7 +24,7 @@ id = "393901911be84d558822c78070a82e94"
 
 [vars]
 ENVIRONMENT = "production"
-FCM_PROJECT_ID = "vidyasetu-school-fcm"
+FCM_PROJECT_ID = "navasanganakah"
 SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Public School)"
 
 # -------------------------------------------------------------
@@ -48,5 +48,5 @@ id = "9158f79162824ee1b52e75fe51af71f8"
 
 [env.preview.vars]
 ENVIRONMENT = "preview"
-FCM_PROJECT_ID = "vidyasetu-school-fcm-preview"
+FCM_PROJECT_ID = "navasanganakah"
 SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Preview)"

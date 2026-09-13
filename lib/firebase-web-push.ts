@@ -47,6 +47,7 @@ export function isWebPushSupported(): boolean {
 
 export async function registerFcmWebToken(): Promise<string | null> {
   if (!isWebPushSupported()) return null;
+  if (!FIREBASE_WEB_CONFIG.apiKey || !FIREBASE_WEB_CONFIG.projectId || !FIREBASE_WEB_CONFIG.appId) return null;
   try {
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') return null;
@@ -62,6 +63,7 @@ export async function registerFcmWebToken(): Promise<string | null> {
 
 export async function onForegroundFcmMessage(callback: (payload: any) => void): Promise<() => void> {
   if (!isWebPushSupported()) return function () {};
+  if (!FIREBASE_WEB_CONFIG.apiKey || !FIREBASE_WEB_CONFIG.projectId || !FIREBASE_WEB_CONFIG.appId) return function () {};
   try {
     const messaging = await getMessaging();
     return messaging.onMessage(callback);
@@ -72,6 +74,7 @@ export async function onForegroundFcmMessage(callback: (payload: any) => void): 
 
 export async function onFcmTokenRefresh(callback: (token: string) => void): Promise<() => void> {
   if (!isWebPushSupported()) return function () {};
+  if (!FIREBASE_WEB_CONFIG.apiKey || !FIREBASE_WEB_CONFIG.projectId || !FIREBASE_WEB_CONFIG.appId) return function () {};
   try {
     const messaging = await getMessaging();
     return messaging.onTokenRefresh(callback);
