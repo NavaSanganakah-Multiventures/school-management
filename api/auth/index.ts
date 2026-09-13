@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { getDB, makeUniqueUsername } from '../db';
 import { hashPassword, verifyPassword, signToken, getAuthUser } from '../lib/auth';
+import { issueResetToken, consumeResetToken } from '../lib/reset-tokens';
+import { sendPasswordResetEmail, getRequestOrigin } from '../lib/email';
 
 const authApp = new Hono<{ Bindings: any }>();
 
@@ -41,7 +43,12 @@ authApp.post('/login', async (c) => {
     return c.json({ success: false, message: 'इस ईमेल से कोई अधिकृत उपयोगकर्ता नहीं मिला। कृपया पहले स्कूल रजिस्टर करें।' }, 401);
   }
   if (!user.password_hash) {
-    return c.json({ success: false, message: 'इस खाते का पासवर्ड सेट नहीं है। कृपया व्यवस्थापक से संपर्क करें।' }, 401);
+    const invite = await issueResetToken(db, user.id, 'system', 'invite');
+    if (!invite.limited) {
+      const resetLink = getRequestOrigin(c) + '/?reset=' + invite.token;
+      await sendPasswordResetEmail(c.env, { to: user.email, name: user.full_name, resetLink, invite: true });
+    }
+    return c.json({ success: false, code: 'PASSWORD_NOT_SET', message: 'इस खाते का पासवर्ड अभी सेट नहीं है। हमने आपके ईमेल पर पासवर्ड सेट करने का लिंक भेज दिया है। कृपया इनबॉक्स/स्पैम देखें।' }, 401);
   }
   const ok = await verifyPassword(password, user.password_hash);
   if (!ok) return c.json({ success: false, message: 'अमान्य पासवर्ड।' }, 401);
@@ -66,6 +73,80 @@ authApp.post('/login', async (c) => {
       schoolId,
     },
   });
+// POST /api/auth/forgot-password - email पर एक बार उपयोग होने वाला रीसेट लिंक भेजें।
+// Response जानबूझकर generic रखा गया है ताकि किसी ईमेल के पंजीकृत होने की जानकारी leak न हो।
+authApp.post('/forgot-password', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const body = await c.req.json().catch(() => ({}));
+  const identifier = String(body.email || '').trim().toLowerCase();
+  if (!identifier) {
+    return c.json({ success: false, message: 'कृपया पंजीकृत ईमेल दर्ज करें।' }, 400);
+  }
+
+  const generic = { success: true, message: 'यदि यह ईमेल पंजीकृत है, तो पासवर्ड रीसेट लिंक भेज दिया गया है। कृपया इनबॉक्स/स्पैम देखें।' };
+
+  let userId = '';
+  let userType = '';
+  let userEmail = '';
+  let userName = '';
+  let tokenType = 'reset';
+
+  const user = await db.prepare('SELECT * FROM system_users WHERE LOWER(email) = ?').bind(identifier).first();
+  if (user) {
+    userId = user.id;
+    userType = 'system';
+    userEmail = user.email;
+    userName = user.full_name;
+    tokenType = user.password_hash ? 'reset' : 'invite';
+  } else {
+    const admin = await db.prepare('SELECT * FROM platform_admins WHERE LOWER(email) = ?').bind(identifier).first();
+    if (admin) {
+      userId = admin.id;
+      userType = 'admin';
+      userEmail = admin.email;
+      userName = admin.full_name || 'Super Admin';
+      tokenType = 'reset';
+    }
+  }
+
+  if (!userId) return c.json(generic);
+
+  const issued = await issueResetToken(db, userId, userType, tokenType);
+  if (issued.limited || !issued.token) return c.json(generic);
+
+  const resetLink = getRequestOrigin(c) + '/?reset=' + issued.token;
+  await sendPasswordResetEmail(c.env, { to: userEmail, name: userName, resetLink, invite: tokenType === 'invite' });
+  return c.json(generic);
+});
+
+// POST /api/auth/reset-password - magic link से नया पासवर्ड सेट करें।
+authApp.post('/reset-password', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const body = await c.req.json().catch(() => ({}));
+  const token = String(body.token || '').trim();
+  const password = String(body.password || '').trim();
+
+  if (!token) return c.json({ success: false, message: 'रीसेट टोकन आवश्यक है।' }, 400);
+  if (!password || password.length < 6) {
+    return c.json({ success: false, message: 'नया पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।' }, 400);
+  }
+
+  const consumed = await consumeResetToken(db, token);
+  if (!consumed) {
+    return c.json({ success: false, message: 'रीसेट लिंक अमान्य या समाप्त हो चुका है। कृपया नया लिंक माँगें।' }, 400);
+  }
+
+  const passwordHash = await hashPassword(password);
+  const now = new Date().toISOString();
+  if (consumed.userType === 'admin') {
+    await db.prepare('UPDATE platform_admins SET password_hash = ?, updated_at = ? WHERE id = ?').bind(passwordHash, now, consumed.userId).run();
+  } else {
+    await db.prepare('UPDATE system_users SET password_hash = ?, updated_at = ? WHERE id = ?').bind(passwordHash, now, consumed.userId).run();
+  }
+
+  return c.json({ success: true, message: 'पासवर्ड सफलतापूर्वक सेट हो गया। अब आप लॉगिन कर सकते हैं।' });
 });
 
 // POST /api/auth/register - नया स्कूल + डायरेक्टर रजिस्ट्रेशन।
