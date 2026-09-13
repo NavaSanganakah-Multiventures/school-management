@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Lock, Mail, Eye, EyeOff, School, AlertCircle, ArrowRight, UserPlus } from 'lucide-react';
+import { Lock, Mail, Eye, EyeOff, School, AlertCircle, ArrowRight, UserPlus, CheckCircle2 } from 'lucide-react';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: any, token: string) => void;
@@ -14,10 +14,16 @@ export function LoginScreen({ onLoginSuccess, onRegister }: LoginScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotMsg, setForgotMsg] = useState<string | null>(null);
+  const [forgotLoading, setForgotLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
+    setNotice(null);
 
     if (!email.trim() || !password.trim()) {
       setErrorMsg('कृपया ईमेल पता और पासवर्ड दोनों प्रविष्ट करें।');
@@ -34,6 +40,8 @@ export function LoginScreen({ onLoginSuccess, onRegister }: LoginScreenProps) {
       const data = await res.json();
       if (res.ok && data.success && data.token) {
         onLoginSuccess(data.user, data.token);
+      } else if (data.code === 'PASSWORD_NOT_SET') {
+        setNotice(data.message || 'पासवर्ड सेट नहीं है। रीसेट लिंक आपके ईमेल पर भेज दिया गया है।');
       } else {
         setErrorMsg(data.message || 'लॉगिन विफल। कृपया क्रेडेंशियल जांचें।');
       }
@@ -41,6 +49,29 @@ export function LoginScreen({ onLoginSuccess, onRegister }: LoginScreenProps) {
       setErrorMsg('सर्वर से संपर्क करने में समस्या हुई। कृपया पुनः प्रयास करें।');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotMsg(null);
+    if (!forgotEmail.trim()) {
+      setForgotMsg('कृपया पंजीकृत ईमेल दर्ज करें।');
+      return;
+    }
+    setForgotLoading(true);
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      });
+      const data = await res.json();
+      setForgotMsg(data.message || 'रीसेट लिंक भेज दिया गया है। कृपया ईमेल देखें।');
+    } catch (e) {
+      setForgotMsg('सर्वर से संपर्क करने में समस्या हुई। कृपया पुनः प्रयास करें।');
+    } finally {
+      setForgotLoading(false);
     }
   };
 
@@ -59,7 +90,7 @@ export function LoginScreen({ onLoginSuccess, onRegister }: LoginScreenProps) {
           </div>
         </div>
 
-        <form onSubmit={handleLogin} className="p-6 space-y-4">
+        <form onSubmit={forgotOpen ? handleForgot : handleLogin} className="p-6 space-y-4">
           {errorMsg && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2.5 text-xs text-red-700">
               <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
@@ -67,32 +98,82 @@ export function LoginScreen({ onLoginSuccess, onRegister }: LoginScreenProps) {
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">पंजीकृत ईमेल आईडी</label>
-            <div className="relative">
-              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="आपका पंजीकृत ईमेल" className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:bg-white transition" />
+          {notice && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5 text-xs text-amber-800">
+              <CheckCircle2 className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+              <span>{notice}</span>
             </div>
-          </div>
+          )}
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">पासवर्ड</label>
-            <div className="relative">
-              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input type={showPassword ? 'text' : 'password'} required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="पासवर्ड प्रविष्ट करें" className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:bg-white transition" />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1" aria-label="पासवर्ड देखें">
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          {forgotOpen ? (
+            <>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                अपना पंजीकृत ईमेल दर्ज करें। हम उस पर एक बार उपयोग होने वाला पासवर्ड रीसेट लिंक भेजेंगे।
+              </p>
+
+              {forgotMsg && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-2.5 text-xs text-emerald-700">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
+                  <span>{forgotMsg}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">पंजीकृत ईमेल आईडी</label>
+                <div className="relative">
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input type="email" required value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} placeholder="आपका पंजीकृत ईमेल" className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:bg-white transition" />
+                </div>
+              </div>
+
+              <button type="submit" disabled={forgotLoading} className="w-full py-2.5 px-4 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-medium text-sm rounded-xl shadow-md hover:shadow-lg transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
+                {forgotLoading ? (
+                  <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /><span>लिंक भेजा जा रहा है...</span></span>
+                ) : (
+                  <span className="flex items-center gap-2"><span>रीसेट लिंक भेजें</span><ArrowRight className="w-4 h-4" /></span>
+                )}
               </button>
-            </div>
-          </div>
 
-          <button type="submit" disabled={isLoading} className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white font-medium text-sm rounded-xl shadow-md hover:shadow-lg transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-            {isLoading ? (
-              <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /><span>सत्यापन हो रहा है...</span></span>
-            ) : (
-              <span className="flex items-center gap-2"><span>पोर्टल में सुरक्षित प्रवेश करें</span><ArrowRight className="w-4 h-4" /></span>
-            )}
-          </button>
+              <button type="button" onClick={() => { setForgotOpen(false); setForgotMsg(null); setErrorMsg(null); setNotice(null); }} className="w-full py-2 text-xs text-slate-500 hover:text-slate-700 cursor-pointer">
+                ← लॉगिन पर वापस जाएं
+              </button>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">पंजीकृत ईमेल आईडी</label>
+                <div className="relative">
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="आपका पंजीकृत ईमेल" className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:bg-white transition" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">पासवर्ड</label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input type={showPassword ? 'text' : 'password'} required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="पासवर्ड प्रविष्ट करें" className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:bg-white transition" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1" aria-label="पासवर्ड देखें">
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <button type="button" onClick={() => { setForgotOpen(true); setErrorMsg(null); setNotice(null); setForgotMsg(null); }} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer">
+                  पासवर्ड भूल गए?
+                </button>
+              </div>
+
+              <button type="submit" disabled={isLoading} className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white font-medium text-sm rounded-xl shadow-md hover:shadow-lg transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
+                {isLoading ? (
+                  <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /><span>सत्यापन हो रहा है...</span></span>
+                ) : (
+                  <span className="flex items-center gap-2"><span>पोर्टल में सुरक्षित प्रवेश करें</span><ArrowRight className="w-4 h-4" /></span>
+                )}
+              </button>
+            </>
+          )}
         </form>
 
         <div className="bg-slate-50 p-5 border-t border-slate-100">
