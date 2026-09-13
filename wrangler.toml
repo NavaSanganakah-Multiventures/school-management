@@ -22,6 +22,10 @@ bucket_name = "school-management-production"
 binding = "CONFIG_KV"
 id = "393901911be84d558822c78070a82e94"
 
+# Cloudflare Email Service binding — sends password reset / invite emails.
+[[send_email]]
+name = "SEND_EMAIL"
+
 [vars]
 ENVIRONMENT = "production"
 # FCM project id is derived from FCM_SERVICE_ACCOUNT_JSON.project_id (see api/lib/fcm.ts).
