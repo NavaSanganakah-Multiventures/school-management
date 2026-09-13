@@ -6,12 +6,27 @@
 const fs = require('fs');
 const path = require('path');
 
-const raw = process.env.NEXT_PUBLIC_FIREBASE_WEB_CONFIG_JSON || '{}';
-let config = {};
-try {
-  config = JSON.parse(raw);
-} catch (e) {
-  console.warn('generate-firebase-sw: NEXT_PUBLIC_FIREBASE_WEB_CONFIG_JSON parse failed; web push disabled.');
+const FALLBACK_CONFIG = {
+  apiKey: 'AIzaSyAsiOpqfdmFzUruBcHUWR7fLpSEtz6Jadk',
+  authDomain: 'pragnya-mitra.firebaseapp.com',
+  projectId: 'pragnya-mitra',
+  storageBucket: 'pragnya-mitra.firebasestorage.app',
+  messagingSenderId: '450359194910',
+  appId: '1:450359194910:web:4591b664360baa89d0c50f',
+  vapidKey: 'BJlcKjZBfC5YzmoIxZ1ndHRJAiemr7Rdi4LBuceK6GI7N6g9aV3ctHpKCtZ8RbaPugnfvfJQNBiRTi63CGipHP4',
+};
+
+const raw = process.env.NEXT_PUBLIC_FIREBASE_WEB_CONFIG_JSON || '';
+let config = FALLBACK_CONFIG;
+if (raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      config = Object.assign({}, FALLBACK_CONFIG, parsed);
+    }
+  } catch (e) {
+    console.warn('generate-firebase-sw: NEXT_PUBLIC_FIREBASE_WEB_CONFIG_JSON parse failed; using committed fallback.');
+  }
 }
 
 const hasConfig = !!(config.apiKey && config.projectId && config.appId);

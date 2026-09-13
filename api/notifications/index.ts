@@ -31,6 +31,163 @@ function roleInTarget(targetRole: string, deviceRole: string): boolean {
   return d === t;
 }
 
+
+interface BroadcastOptions {
+  title: string;
+  body: string;
+  schoolId: string;
+  topicKey?: string;
+  targetRole?: string;
+  priority?: string;
+  data?: Record<string, any>;
+}
+
+export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions): Promise<{ status: number; payload: any }> {
+  const activeSchoolId = opts.schoolId;
+  const availableTopics = generateSchoolTopics(activeSchoolId);
+
+  let resolvedTopicKey = opts.topicKey || 'school_' + activeSchoolId + '_all';
+  const prefix = 'school_' + activeSchoolId + '_';
+  if (resolvedTopicKey.indexOf(prefix) !== 0) {
+    let clean = String(resolvedTopicKey);
+    if (clean.indexOf('school_') === 0) clean = clean.slice('school_'.length);
+    if (clean === 'all_parents_students') clean = 'all';
+    resolvedTopicKey = prefix + clean;
+  }
+  const matchedTopic = availableTopics.find((t: any) => t.topicKey === resolvedTopicKey);
+  const targetRole = matchedTopic ? matchedTopic.targetRole : (opts.targetRole || 'All');
+  const priority = (opts.data && opts.data.priority) ? opts.data.priority : (opts.priority || 'high');
+
+  const dataPayload: Record<string, any> = Object.assign({}, opts.data || {}, {
+    schoolId: activeSchoolId,
+    tenantId: activeSchoolId,
+    targetRole: targetRole,
+    priority: priority,
+  });
+
+  const fcmConfigured = isFcmConfigured(env);
+
+  let topicResult: any = { success: false, error: 'FCM कॉन्फ़िगर नहीं है।' };
+  if (fcmConfigured) {
+    try {
+      topicResult = await sendFcmMessage(env, buildTopicMessage(resolvedTopicKey, opts.title, opts.body, dataPayload, priority));
+    } catch (e: any) {
+      topicResult = { success: false, error: e && e.message ? e.message : String(e) };
+    }
+  }
+
+  let deviceTokens: Array<{ token: string; role: string }> = [];
+  try {
+    const rows = await db.prepare(
+      'SELECT device_token, role FROM fcm_device_tokens WHERE school_id = ? AND is_active = 1'
+    ).bind(activeSchoolId).all();
+    deviceTokens = (rows.results || [])
+      .filter((r: any) => roleInTarget(targetRole, r.role))
+      .map((r: any) => ({ token: r.device_token as string, role: r.role as string }));
+  } catch (e) {
+    deviceTokens = [];
+  }
+
+  let tokenSuccess = 0;
+  let tokenFailed = 0;
+  const tokenErrors: string[] = [];
+  if (fcmConfigured) {
+    for (let i = 0; i < deviceTokens.length; i++) {
+      const token = deviceTokens[i].token;
+      try {
+        const r = await sendFcmMessage(env, buildTokenMessage(token, opts.title, opts.body, dataPayload, priority));
+        if (r.success) tokenSuccess++;
+        else { tokenFailed++; tokenErrors.push('token: ' + (r.error || 'unknown')); }
+      } catch (e: any) {
+        tokenFailed++;
+        tokenErrors.push('token: ' + (e && e.message ? e.message : String(e)));
+      }
+    }
+  }
+
+  const anySuccess = !!topicResult.success || tokenSuccess > 0;
+  const overallStatus = fcmConfigured ? (anySuccess ? 'Success' : 'Failed') : 'NotConfigured';
+  const fcmMessageId = (topicResult.messageId || topicResult.name || '');
+  const recordId = 'notif-' + Date.now();
+  const timestamp = new Date().toISOString();
+
+  let saved = false;
+  try {
+    await db.prepare(
+      'INSERT INTO notifications_log (id, fcm_message_id, title, body, target_topic, recipient_token, delivery_status, payload_data, sent_at, school_id) VALUES (?,?,?,?,?,?,?,?,?,?)'
+    ).bind(
+      recordId,
+      fcmMessageId,
+      opts.title,
+      opts.body,
+      resolvedTopicKey,
+      deviceTokens.length ? (deviceTokens.length + ' devices') : '',
+      overallStatus,
+      JSON.stringify({ schoolId: activeSchoolId, targetRole: targetRole, topic: resolvedTopicKey, topicSuccess: !!topicResult.success, fcmConfigured: fcmConfigured, deviceCount: deviceTokens.length, tokenSuccess: tokenSuccess, tokenFailed: tokenFailed, tokenErrors: tokenErrors.slice(0, 5) }),
+      timestamp,
+      activeSchoolId,
+    ).run();
+    saved = true;
+  } catch (e) {
+    console.error('notifications_log insert failed', e);
+  }
+
+  const baseRecord = {
+    id: recordId,
+    schoolId: activeSchoolId,
+    title: opts.title,
+    body: opts.body,
+    targetTopic: resolvedTopicKey,
+    targetRole: targetRole,
+    deliveryStatus: overallStatus,
+    sentAt: timestamp,
+  };
+
+  if (!saved) {
+    return { status: 500, payload: { success: false, message: 'सूचना भेजी गई, किंतु लॉग सहेजने में विफलता हुई।' } };
+  }
+
+  if (!fcmConfigured) {
+    return {
+      status: 503,
+      payload: {
+        success: false,
+        message: 'Firebase पुश सूचनाएँ कॉन्फ़िगर नहीं हैं। कृपया FCM_SERVICE_ACCOUNT_JSON secret सेट करें। (प्रयास लॉग में सहेजा गया)',
+        record: baseRecord,
+      },
+    };
+  }
+
+  if (!anySuccess) {
+    return {
+      status: 502,
+      payload: {
+        success: false,
+        message: 'FCM टॉपिक [' + resolvedTopicKey + '] पर संदेश भेजने में त्रुटि: ' + (topicResult.error || 'अज्ञात त्रुटि'),
+        record: baseRecord,
+      },
+    };
+  }
+
+  return {
+    status: 201,
+    payload: {
+      success: true,
+      message: 'अलर्ट टॉपिक [' + resolvedTopicKey + '] पर भेजा गया' + (deviceTokens.length ? (' तथा ' + tokenSuccess + ' डिवाइस को प्रेषित हुआ।') : '।'),
+      alertResponse: {
+        fcmMessageId: fcmMessageId,
+        schoolId: activeSchoolId,
+        topic: resolvedTopicKey,
+        targetRole: targetRole,
+        devices: deviceTokens.length,
+        tokenSuccess: tokenSuccess,
+        tokenFailed: tokenFailed,
+      },
+      record: baseRecord,
+    },
+  };
+}
+
 async function broadcastHandler(c: any) {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
@@ -46,120 +203,17 @@ async function broadcastHandler(c: any) {
   }
 
   const activeSchoolId = body.schoolId || getRequestSchoolId(c, authUser);
-  const availableTopics = generateSchoolTopics(activeSchoolId);
-
-  let resolvedTopicKey = body.rawTopicKey || body.topic || 'school_' + activeSchoolId + '_all';
-  const prefix = 'school_' + activeSchoolId + '_';
-  if (resolvedTopicKey.indexOf(prefix) !== 0) {
-    let clean = String(resolvedTopicKey);
-    if (clean.indexOf('school_') === 0) clean = clean.slice('school_'.length);
-    if (clean === 'all_parents_students') clean = 'all';
-    resolvedTopicKey = prefix + clean;
-  }
-  const matchedTopic = availableTopics.find((t: any) => t.topicKey === resolvedTopicKey);
-  const targetRole = matchedTopic ? matchedTopic.targetRole : (body.targetRole || 'All');
-  const priority = (body.data && body.data.priority) ? body.data.priority : (body.priority || 'high');
-
-  if (!isFcmConfigured(c.env)) {
-    return c.json({
-      success: false,
-      message: 'Firebase पुश सूचनाएँ कॉन्फ़िगर नहीं हैं। कृपया FCM_SERVICE_ACCOUNT_JSON secret सेट करें।',
-    }, 503);
-  }
-
-  const dataPayload: Record<string, any> = Object.assign({}, body.data || {}, {
+  const result = await broadcastAlert(db, c.env, {
+    title: title,
+    body: messageBody,
     schoolId: activeSchoolId,
-    tenantId: activeSchoolId,
-    targetRole: targetRole,
-    priority: priority,
+    topicKey: body.rawTopicKey || body.topic,
+    targetRole: body.targetRole,
+    priority: body.priority,
+    data: body.data,
   });
 
-  let topicResult;
-  try {
-    topicResult = await sendFcmMessage(c.env, buildTopicMessage(resolvedTopicKey, title, messageBody, dataPayload, priority));
-  } catch (e: any) {
-    topicResult = { success: false, error: e && e.message ? e.message : String(e) };
-  }
-
-  let webTokens: string[] = [];
-  try {
-    const rows = await db.prepare(
-      "SELECT device_token, role FROM fcm_device_tokens WHERE school_id = ? AND device_type = 'web' AND is_active = 1"
-    ).bind(activeSchoolId).all();
-    webTokens = (rows.results || []).filter((r: any) => roleInTarget(targetRole, r.role)).map((r: any) => r.device_token as string);
-  } catch (e) {
-    webTokens = [];
-  }
-
-  let webSuccess = 0;
-  let webFailed = 0;
-  const webErrors: string[] = [];
-  for (let i = 0; i < webTokens.length; i++) {
-    const token = webTokens[i];
-    try {
-      const r = await sendFcmMessage(c.env, buildTokenMessage(token, title, messageBody, dataPayload, priority));
-      if (r.success) webSuccess++;
-      else { webFailed++; webErrors.push('token: ' + (r.error || 'unknown')); }
-    } catch (e: any) {
-      webFailed++;
-      webErrors.push('token: ' + (e && e.message ? e.message : String(e)));
-    }
-  }
-
-  const overallSuccess = !!topicResult.success;
-  const fcmMessageId = (topicResult.messageId || topicResult.name || '');
-  const recordId = 'notif-' + Date.now();
-  const timestamp = new Date().toISOString();
-
-  try {
-    await db.prepare(
-      'INSERT INTO notifications_log (id, fcm_message_id, title, body, target_topic, recipient_token, delivery_status, payload_data, sent_at, school_id) VALUES (?,?,?,?,?,?,?,?,?,?)'
-    ).bind(
-      recordId,
-      fcmMessageId,
-      title,
-      messageBody,
-      resolvedTopicKey,
-      webTokens.length ? (webTokens.length + ' web devices') : '',
-      overallSuccess ? 'Success' : 'Failed',
-      JSON.stringify({ schoolId: activeSchoolId, targetRole: targetRole, topic: resolvedTopicKey, topicSuccess: overallSuccess, webDevices: webTokens.length, webSuccess: webSuccess, webFailed: webFailed, webErrors: webErrors.slice(0, 5) }),
-      timestamp,
-      activeSchoolId,
-    ).run();
-  } catch (e) {
-    console.error('notifications_log insert failed', e);
-  }
-
-  if (!overallSuccess) {
-    return c.json({
-      success: false,
-      message: 'FCM टॉपिक [' + resolvedTopicKey + '] पर संदेश भेजने में त्रुटि: ' + (topicResult.error || 'अज्ञात त्रुटि'),
-    }, 502);
-  }
-
-  return c.json({
-    success: true,
-    message: 'अलर्ट टॉपिक [' + resolvedTopicKey + '] पर भेजा गया' + (webTokens.length ? (' तथा ' + webSuccess + ' वेब डिवाइस को प्रेषित हुआ।') : '।'),
-    alertResponse: {
-      fcmMessageId: fcmMessageId,
-      schoolId: activeSchoolId,
-      topic: resolvedTopicKey,
-      targetRole: targetRole,
-      webDevices: webTokens.length,
-      webSuccess: webSuccess,
-      webFailed: webFailed,
-    },
-    record: {
-      id: recordId,
-      schoolId: activeSchoolId,
-      title: title,
-      body: messageBody,
-      targetTopic: resolvedTopicKey,
-      targetRole: targetRole,
-      deliveryStatus: 'Success',
-      sentAt: timestamp,
-    },
-  }, 201);
+  return c.json(result.payload, result.status);
 }
 
 notificationsApp.get('/topics', async (c) => {

@@ -78,7 +78,7 @@ function parseServiceAccount(raw: string): ServiceAccount {
 }
 
 export function getFcmProjectId(env: any): string {
-  if (env && env.FCM_PROJECT_ID) return String(env.FCM_PROJECT_ID);
+  // Project id हमेशा service account JSON से लें (hardcoded var का use नहीं)।
   if (env && env.FCM_SERVICE_ACCOUNT_JSON) {
     try {
       const sa = JSON.parse(env.FCM_SERVICE_ACCOUNT_JSON);

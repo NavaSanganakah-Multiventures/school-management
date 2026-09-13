@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
+import { broadcastAlert } from '../notifications';
 
 const noticesApp = new Hono<{ Bindings: any }>();
 
@@ -19,6 +20,14 @@ function mapNotice(r: any): any {
   };
 }
 
+function audienceToTopic(schoolId: string, audience: string): string {
+  const a = String(audience || 'All');
+  if (a === 'Students') return 'school_' + schoolId + '_students';
+  if (a === 'Teachers') return 'school_' + schoolId + '_teachers';
+  if (a === 'Parents') return 'school_' + schoolId + '_parents';
+  return 'school_' + schoolId + '_all';
+}
+
 // GET /api/notices
 noticesApp.get('/', async (c) => {
   const db = getDB(c);
@@ -35,6 +44,7 @@ noticesApp.get('/', async (c) => {
 });
 
 // POST /api/notices
+
 noticesApp.post('/', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
@@ -48,12 +58,41 @@ noticesApp.post('/', async (c) => {
   }
 
   const id = 'not-' + Date.now();
+  const targetAudience = body.targetAudience || 'All';
+  const priority = body.priority || 'Normal';
+  const fcmPriority = (priority === 'Urgent' || priority === 'High') ? 'high' : 'normal';
+
   await db.prepare('INSERT INTO notices (id, title, content, category, target_audience, published_by, published_date, priority, fcm_broadcast_status, school_id) VALUES (?,?,?,?,?,?,?,?,?,?)')
-    .bind(id, body.title, body.content, body.category || 'General', body.targetAudience || 'All', body.publishedBy || 'प्रशासन कार्यालय', new Date().toISOString().split('T')[0], body.priority || 'Normal', 'Sent', schoolId).run();
+    .bind(id, body.title, body.content, body.category || 'General', targetAudience, body.publishedBy || 'प्रशासन कार्यालय', new Date().toISOString().split('T')[0], priority, 'Pending', schoolId).run();
+
+  const broadcast = await broadcastAlert(db, c.env, {
+    title: body.title,
+    body: body.content,
+    schoolId: schoolId,
+    topicKey: audienceToTopic(schoolId, targetAudience),
+    priority: fcmPriority,
+    data: {
+      noticeId: id,
+      click_action: 'FLUTTER_NOTIFICATION_CLICK',
+      tenantId: schoolId,
+      priority: fcmPriority,
+    },
+  });
+
+  const fcmStatus = broadcast.payload && broadcast.payload.success ? 'Sent' : 'Failed';
+  await db.prepare('UPDATE notices SET fcm_broadcast_status = ? WHERE id = ?').bind(fcmStatus, id).run();
 
   const row = await db.prepare('SELECT * FROM notices WHERE id = ?').bind(id).first();
   const notice = mapNotice(row);
-  return c.json({ success: true, message: 'सूचना नोटिस बोर्ड पर प्रकाशित की गई और त्वरित अलर्ट प्रेषित किया गया।', notice }, 201);
+
+  return c.json({
+    success: true,
+    message: broadcast.payload && broadcast.payload.success
+      ? 'सूचना नोटिस बोर्ड पर प्रकाशित की गई और त्वरित अलर्ट प्रेषित किया गया।'
+      : 'सूचना नोटिस बोर्ड पर प्रकाशित की गई। त्वरित अलर्ट में समस्या: ' + (broadcast.payload && broadcast.payload.message ? broadcast.payload.message : ''),
+    notice,
+    broadcast: broadcast.payload,
+  }, 201);
 });
 
 // DELETE /api/notices/:id
