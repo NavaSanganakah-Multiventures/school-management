@@ -37,7 +37,7 @@ import { AdminConsoleScreen } from './screens/admin-console-screen';
 
 import { AddScholarModal } from './modals/add-scholar-modal';
 import { FcmBroadcastModal } from './modals/fcm-broadcast-modal';
-import { registerFcmWebToken, onForegroundFcmMessage, onFcmTokenRefresh } from '../lib/firebase-web-push';
+import { registerFcmWebToken, subscribeFcmWebTopics, onForegroundFcmMessage, onFcmTokenRefresh } from '../lib/firebase-web-push';
 
 type UserRole = 'Director' | 'Principal' | 'Staff' | 'SuperAdmin';
 
@@ -165,18 +165,30 @@ export function SchoolCrmShell() {
     let disposeForeground: (() => void) | null = null;
     let disposeRefresh: (() => void) | null = null;
 
-    const sendTokenToServer = async (token: string) => {
+    const schoolId = currentUser.schoolId || 'school-01';
+    const role: string = currentUser.role || 'Staff';
+    const roleTopic = role === 'Students'
+      ? 'school_' + schoolId + '_students'
+      : (role === 'Parents' ? 'school_' + schoolId + '_parents' : 'school_' + schoolId + '_teachers');
+    const webTopics = ['school_' + schoolId + '_all', roleTopic];
+
+    const sendTokenToServer = async (token: string, topics: string[]) => {
       try {
         await fetch('/api/notifications/register-token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: token, deviceType: 'web', role: currentUser.role, schoolId: currentUser.schoolId, platform: 'web' }),
+          body: JSON.stringify({ token: token, deviceType: 'web', role: currentUser.role, schoolId: currentUser.schoolId, platform: 'web', topics: topics }),
         });
       } catch (e) {}
     };
 
+    const registerWebDevice = async (token: string) => {
+      const subscribedTopics = await subscribeFcmWebTopics(token, webTopics);
+      await sendTokenToServer(token, subscribedTopics);
+    };
+
     registerFcmWebToken().then((token) => {
-      if (token) sendTokenToServer(token);
+      if (token) registerWebDevice(token);
     }).catch(() => {});
 
     onForegroundFcmMessage((payload) => {
@@ -187,7 +199,7 @@ export function SchoolCrmShell() {
       }
     }).then((dispose) => { disposeForeground = dispose; }).catch(() => {});
 
-    onFcmTokenRefresh((token) => { sendTokenToServer(token); }).then((dispose) => { disposeRefresh = dispose; }).catch(() => {});
+    onFcmTokenRefresh((token) => { registerWebDevice(token); }).then((dispose) => { disposeRefresh = dispose; }).catch(() => {});
 
     return () => {
       if (disposeForeground) disposeForeground();
@@ -391,7 +403,7 @@ const handleLogout = async () => {
       </div>
 
       <AddScholarModal isOpen={isAddScholarOpen} onClose={() => setIsAddScholarOpen(false)} onSuccess={() => { setActiveTab('students'); }} />
-      <FcmBroadcastModal isOpen={isBroadcastOpen} onClose={() => setIsBroadcastOpen(false)} />
+      <FcmBroadcastModal isOpen={isBroadcastOpen} onClose={() => setIsBroadcastOpen(false)} schoolId={currentUser.schoolId || 'school-01'} />
     </div>
   );
 }
