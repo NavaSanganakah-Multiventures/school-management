@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { getDB, makeUniqueUsername } from '../db';
 import { getAuthUser, getRequestSchoolId, hashPassword } from '../lib/auth';
 import { getPlanAccess } from '../lib/plan-access';
+import { issueResetToken } from '../lib/reset-tokens';
+import { sendPasswordResetEmail, getRequestOrigin } from '../lib/email';
 
 export const staffApp = new Hono<{ Bindings: any }>();
 
@@ -23,6 +25,7 @@ function mapStaff(r: any): any {
     loginUserId: r.login_account_id || r.login_user_id || '',
     username: r.login_username || '',
     hasLogin: !!(r.login_account_id || r.login_user_id),
+    passwordSet: !!(r.login_password_hash),
   };
 }
 
@@ -35,7 +38,7 @@ staffApp.get('/', async (c) => {
   const department = c.req.query('department');
   const search = (c.req.query('q') || '').toLowerCase();
 
-  const rows = await db.prepare('SELECT t.*, u.username AS login_username, u.id AS login_account_id FROM teachers t LEFT JOIN system_users u ON u.id = t.login_user_id WHERE t.school_id = ? ORDER BY t.created_at DESC').bind(schoolId).all();
+  const rows = await db.prepare('SELECT t.*, u.username AS login_username, u.id AS login_account_id, u.password_hash AS login_password_hash FROM teachers t LEFT JOIN system_users u ON u.id = t.login_user_id WHERE t.school_id = ? ORDER BY t.created_at DESC').bind(schoolId).all();
   let staff = (rows.results || []).map(mapStaff);
 
   if (department && department !== 'All') {
@@ -69,8 +72,8 @@ staffApp.post('/', async (c) => {
   if (!name || !phone || !email) {
     return c.json({ success: false, message: 'नाम, फोन और ईमेल आवश्यक हैं।' }, 400);
   }
-  if (!password || password.length < 6) {
-    return c.json({ success: false, message: 'लॉगिन पासवर्ड आवश्यक है (कम से कम 6 अक्षर)।' }, 400);
+  if (password && password.length < 6) {
+    return c.json({ success: false, message: 'यदि पासवर्ड दिया गया है तो वह कम से कम 6 अक्षरों का होना चाहिए।' }, 400);
   }
 
   // system_users.email UNIQUE है, इसलिए पहले duplicate रोकें।
@@ -94,7 +97,7 @@ staffApp.post('/', async (c) => {
   const id = 'tch-' + Date.now();
   const userId = 'usr-' + Date.now();
   const username = await makeUniqueUsername(db, email);
-  const passwordHash = await hashPassword(password);
+  const passwordHash = password ? await hashPassword(password) : null;
   const now = new Date().toISOString();
 
   await db.prepare('INSERT INTO teachers (id, employee_code, name, designation, department, subject_specialization, phone, email, qualification, joining_date, school_id, salary, status, login_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
@@ -103,12 +106,27 @@ staffApp.post('/', async (c) => {
   await db.prepare('INSERT INTO system_users (id, username, full_name, email, phone, role, designation, department, qualification, salary, status, school_id, password_hash, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .bind(userId, username, name, email, phone, 'Staff', body.designation || 'प्रशिक्षित शिक्षक (Teacher)', body.department || 'सामान्य', body.qualification || 'B.Ed.', Number(body.salary) || 45000, 'Active', schoolId, passwordHash, now).run();
 
-  const row = await db.prepare('SELECT t.*, u.username AS login_username, u.id AS login_account_id FROM teachers t LEFT JOIN system_users u ON u.id = t.login_user_id WHERE t.id = ?').bind(id).first();
+  const row = await db.prepare('SELECT t.*, u.username AS login_username, u.id AS login_account_id, u.password_hash AS login_password_hash FROM teachers t LEFT JOIN system_users u ON u.id = t.login_user_id WHERE t.id = ?').bind(id).first();
   const staffMember = mapStaff(row);
-  return c.json({ success: true, message: name + ' को स्टाफ में जोड़ दिया गया। लॉगिन यूज़रनेम: ' + username, username, staffMember }, 201);
+
+  let inviteLink = '';
+  if (!passwordHash) {
+    const issued = await issueResetToken(db, userId, 'system', 'invite');
+    if (issued.token) {
+      inviteLink = getRequestOrigin(c) + '/?reset=' + issued.token;
+      await sendPasswordResetEmail(c.env, { to: email, name: name, resetLink: inviteLink, invite: true });
+    }
+  }
+
+  const message = passwordHash
+    ? name + ' को स्टाफ में जोड़ दिया गया। लॉगिन यूज़रनेम: ' + username
+    : name + ' को स्टाफ में जोड़ दिया गया। पासवर्ड सेट करने का लिंक उनके ईमेल पर भेज दिया गया है।';
+  return c.json({ success: true, message: message, username: username, staffMember: staffMember, resetLink: inviteLink || undefined }, 201);
 });
 
-// POST /api/staff/:id/login - पुराने स्टाफ के लिए लॉगिन पासवर्ड सेट/रीसेट करें।
+// POST /api/staff/:id/login - staff को पासवर्ड-रीसेट/इनवाइट लिंक भेजें।
+// body में password (min 6) दिया गया हो तो सीधे manual password set हो जाता है (fallback);
+// नहीं तो ईमेल पर magic link भेजा जाता है।
 staffApp.post('/:id/login', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
@@ -124,15 +142,14 @@ staffApp.post('/:id/login', async (c) => {
 
   const body = await c.req.json().catch(() => ({}));
   const password = String(body.password || '').trim();
-  if (!password || password.length < 6) {
-    return c.json({ success: false, message: 'पासवर्ड आवश्यक है (कम से कम 6 अक्षर)।' }, 400);
+  if (password && password.length < 6) {
+    return c.json({ success: false, message: 'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।' }, 400);
   }
 
   const email = String(teacher.email || '').trim().toLowerCase();
   const existing = await db.prepare('SELECT * FROM system_users WHERE LOWER(email) = ?').bind(email).first();
-  const passwordHash = await hashPassword(password);
-  let userId: string;
-  let username: string;
+  let userId: string = teacher.login_user_id || '';
+  let username: string = existing ? existing.username : '';
 
   if (existing) {
     if (String(existing.role) !== 'Staff' || String(existing.school_id) !== schoolId) {
@@ -140,17 +157,30 @@ staffApp.post('/:id/login', async (c) => {
     }
     userId = existing.id;
     username = existing.username;
-    await db.prepare('UPDATE system_users SET password_hash = ?, full_name = ?, phone = ?, status = ? WHERE id = ?')
-      .bind(passwordHash, teacher.name, teacher.phone, 'Active', userId).run();
   } else {
     userId = 'usr-' + Date.now();
     username = await makeUniqueUsername(db, email);
     await db.prepare('INSERT INTO system_users (id, username, full_name, email, phone, role, designation, department, qualification, salary, status, school_id, password_hash, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .bind(userId, username, teacher.name, email, teacher.phone, 'Staff', teacher.designation || 'प्रशिक्षित शिक्षक (Teacher)', teacher.department || 'सामान्य', teacher.qualification || 'B.Ed.', Number(teacher.salary) || 45000, 'Active', schoolId, passwordHash, new Date().toISOString()).run();
+      .bind(userId, username, teacher.name, email, teacher.phone, 'Staff', teacher.designation || 'प्रशिक्षित शिक्षक (Teacher)', teacher.department || 'सामान्य', teacher.qualification || 'B.Ed.', Number(teacher.salary) || 45000, 'Active', schoolId, null, new Date().toISOString()).run();
   }
 
   await db.prepare('UPDATE teachers SET login_user_id = ? WHERE id = ?').bind(userId, id).run();
-  return c.json({ success: true, message: 'लॉगिन सक्षम किया गया। यूज़रनेम: ' + username, username });
+
+  if (password) {
+    const passwordHash = await hashPassword(password);
+    await db.prepare('UPDATE system_users SET password_hash = ?, full_name = ?, phone = ?, status = ? WHERE id = ?')
+      .bind(passwordHash, teacher.name, teacher.phone, 'Active', userId).run();
+    return c.json({ success: true, message: 'पासवर्ड सेट हो गया। यूज़रनेम: ' + username, username: username });
+  }
+
+  const issued = await issueResetToken(db, userId, 'system', 'invite');
+  if (issued.limited || !issued.token) {
+    return c.json({ success: true, message: 'हाल ही में रीसेट लिंक भेजा जा चुका है। कृपया ईमेल जाँचें या 2 मिनट बाद पुनः प्रयास करें।' });
+  }
+
+  const resetLink = getRequestOrigin(c) + '/?reset=' + issued.token;
+  await sendPasswordResetEmail(c.env, { to: email, name: teacher.name, resetLink: resetLink, invite: true });
+  return c.json({ success: true, message: teacher.name + ' के ईमेल पर पासवर्ड सेट करने का लिंक भेज दिया गया है।', resetLink: resetLink, username: username });
 });
 
 // DELETE /api/staff/:id - staff हटाएं + लॉगिन निष्क्रिय करें + उसके device tokens बंद करें।
