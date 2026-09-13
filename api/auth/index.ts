@@ -45,7 +45,7 @@ authApp.post('/login', async (c) => {
   if (!user.password_hash) {
     const invite = await issueResetToken(db, user.id, 'system', 'invite');
     if (!invite.limited) {
-      const resetLink = getRequestOrigin(c) + '/?reset=' + invite.token;
+      const resetLink = getRequestOrigin(c, c.env) + '/?reset=' + invite.token;
       await sendPasswordResetEmail(c.env, { to: user.email, name: user.full_name, resetLink, invite: true });
     }
     return c.json({ success: false, code: 'PASSWORD_NOT_SET', message: 'इस खाते का पासवर्ड अभी सेट नहीं है। हमने आपके ईमेल पर पासवर्ड सेट करने का लिंक भेज दिया है। कृपया इनबॉक्स/स्पैम देखें।' }, 401);
@@ -117,7 +117,7 @@ authApp.post('/forgot-password', async (c) => {
   const issued = await issueResetToken(db, userId, userType, tokenType);
   if (issued.limited || !issued.token) return c.json(generic);
 
-  const resetLink = getRequestOrigin(c) + '/?reset=' + issued.token;
+  const resetLink = getRequestOrigin(c, c.env) + '/?reset=' + issued.token;
   await sendPasswordResetEmail(c.env, { to: userEmail, name: userName, resetLink, invite: tokenType === 'invite' });
   return c.json(generic);
 });

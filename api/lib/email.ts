@@ -1,7 +1,8 @@
 // Cloudflare Email Service (send_email binding) helper.
 // Sends transactional password reset / invite emails via the SEND_EMAIL binding.
 
-export function getRequestOrigin(c: any): string {
+export function getRequestOrigin(c: any, env?: any): string {
+  if (env && env.APP_BASE_URL) return env.APP_BASE_URL;
   try {
     return new URL(c.req.url).origin;
   } catch (e) {
@@ -66,7 +67,7 @@ export async function sendPasswordResetEmail(env: any, input: PasswordResetEmail
   try {
     await binding.send({
       to: input.to,
-      from: { email: 'noreply@setu.navasanganakah.com', name: 'Pragnya Mitra' },
+      from: { email: 'pragnya@navasanganakah.com', name: 'Pragnya Mitra' },
       subject: subject,
       html: html,
       text: text
