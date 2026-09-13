@@ -519,7 +519,7 @@ export async function makeUniqueUsername(db: any, email: string): Promise<string
   return base + '-' + secureUsernameSuffix();
 }
 
-// Cryptographically secure random suffix — Math.random() is not safe in security contexts.
+// Cryptographically secure random suffix for username uniqueness fallback.
 function secureUsernameSuffix(): string {
   const rand = crypto.getRandomValues(new Uint32Array(1))[0];
   return String(rand % 1000000).padStart(6, '0');
