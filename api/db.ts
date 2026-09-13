@@ -511,10 +511,16 @@ export function getDB(c: any): MiniD1 {
 export async function makeUniqueUsername(db: any, email: string): Promise<string> {
   const base = String(email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9._-]/g, '') || ('user' + Date.now().toString().slice(-6));
   let username = base;
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 10; i++) {
     const taken = await db.prepare('SELECT id FROM system_users WHERE LOWER(username) = ?').bind(username).first();
     if (!taken) return username;
-    username = base + '-' + Date.now().toString().slice(-6);
+    username = base + '-' + secureUsernameSuffix();
   }
-  return base + '-' + Date.now().toString() + '-' + Math.floor(Math.random() * 1000);
+  return base + '-' + secureUsernameSuffix();
+}
+
+// Cryptographically secure random suffix — Math.random() is not safe in security contexts.
+function secureUsernameSuffix(): string {
+  const rand = crypto.getRandomValues(new Uint32Array(1))[0];
+  return String(rand % 1000000).padStart(6, '0');
 }
