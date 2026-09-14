@@ -1,13 +1,18 @@
 'use client';
 
+import { FIREBASE_VAPID_KEY } from './firebase-client-config';
+
 /**
- * Pure Server-Side FCM Push Notification Architecture
- * 
- * Complies with user requirement:
- * 1. FCM HTTP v1 API exclusively on the server-side (Cloudflare Workers + Google Service Account)
- * 2. NO client-side calls to firebaseinstallations.googleapis.com (eliminates all CORS errors)
- * 3. Works universally on custom domains, subdomains, and local environments
- * 4. Supports Topic broadcasting & direct mobile device targeting
+ * Native Web Push registration (browser PushManager + service worker).
+ *
+ * Background notifications now work even when the tab is closed:
+ *   1. Request Notification permission.
+ *   2. Register the service worker (public/firebase-messaging-sw.js handles the "push" event).
+ *   3. Subscribe via PushManager.subscribe() with the Firebase VAPID public key.
+ *   4. Send the full PushSubscription JSON to /api/notifications/register-web-push.
+ *
+ * There are NO client-side calls to firebaseinstallations.googleapis.com or
+ * Firebase getToken(): this avoids the CORS problems seen on workers.dev.
  */
 
 export type WebPushDiagnostic = {
@@ -30,7 +35,7 @@ export function getWebPushDiagnostic(): WebPushDiagnostic | null {
  */
 export function isWebPushSupported(): boolean {
   if (typeof window === 'undefined') return false;
-  return 'Notification' in window && 'serviceWorker' in navigator;
+  return 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
 }
 
 export function getStoredToken(): string | null {
@@ -49,10 +54,18 @@ export interface RegisterTokenOptions {
   topics?: string[];
 }
 
+function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
 /**
- * Register Client Device via Server-Side FCM Approach
- * Requests browser notification permission, registers service worker, and informs backend server.
- * Completely eliminates CORS errors because no client-side calls to Google Installations are made.
+ * Register a real browser PushSubscription (native Web Push) with the backend.
+ * Returns the push subscription endpoint on success, or null on failure.
  */
 export async function registerFcmWebToken(
   userId?: string | number,
@@ -72,7 +85,7 @@ export async function registerFcmWebToken(
   lastDiagnostic = diag;
 
   if (!userId) {
-    diag.error = 'userId required for FCM registration';
+    diag.error = 'userId required for Web Push registration';
     return null;
   }
 
@@ -87,7 +100,7 @@ export async function registerFcmWebToken(
       const permission = await Notification.requestPermission();
       diag.permission = permission;
       if (permission !== 'granted') {
-        diag.error = `Notification permission: ${permission}`;
+        diag.error = 'Notification permission: ' + permission;
         return null;
       }
     }
@@ -104,52 +117,63 @@ export async function registerFcmWebToken(
     } catch (_) {}
   }
 
-  // 3. Register standard Web Push service worker with cache-busting version
-  try {
-    if ('serviceWorker' in navigator) {
-      const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js?v=2.1.0', { scope: '/' });
-      await reg.update().catch(() => {});
-      await navigator.serviceWorker.ready;
-    }
-  } catch (swErr: any) {
-    console.log('[FCM] Service worker ready notice:', swErr?.message || swErr);
-  }
-
   const schoolId = options?.schoolId || 'school-01';
   const role = options?.role || 'Staff';
   const topics = options?.topics || ['school_' + schoolId + '_all'];
 
-  // 3. Register client device with server-side engine
+  // 3. Register the service worker and subscribe via the native PushManager API
   try {
-    const res = await fetch('/api/notifications/register-client', {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      diag.error = 'Service Worker or PushManager API is unavailable.';
+      return null;
+    }
+
+    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js?v=2.1.0', { scope: '/' });
+    await reg.update().catch(() => {});
+    await navigator.serviceWorker.ready;
+
+    let subscription = await reg.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(FIREBASE_VAPID_KEY),
+      });
+    }
+
+    const subJSON = subscription.toJSON();
+
+    // 4. Persist the full PushSubscription on the server (endpoint + p256dh + auth)
+    const res = await fetch('/api/notifications/register-web-push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userId: String(userId),
         schoolId,
         role,
-        platform: 'web',
-        deviceType: 'web',
         topics,
+        subscription: subJSON,
       }),
     });
 
     const data = await res.json().catch(() => ({}));
-    const clientToken = data.clientToken || `web-${schoolId}-${userId}`;
-
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('vidyasetu_device_registered', clientToken);
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || ('HTTP ' + res.status));
     }
-    diag.token = clientToken;
-    return clientToken;
+
+    const endpoint = subJSON.endpoint || (data.endpoint as string);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('vidyasetu_device_registered', endpoint);
+    }
+    diag.token = endpoint;
+    return endpoint;
   } catch (e: any) {
-    diag.error = e?.message || 'Server-side registration error';
+    diag.error = e?.message || 'Web Push subscription registration failed';
     return null;
   }
 }
 
 /**
- * Send test notification via Server-Side FCM HTTP v1 API
+ * Send test notification via server (supports FCM mobile and native Web Push)
  */
 export async function sendTestNotification(
   userId: string | number,

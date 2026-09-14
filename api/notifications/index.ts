@@ -9,6 +9,7 @@ import {
   isRealFcmToken,
   sendFcmMessage,
 } from '../lib/fcm';
+import { isWebPushConfigured, sendWebPushNotification } from '../lib/webpush';
 
 const notificationsApp = new Hono();
 
@@ -77,6 +78,7 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
   });
 
   const fcmConfigured = isFcmConfigured(env);
+  const webPushConfigured = isWebPushConfigured(env);
 
   let topicResult: any = { success: false, error: 'FCM कॉन्फ़िगर नहीं है।' };
   if (fcmConfigured) {
@@ -125,6 +127,26 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
     directTokens = [];
   }
 
+  // Native Web Push subscriptions (real browser PushSubscription) — background delivery.
+  let webPushSubs: Array<{ id: string; endpoint: string; p256dh: string; auth: string; role: string; subscribedTopics: string[] }> = [];
+  try {
+    const webRows = await db.prepare(
+      'SELECT id, endpoint, p256dh, auth, role, subscribed_topics FROM web_push_subscriptions WHERE school_id = ? AND is_active = 1'
+    ).bind(activeSchoolId).all();
+    webPushSubs = (webRows.results || [])
+      .filter((r: any) => roleInTarget(targetRole, r.role))
+      .map((r: any) => ({
+        id: String(r.id || ''),
+        endpoint: String(r.endpoint || ''),
+        p256dh: String(r.p256dh || ''),
+        auth: String(r.auth || ''),
+        role: String(r.role || ''),
+        subscribedTopics: parseTopics(r.subscribed_topics),
+      }));
+  } catch (e) {
+    webPushSubs = [];
+  }
+
   let tokenSuccess = 0;
   let tokenFailed = 0;
   const tokenErrors: string[] = [];
@@ -155,15 +177,50 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
     }
   }
 
-  const anySuccess = !!topicResult.success || tokenSuccess > 0 || webCount > 0;
-  const overallStatus = fcmConfigured ? (anySuccess ? 'Success' : 'Failed') : 'NotConfigured';
+  let webPushSent = 0;
+  let webPushFailed = 0;
+  const webPushErrors: string[] = [];
+  if (webPushSubs.length > 0) {
+    const webPayload = {
+      notification: { title: opts.title, body: opts.body },
+      data: dataPayload,
+    };
+    for (let i = 0; i < webPushSubs.length; i++) {
+      const sub = webPushSubs[i];
+      if (!webPushConfigured) {
+        webPushFailed++;
+        webPushErrors.push('WEB_PUSH_VAPID_PRIVATE_KEY कॉन्फ़िगर नहीं है');
+        continue;
+      }
+      try {
+        const r = await sendWebPushNotification(env, { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, webPayload);
+        if (r.success) {
+          webPushSent++;
+        } else {
+          webPushFailed++;
+          webPushErrors.push(r.error || ('HTTP ' + (r.status || '?')));
+          if (r.status === 404 || r.status === 410) {
+            await db.prepare('UPDATE web_push_subscriptions SET is_active = 0 WHERE id = ?').bind(sub.id).run().catch(() => {});
+          }
+        }
+      } catch (e: any) {
+        webPushFailed++;
+        webPushErrors.push(e && e.message ? e.message : String(e));
+      }
+    }
+  }
+
+  const anyPushConfigured = fcmConfigured || webPushConfigured;
+  const anySuccess = !!topicResult.success || tokenSuccess > 0 || webPushSent > 0;
+  const overallStatus = anyPushConfigured ? (anySuccess ? 'Success' : 'Failed') : 'NotConfigured';
   const fcmMessageId = (topicResult.messageId || topicResult.name || '');
 
-  // TODO(debug): FCM सत्यापन पूर्ण होने के बाद यह diag block हटाया जा सकता है।
+  // TODO(debug): FCM/Web Push सत्यापन पूर्ण होने के बाद यह diag block हटाया जा सकता है।
   const fcmProjectId = getFcmProjectId(env);
   const diag = {
     fcmProjectId: fcmProjectId,
     fcmConfigured: fcmConfigured,
+    webPushConfigured: webPushConfigured,
     topic: resolvedTopicKey,
     targetRole: targetRole,
     topicSuccess: !!topicResult.success,
@@ -177,6 +234,10 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
     tokenSuccess: tokenSuccess,
     tokenFailed: tokenFailed,
     tokenErrors: tokenErrors.slice(0, 10),
+    webPushSubscriptionCount: webPushSubs.length,
+    webPushSent: webPushSent,
+    webPushFailed: webPushFailed,
+    webPushErrors: webPushErrors.slice(0, 10),
   };
   console.log('[FCM] broadcast diag ' + JSON.stringify(diag));
 
@@ -193,9 +254,9 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
       opts.title,
       opts.body,
       resolvedTopicKey,
-      allTargetDevices.length ? (allTargetDevices.length + ' devices') : '',
+      allTargetDevices.length ? (allTargetDevices.length + ' devices') : (webPushSubs.length ? (webPushSubs.length + ' web push') : ''),
       overallStatus,
-      JSON.stringify({ schoolId: activeSchoolId, fcmProjectId: fcmProjectId, targetRole: targetRole, topic: resolvedTopicKey, topicSuccess: !!topicResult.success, fcmConfigured: fcmConfigured, deviceCount: allTargetDevices.length, webCount: webCount, mobileCount: mobileCount, directCount: directTokens.length, topicDedupCount: tokenSkipped, tokenSuccess: tokenSuccess, tokenFailed: tokenFailed, tokenErrors: tokenErrors.slice(0, 5) }),
+      JSON.stringify({ schoolId: activeSchoolId, fcmProjectId: fcmProjectId, targetRole: targetRole, topic: resolvedTopicKey, topicSuccess: !!topicResult.success, fcmConfigured: fcmConfigured, webPushConfigured: webPushConfigured, deviceCount: allTargetDevices.length, webCount: webCount, mobileCount: mobileCount, directCount: directTokens.length, topicDedupCount: tokenSkipped, tokenSuccess: tokenSuccess, tokenFailed: tokenFailed, tokenErrors: tokenErrors.slice(0, 5), webPushSubscriptionCount: webPushSubs.length, webPushSent: webPushSent, webPushFailed: webPushFailed, webPushErrors: webPushErrors.slice(0, 5) }),
       timestamp,
       activeSchoolId,
     ).run();
@@ -219,12 +280,12 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
     return { status: 500, payload: { success: false, message: 'सूचना भेजी गई, किंतु लॉग सहेजने में विफलता हुई।', diag: diag } };
   }
 
-  if (!fcmConfigured) {
+  if (!anyPushConfigured) {
     return {
       status: 503,
       payload: {
         success: false,
-        message: 'Firebase पुश सूचनाएँ कॉन्फ़िगर नहीं हैं। कृपया FCM_SERVICE_ACCOUNT_JSON secret सेट करें। (प्रयास लॉग में सहेजा गया)',
+        message: 'Firebase या Web Push सूचनाएँ कॉन्फ़िगर नहीं हैं। कृपया FCM_SERVICE_ACCOUNT_JSON या WEB_PUSH_VAPID_PRIVATE_KEY secret सेट करें। (प्रयास लॉग में सहेजा गया)',
         diag: diag,
         record: baseRecord,
       },
@@ -236,7 +297,7 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
       status: 502,
       payload: {
         success: false,
-        message: 'FCM टॉपिक [' + resolvedTopicKey + '] पर संदेश भेजने में त्रुटि: ' + (topicResult.error || 'अज्ञात त्रुटि'),
+        message: 'पुश संदेश [' + resolvedTopicKey + '] भेजने में त्रुटि: ' + (topicResult.error || (webPushErrors[0] || 'अज्ञात त्रुटि')),
         diag: diag,
         record: baseRecord,
       },
@@ -247,7 +308,7 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
     status: 201,
     payload: {
       success: true,
-      message: 'अलर्ट टॉपिक [' + resolvedTopicKey + '] पर भेजा गया' + (allTargetDevices.length ? ('; ' + tokenSuccess + ' डिवाइस को direct तथा ' + tokenSkipped + ' डिवाइस को टॉपिक से भेजा गया।') : '।'),
+      message: 'अलर्ट [' + resolvedTopicKey + '] भेजा गया — FCM topic ' + (topicResult.success ? 'सफल' : 'N/A') + ', mobile direct ' + tokenSuccess + ', web push ' + webPushSent + '।',
       alertResponse: {
         fcmMessageId: fcmMessageId,
         schoolId: activeSchoolId,
@@ -256,6 +317,8 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
         devices: allTargetDevices.length,
         tokenSuccess: tokenSuccess,
         tokenFailed: tokenFailed,
+        webPushSent: webPushSent,
+        webPushFailed: webPushFailed,
       },
       diag: diag,
       record: baseRecord,
@@ -384,23 +447,23 @@ notificationsApp.post('/register-token', async (c) => {
   }
 
   // Ensure table exists
-  await db.prepare(`
-    CREATE TABLE IF NOT EXISTS fcm_device_tokens (
-      id TEXT PRIMARY KEY,
-      school_id TEXT NOT NULL,
-      user_id TEXT,
-      role TEXT DEFAULT 'Parents',
-      device_token TEXT UNIQUE NOT NULL,
-      device_type TEXT DEFAULT 'mobile_app',
-      platform TEXT DEFAULT 'flutter',
-      subscribed_topics TEXT DEFAULT '[]',
-      is_active INTEGER DEFAULT 1,
-      last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `).run().catch(() => {});
+  await db.prepare(
+    'CREATE TABLE IF NOT EXISTS fcm_device_tokens (' +
+    'id TEXT PRIMARY KEY, ' +
+    'school_id TEXT NOT NULL, ' +
+    'user_id TEXT, ' +
+    "role TEXT DEFAULT 'Parents', " +
+    'device_token TEXT UNIQUE NOT NULL, ' +
+    "device_type TEXT DEFAULT 'mobile_app', " +
+    "platform TEXT DEFAULT 'flutter', " +
+    "subscribed_topics TEXT DEFAULT '[]', " +
+    'is_active INTEGER DEFAULT 1, ' +
+    'last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, ' +
+    'created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP' +
+    ')'
+  ).run().catch(() => {});
 
-  const id = isWebToken ? `web-${schoolId}-${userId}` : `devtok-${Date.now()}`;
+  const id = isWebToken ? ('web-' + schoolId + '-' + userId) : ('devtok-' + Date.now());
   const now = new Date().toISOString();
   await db.prepare(
     'INSERT INTO fcm_device_tokens (id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at) ' +
@@ -433,40 +496,40 @@ notificationsApp.post('/register-client', async (c) => {
     ? body.topics
     : derivedTopics(schoolId, role);
 
-  const clientToken = `web-client-${schoolId}-${userId}`;
+  const clientToken = 'web-client-' + schoolId + '-' + userId;
 
   if (db) {
-    await db.prepare(`
-      CREATE TABLE IF NOT EXISTS fcm_device_tokens (
-        id TEXT PRIMARY KEY,
-        school_id TEXT NOT NULL,
-        user_id TEXT,
-        role TEXT DEFAULT 'Parents',
-        device_token TEXT UNIQUE NOT NULL,
-        device_type TEXT DEFAULT 'mobile_app',
-        platform TEXT DEFAULT 'flutter',
-        subscribed_topics TEXT DEFAULT '[]',
-        is_active INTEGER DEFAULT 1,
-        last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `).run().catch(() => {});
+    await db.prepare(
+      'CREATE TABLE IF NOT EXISTS fcm_device_tokens (' +
+      'id TEXT PRIMARY KEY, ' +
+      'school_id TEXT NOT NULL, ' +
+      'user_id TEXT, ' +
+      "role TEXT DEFAULT 'Parents', " +
+      'device_token TEXT UNIQUE NOT NULL, ' +
+      "device_type TEXT DEFAULT 'mobile_app', " +
+      "platform TEXT DEFAULT 'flutter', " +
+      "subscribed_topics TEXT DEFAULT '[]', " +
+      'is_active INTEGER DEFAULT 1, ' +
+      'last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, ' +
+      'created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP' +
+      ')'
+    ).run().catch(() => {});
 
     const now = new Date().toISOString();
-    await db.prepare(`
-      INSERT INTO fcm_device_tokens 
-      (id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-      ON CONFLICT(device_token) DO UPDATE SET 
-        school_id = excluded.school_id,
-        user_id = excluded.user_id,
-        role = excluded.role,
-        device_type = excluded.device_type,
-        platform = excluded.platform,
-        subscribed_topics = excluded.subscribed_topics,
-        is_active = 1,
-        last_seen_at = excluded.last_seen_at
-    `).bind('devtok-' + Date.now(), schoolId, String(userId), role, clientToken, deviceType, platform, JSON.stringify(topics), now, now).run().catch(() => {});
+    await db.prepare(
+      'INSERT INTO fcm_device_tokens ' +
+      '(id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?) ' +
+      'ON CONFLICT(device_token) DO UPDATE SET ' +
+      'school_id = excluded.school_id, ' +
+      'user_id = excluded.user_id, ' +
+      'role = excluded.role, ' +
+      'device_type = excluded.device_type, ' +
+      'platform = excluded.platform, ' +
+      'subscribed_topics = excluded.subscribed_topics, ' +
+      'is_active = 1, ' +
+      'last_seen_at = excluded.last_seen_at'
+    ).bind('devtok-' + Date.now(), schoolId, String(userId), role, clientToken, deviceType, platform, JSON.stringify(topics), now, now).run().catch(() => {});
   }
 
   return c.json({
@@ -476,6 +539,71 @@ notificationsApp.post('/register-client', async (c) => {
     clientToken,
     topics,
   });
+});
+
+/**
+ * Register a real browser PushSubscription (native Web Push) for background delivery.
+ */
+notificationsApp.post('/register-web-push', async (c) => {
+  const db = getDB(c);
+  const authUser = await getAuthUser(c);
+  const body = await c.req.json().catch(() => ({}));
+
+  const subscription = body.subscription || {};
+  const endpoint = subscription.endpoint || body.endpoint;
+  const keys = subscription.keys || {};
+  const p256dh = keys.p256dh || body.p256dh;
+  const auth = keys.auth || body.auth;
+
+  if (!endpoint || !p256dh || !auth) {
+    return c.json({ success: false, message: 'PushSubscription (endpoint, p256dh, auth) आवश्यक है।' }, 400);
+  }
+
+  const schoolId = body.schoolId || getRequestSchoolId(c, authUser) || 'school-01';
+  const role = body.role || (authUser && authUser.role) || 'Staff';
+  const userId = body.userId || (authUser && (authUser.sub || authUser.id || authUser.userId)) || 'anonymous';
+  const topics = Array.isArray(body.topics) && body.topics.length > 0
+    ? body.topics
+    : derivedTopics(schoolId, role);
+
+  if (!db) {
+    return c.json({ success: true, message: 'Web Push subscription सहेजा गया (डेटाबेस उपलब्ध नहीं)।' }, 200);
+  }
+
+  await db.prepare(
+    'CREATE TABLE IF NOT EXISTS web_push_subscriptions (' +
+    'id TEXT PRIMARY KEY, ' +
+    'school_id TEXT NOT NULL, ' +
+    'user_id TEXT, ' +
+    "role TEXT DEFAULT 'Staff', " +
+    'endpoint TEXT UNIQUE NOT NULL, ' +
+    'p256dh TEXT NOT NULL, ' +
+    'auth TEXT NOT NULL, ' +
+    "subscribed_topics TEXT DEFAULT '[]', " +
+    'is_active INTEGER DEFAULT 1, ' +
+    'last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, ' +
+    'created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP' +
+    ')'
+  ).run().catch(() => {});
+
+  const now = new Date().toISOString();
+  const id = 'webpush-' + schoolId + '-' + String(userId) + '-' + Date.now();
+  await db.prepare(
+    'INSERT INTO web_push_subscriptions ' +
+    '(id, school_id, user_id, role, endpoint, p256dh, auth, subscribed_topics, is_active, last_seen_at, created_at) ' +
+    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?) ' +
+    'ON CONFLICT(endpoint) DO UPDATE SET ' +
+    'school_id = excluded.school_id, ' +
+    'user_id = excluded.user_id, ' +
+    'role = excluded.role, ' +
+    'p256dh = excluded.p256dh, ' +
+    'auth = excluded.auth, ' +
+    'subscribed_topics = excluded.subscribed_topics, ' +
+    'is_active = 1, ' +
+    'last_seen_at = excluded.last_seen_at'
+  ).bind(id, schoolId, String(userId), role, String(endpoint), String(p256dh), String(auth), JSON.stringify(topics), now, now).run();
+
+  return c.json({ success: true, message: 'Web Push subscription सफलतापूर्वक पंजीकृत हुआ।', endpoint: String(endpoint), topics }, 200);
 });
 
 /**
