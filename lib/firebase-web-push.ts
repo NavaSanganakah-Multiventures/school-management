@@ -164,6 +164,15 @@ export async function registerFcmWebToken(): Promise<string | null> {
   };
   lastWebPushDiagnostic = diag;
 
+  // Check if running on workers.dev subdomain
+  if (typeof window !== 'undefined' && window.location.hostname.includes('workers.dev')) {
+    diag.error = 'Web push notifications workers.dev subdomain पर CORS blocked हैं। Custom domain use करें या server-side implementation implement करें। Details: CLOUDFLARE_WORKERS_FCM_SOLUTION.md';
+    console.warn('🚨 Firebase FCM blocked on workers.dev subdomain');
+    console.warn('📖 Solution: Add custom domain in Cloudflare Dashboard → Workers → Custom Domains');
+    console.warn('📖 Or see: CLOUDFLARE_WORKERS_FCM_SOLUTION.md for alternatives');
+    return null;
+  }
+
   diag.supported = isWebPushSupported();
   if (!diag.supported) {
     diag.error = 'Web Push supported nahi hai (serviceWorker / PushManager / Notification missing)';
