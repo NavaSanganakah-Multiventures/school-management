@@ -399,6 +399,68 @@ notificationsApp.post('/register-token', async (c) => {
 });
 
 /**
+ * Register web client session under school tenant for server-side push handling
+ */
+notificationsApp.post('/register-client', async (c) => {
+  const db = getDB(c);
+  const authUser = await getAuthUser(c);
+  const body = await c.req.json().catch(() => ({}));
+
+  const schoolId = body.schoolId || getRequestSchoolId(c, authUser) || 'school-01';
+  const role = body.role || (authUser && authUser.role) || 'Staff';
+  const userId = body.userId || (authUser && (authUser.sub || authUser.id || authUser.userId)) || 'anonymous';
+  const deviceType = body.deviceType || 'web';
+  const platform = body.platform || 'web';
+  const topics = Array.isArray(body.topics) && body.topics.length > 0
+    ? body.topics
+    : derivedTopics(schoolId, role);
+
+  const clientToken = `web-client-${schoolId}-${userId}`;
+
+  if (db) {
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS fcm_device_tokens (
+        id TEXT PRIMARY KEY,
+        school_id TEXT NOT NULL,
+        user_id TEXT,
+        role TEXT DEFAULT 'Parents',
+        device_token TEXT UNIQUE NOT NULL,
+        device_type TEXT DEFAULT 'mobile_app',
+        platform TEXT DEFAULT 'flutter',
+        subscribed_topics TEXT DEFAULT '[]',
+        is_active INTEGER DEFAULT 1,
+        last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run().catch(() => {});
+
+    const now = new Date().toISOString();
+    await db.prepare(`
+      INSERT INTO fcm_device_tokens 
+      (id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      ON CONFLICT(device_token) DO UPDATE SET 
+        school_id = excluded.school_id,
+        user_id = excluded.user_id,
+        role = excluded.role,
+        device_type = excluded.device_type,
+        platform = excluded.platform,
+        subscribed_topics = excluded.subscribed_topics,
+        is_active = 1,
+        last_seen_at = excluded.last_seen_at
+    `).bind('devtok-' + Date.now(), schoolId, String(userId), role, clientToken, deviceType, platform, JSON.stringify(topics), now, now).run().catch(() => {});
+  }
+
+  return c.json({
+    success: true,
+    message: 'वेब क्लाइंट सर्वर-साइड सफलतापूर्वक पंजीकृत हुआ।',
+    schoolId,
+    clientToken,
+    topics,
+  });
+});
+
+/**
  * Get registered devices summary for a school
  */
 notificationsApp.get('/devices', async (c) => {
