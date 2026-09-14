@@ -143,45 +143,43 @@ app.post('/register-token', async (c) => {
         ).run();
       }
 
-      // Also sync to fcm_device_tokens table if genuine FCM token
-      if (hasRealToken) {
-        try {
-          const id = 'devtok-' + Date.now();
-          const now = new Date().toISOString();
-          await db.prepare(`
-            CREATE TABLE IF NOT EXISTS fcm_device_tokens (
-              id TEXT PRIMARY KEY,
-              school_id TEXT NOT NULL,
-              user_id TEXT,
-              role TEXT DEFAULT 'Parents',
-              device_token TEXT UNIQUE NOT NULL,
-              device_type TEXT DEFAULT 'mobile_app',
-              platform TEXT DEFAULT 'flutter',
-              subscribed_topics TEXT DEFAULT '[]',
-              is_active INTEGER DEFAULT 1,
-              last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-          `).run().catch(() => {});
+      // Also sync to fcm_device_tokens table
+      try {
+        const id = hasRealToken ? ('devtok-' + Date.now()) : (`web-${schoolId}-${userId}`);
+        const now = new Date().toISOString();
+        await db.prepare(`
+          CREATE TABLE IF NOT EXISTS fcm_device_tokens (
+            id TEXT PRIMARY KEY,
+            school_id TEXT NOT NULL,
+            user_id TEXT,
+            role TEXT DEFAULT 'Parents',
+            device_token TEXT UNIQUE NOT NULL,
+            device_type TEXT DEFAULT 'mobile_app',
+            platform TEXT DEFAULT 'flutter',
+            subscribed_topics TEXT DEFAULT '[]',
+            is_active INTEGER DEFAULT 1,
+            last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `).run().catch(() => {});
 
-          await db.prepare(`
-            INSERT INTO fcm_device_tokens 
-            (id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-            ON CONFLICT(device_token) DO UPDATE SET 
-              school_id = excluded.school_id,
-              user_id = excluded.user_id,
-              role = excluded.role,
-              device_type = excluded.device_type,
-              platform = excluded.platform,
-              subscribed_topics = excluded.subscribed_topics,
-              is_active = 1,
-              last_seen_at = excluded.last_seen_at
-          `).bind(id, schoolId, String(userId), role, deviceToken, deviceType, platform, JSON.stringify(topics), now, now).run();
-          console.log('[FCM] Token stored in fcm_device_tokens for school:', schoolId);
-        } catch (syncErr: any) {
-          console.log('[FCM] fcm_device_tokens sync skipped:', syncErr.message);
-        }
+        await db.prepare(`
+          INSERT INTO fcm_device_tokens 
+          (id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+          ON CONFLICT(device_token) DO UPDATE SET 
+            school_id = excluded.school_id,
+            user_id = excluded.user_id,
+            role = excluded.role,
+            device_type = excluded.device_type,
+            platform = excluded.platform,
+            subscribed_topics = excluded.subscribed_topics,
+            is_active = 1,
+            last_seen_at = excluded.last_seen_at
+        `).bind(id, schoolId, String(userId), role, deviceToken, deviceType, platform, JSON.stringify(topics), now, now).run();
+        console.log('[FCM] Token stored in fcm_device_tokens for school:', schoolId);
+      } catch (syncErr: any) {
+        console.log('[FCM] fcm_device_tokens sync skipped:', syncErr.message);
       }
 
       console.log('[FCM] Token successfully stored in database');

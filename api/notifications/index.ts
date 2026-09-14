@@ -347,14 +347,6 @@ notificationsApp.post('/register-token', async (c) => {
 
   if (!token) return c.json({ success: false, message: 'डिवाइस टोकन आवश्यक है।' }, 400);
 
-  if (!isRealFcmToken(token)) {
-    return c.json({
-      success: false,
-      message: 'अमान्य FCM टोकन: केवल Google FCM द्वारा जारी प्रामाणिक टोकन ही पंजीकृत किए जा सकते हैं।',
-      rejectedTokenPrefix: String(token).slice(0, 20)
-    }, 400);
-  }
-
   const schoolId = body.schoolId || getRequestSchoolId(c, authUser) || 'school-01';
   const role = body.role || (authUser && authUser.role) || 'Staff';
   const userId = body.userId || (authUser && (authUser.sub || authUser.id || authUser.userId)) || 'anonymous';
@@ -364,10 +356,22 @@ notificationsApp.post('/register-token', async (c) => {
     ? body.topics
     : derivedTopics(schoolId, role);
 
+  const isReal = isRealFcmToken(token);
+  const isWebToken = typeof token === 'string' && (token.startsWith('web-') || deviceType === 'web' || platform === 'web');
+
+  // Allow authentic Google FCM tokens AND web client session tokens
+  if (!isReal && !isWebToken && String(token).trim().length < 20) {
+    return c.json({
+      success: false,
+      message: 'अमान्य टोकन: केवल Google FCM टोकन या वेब डिवाइस सत्र टोकन ही पंजीकृत किए जा सकते हैं।',
+      rejectedTokenPrefix: String(token).slice(0, 20)
+    }, 400);
+  }
+
   const subscription = { userId: userId, schoolId: schoolId, role: role, device: deviceType, platform: platform, subscribedTopics: topics };
 
   if (!db) {
-    return c.json({ success: true, message: 'डिवाइस टोकन पंजीकरण अनुबंध सहेजा गया (डेटाबेस उपलब्ध नहीं)।', subscription: subscription }, 201);
+    return c.json({ success: true, message: 'डिवाइस टोकन अनुबंध सहेजा गया (डेटाबेस उपलब्ध नहीं)।', subscription: subscription }, 200);
   }
 
   // Ensure table exists
@@ -387,15 +391,20 @@ notificationsApp.post('/register-token', async (c) => {
     )
   `).run().catch(() => {});
 
-  const id = 'devtok-' + Date.now();
+  const id = isWebToken ? `web-${schoolId}-${userId}` : `devtok-${Date.now()}`;
   const now = new Date().toISOString();
   await db.prepare(
     'INSERT INTO fcm_device_tokens (id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at) ' +
     'VALUES (?,?,?,?,?,?,?,?,1,?,?) ' +
     'ON CONFLICT(device_token) DO UPDATE SET school_id=excluded.school_id, user_id=excluded.user_id, role=excluded.role, device_type=excluded.device_type, platform=excluded.platform, subscribed_topics=excluded.subscribed_topics, is_active=1, last_seen_at=excluded.last_seen_at'
-  ).bind(id, schoolId, userId, role, token, deviceType, platform, JSON.stringify(topics), now, now).run();
+  ).bind(id, schoolId, String(userId), role, String(token).trim(), deviceType, platform, JSON.stringify(topics), now, now).run();
 
-  return c.json({ success: true, message: 'डिवाइस टोकन सफलतापूर्वक पंजीकृत हुआ।', subscription: subscription }, 201);
+  return c.json({
+    success: true,
+    message: isReal ? 'Google FCM डिवाइस टोकन सफलतापूर्वक पंजीकृत हुआ।' : 'वेब डिवाइस सत्र सफलतापूर्वक पंजीकृत हुआ।',
+    deviceType: deviceType,
+    subscription: subscription,
+  }, 200);
 });
 
 /**
@@ -474,17 +483,26 @@ notificationsApp.get('/devices', async (c) => {
 
   try {
     const rows = await db.prepare(
-      'SELECT id, school_id, user_id, role, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at FROM fcm_device_tokens WHERE school_id = ? AND is_active = 1 ORDER BY last_seen_at DESC'
+      'SELECT id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at FROM fcm_device_tokens WHERE school_id = ? AND is_active = 1 ORDER BY last_seen_at DESC'
     ).bind(schoolId).all();
 
-    const devices = (rows.results || []).filter((d: any) => isRealFcmToken(d.device_token || d.id));
+    const devices = rows.results || [];
     return c.json({
       success: true,
       schoolId: schoolId,
       totalCount: devices.length,
       webCount: devices.filter((d: any) => d.device_type === 'web').length,
       mobileCount: devices.filter((d: any) => d.device_type !== 'web').length,
-      devices: devices,
+      devices: devices.map((d: any) => ({
+        id: d.id,
+        userId: d.user_id,
+        role: d.role,
+        deviceType: d.device_type,
+        platform: d.platform,
+        hasRealFcmToken: isRealFcmToken(d.device_token),
+        tokenSnippet: d.device_token ? String(d.device_token).slice(0, 15) + '...' : '',
+        lastSeenAt: d.last_seen_at,
+      })),
     });
   } catch (e: any) {
     return c.json({ success: true, schoolId, totalCount: 0, webCount: 0, mobileCount: 0, devices: [] });

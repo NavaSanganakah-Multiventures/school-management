@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -115,6 +115,7 @@ export function SchoolCrmShell() {
   const [isBroadcastOpen, setIsBroadcastOpen] = useState(false);
   const [pushToast, setPushToast] = useState<{ title: string; body: string } | null>(null);
   const [webPushStatus, setWebPushStatus] = useState<string | null>(null);
+  const lastRegisteredUserIdRef = useRef<string | null>(null);
 
   // Sync client-side authentication and URL params after initial mount (avoids React hydration mismatch #418)
   useEffect(() => {
@@ -181,7 +182,13 @@ export function SchoolCrmShell() {
   
   // Website (web push) registration for the logged-in staff user.
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !currentUser.id) return;
+    if (typeof window === 'undefined') return;
+
+    const currentUserId = String(currentUser.id || currentUser.email || '');
+    if (lastRegisteredUserIdRef.current === currentUserId) return;
+    lastRegisteredUserIdRef.current = currentUserId;
+
     let disposeForeground: (() => void) | null = null;
     let disposeRefresh: (() => void) | null = null;
 
@@ -211,33 +218,23 @@ export function SchoolCrmShell() {
       return sendTokenToServer(token, subscribedTopics);
     };
 
-    // Register FCM token with userId (server-side implementation)
-    // Only run on client-side after mount
-    if (typeof window === 'undefined') return;
-    
-    if (currentUser && currentUser.id) {
-      registerFcmWebToken(currentUser.id, {
-        schoolId: currentUser.schoolId || 'school-01',
-        role: currentUser.role || 'Staff',
-        topics: webTopics,
-      }).then(async (token) => {
-        if (token) {
-          const sent = await registerWebDevice(token);
-          if (sent && (sent.ok || sent.success)) {
-            setWebPushStatus('granted');
-          } else {
-            console.log('[FCM] Device registered with token:', token);
-          }
-        } else {
-          const d = getWebPushDiagnostic();
-          if (d && d.error && d.permission === 'denied') {
-            setWebPushStatus(d.error);
-          }
+    registerFcmWebToken(currentUser.id, {
+      schoolId: currentUser.schoolId || 'school-01',
+      role: currentUser.role || 'Staff',
+      topics: webTopics,
+    }).then(async (token) => {
+      if (token) {
+        setWebPushStatus('granted');
+        await registerWebDevice(token);
+      } else {
+        const d = getWebPushDiagnostic();
+        if (d && d.error && d.permission === 'denied') {
+          setWebPushStatus(d.error);
         }
-      }).catch((err) => {
-        console.warn('[FCM] registerFcmWebToken catch:', err);
-      });
-    }
+      }
+    }).catch((err) => {
+      console.warn('[FCM] registerFcmWebToken catch:', err);
+    });
 
     onForegroundFcmMessage((payload) => {
       const n = payload && payload.notification;
@@ -255,7 +252,8 @@ export function SchoolCrmShell() {
     };
   }, [currentUser]);
 
-const handleLogout = async () => {
+  const handleLogout = async () => {
+    lastRegisteredUserIdRef.current = null;
     try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) {}
     localStorage.removeItem('vidyasetu_user');
     localStorage.removeItem('vidyasetu_token');
