@@ -6,4 +6,27 @@
 importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js');
 
-// No web config at rest: background push stays disabled until the build-time secret is present.
+const FIREBASE_WEB_CONFIG = {};
+
+// Activate immediately so FCM getToken doesn't fail while the SW is still waiting.
+self.addEventListener('install', function (event) {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', function (event) {
+  event.waitUntil(self.clients.claim());
+});
+
+if (FIREBASE_WEB_CONFIG.apiKey && FIREBASE_WEB_CONFIG.projectId && FIREBASE_WEB_CONFIG.appId) {
+  firebase.initializeApp(FIREBASE_WEB_CONFIG);
+  const messaging = firebase.messaging();
+  messaging.onBackgroundMessage(function (payload) {
+    const notification = payload.notification || {};
+    const title = notification.title || 'विद्या सेतु सूचना';
+    const options = {
+      body: notification.body || '',
+      data: payload.data || {},
+    };
+    self.registration.showNotification(title, options);
+  });
+}
