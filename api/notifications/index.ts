@@ -6,6 +6,7 @@ import {
   buildTopicMessage,
   getFcmProjectId,
   isFcmConfigured,
+  isRealFcmToken,
   sendFcmMessage,
 } from '../lib/fcm';
 
@@ -95,7 +96,7 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
       'SELECT device_token, role, device_type, subscribed_topics FROM fcm_device_tokens WHERE school_id = ? AND is_active = 1'
     ).bind(activeSchoolId).all();
     deviceTokens = (rows.results || [])
-      .filter((r: any) => roleInTarget(targetRole, r.role))
+      .filter((r: any) => roleInTarget(targetRole, r.role) && isRealFcmToken(r.device_token))
       .map((r: any) => ({ token: r.device_token as string, role: r.role as string, deviceType: (r.device_type as string) || '', subscribedTopics: parseTopics(r.subscribed_topics) }));
   } catch (e) {
     deviceTokens = [];
@@ -106,8 +107,8 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
   let tokenSkipped = 0;
   const canSkipViaTopic = fcmConfigured && !!topicResult.success;
   const directTokens = deviceTokens.filter((d) => {
-    // Filter out invalid mock tokens
-    if (!d.token || d.token.startsWith('web-device-') || d.token.length < 30) {
+    // Only accept genuine, real FCM tokens
+    if (!isRealFcmToken(d.token)) {
       return false;
     }
     if (canSkipViaTopic && String(d.deviceType || '') === 'web' && d.subscribedTopics.indexOf(resolvedTopicKey) >= 0) {

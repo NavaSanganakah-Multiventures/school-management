@@ -92,6 +92,16 @@ export function isFcmConfigured(env: any): boolean {
   return !!(env && env.FCM_SERVICE_ACCOUNT_JSON && getFcmProjectId(env));
 }
 
+export function isRealFcmToken(token: any): boolean {
+  if (typeof token !== 'string') return false;
+  const t = token.trim();
+  if (t.length < 50) return false;
+  if (t.startsWith('web-device-') || t.startsWith('mock-') || t.startsWith('test-') || t.startsWith('devtok-')) {
+    return false;
+  }
+  return true;
+}
+
 async function signServiceAccountJwt(sa: ServiceAccount, aud: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const header = { alg: 'RS256', typ: 'JWT' };

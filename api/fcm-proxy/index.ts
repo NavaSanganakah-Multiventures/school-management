@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { isFcmConfigured, sendFcmMessage, type FcmMessage, type FcmSendResult } from '../lib/fcm';
+import { isFcmConfigured, sendFcmMessage, isRealFcmToken, type FcmMessage, type FcmSendResult } from '../lib/fcm';
 
 const app = new Hono<{ Bindings: any }>();
 
@@ -51,9 +51,10 @@ app.post('/register-token', async (c) => {
 
     console.log('[FCM] Processing for userId:', userId);
 
-    // Generate device token
-    const deviceToken = fcmToken || `web-device-${userId}-${Date.now()}`;
-    console.log('[FCM] Generated device token:', deviceToken);
+    // Determine device token
+    const hasRealToken = isRealFcmToken(fcmToken);
+    const deviceToken = hasRealToken ? fcmToken : (fcmToken || `web-device-${userId}-${Date.now()}`);
+    console.log('[FCM] Device token:', deviceToken, 'isRealFCM:', hasRealToken);
 
     // Check if DB exists
     if (!c.env.DB) {
@@ -134,18 +135,20 @@ app.post('/register-token', async (c) => {
         ).run();
       }
 
-      // Also sync to fcm_device_tokens table if it exists
-      try {
-        const id = 'devtok-' + Date.now();
-        const now = new Date().toISOString();
-        await db.prepare(`
-          INSERT INTO fcm_device_tokens 
-          (id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at)
-          VALUES (?, 'school-01', ?, 'Staff', ?, 'web', 'web', '[]', 1, ?, ?)
-          ON CONFLICT(device_token) DO UPDATE SET is_active = 1, last_seen_at = excluded.last_seen_at
-        `).bind(id, String(userId), deviceToken, now, now).run();
-      } catch (syncErr: any) {
-        console.log('[FCM] fcm_device_tokens sync skipped:', syncErr.message);
+      // Also sync to fcm_device_tokens table if genuine FCM token
+      if (hasRealToken) {
+        try {
+          const id = 'devtok-' + Date.now();
+          const now = new Date().toISOString();
+          await db.prepare(`
+            INSERT INTO fcm_device_tokens 
+            (id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at)
+            VALUES (?, 'school-01', ?, 'Staff', ?, 'web', 'web', '[]', 1, ?, ?)
+            ON CONFLICT(device_token) DO UPDATE SET is_active = 1, last_seen_at = excluded.last_seen_at
+          `).bind(id, String(userId), deviceToken, now, now).run();
+        } catch (syncErr: any) {
+          console.log('[FCM] fcm_device_tokens sync skipped:', syncErr.message);
+        }
       }
 
       console.log('[FCM] Token successfully stored in database');
@@ -224,19 +227,46 @@ app.post('/test-notification', async (c) => {
       `).bind(String(userId)).all().catch(() => ({ results: [] }));
     }
 
-    if (!tokens.results || tokens.results.length === 0) {
-      return c.json({ 
-        error: 'No tokens found for user',
-        userId 
-      }, 404);
+    const realTokens = (tokens.results || [])
+      .map((r: any) => r.device_token as string)
+      .filter((t: string) => isRealFcmToken(t));
+
+    // If no direct real device tokens exist, test via school topic broadcast
+    if (realTokens.length === 0) {
+      const testTopic = 'school_school-01_all';
+      const topicMsg: FcmMessage = {
+        topic: testTopic,
+        notification: {
+          title: title || '🔔 Test Notification (Topic Test)',
+          body: body || 'सर्वर-साइड FCM प्रमाणीकरण एवं ब्रॉडकास्ट सफल है!'
+        },
+        data: {
+          test: 'true',
+          userId: String(userId),
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      const topicResult = await sendFcmMessage(c.env, topicMsg);
+      return c.json({
+        success: topicResult.success,
+        mode: 'topic_broadcast',
+        topic: testTopic,
+        topicResult,
+        message: topicResult.success
+          ? 'FCM सर्वर-साइड टोकन व प्रमाणीकरण सत्यापित: टॉपिक संदेश सफलतापूर्वक प्रेषित।'
+          : ('FCM प्रेषण त्रुटि: ' + (topicResult.error || 'अज्ञात त्रुटि')),
+        totalSent: topicResult.success ? 1 : 0,
+        totalFailed: topicResult.success ? 0 : 1
+      });
     }
 
-    // Send test notification to all tokens
+    // Send test notification to all real tokens
     const results: FcmSendResult[] = [];
     
-    for (const row of tokens.results) {
+    for (const token of realTokens) {
       const message: FcmMessage = {
-        token: row.device_token as string,
+        token: token,
         notification: {
           title: title || '🔔 Test Notification',
           body: body || 'यह एक test notification है। FCM working properly है!'

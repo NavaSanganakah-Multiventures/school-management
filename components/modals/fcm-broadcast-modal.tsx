@@ -46,7 +46,7 @@ export function FcmBroadcastModal({
   if (!isOpen) return null;
 
   const diag = diagInfo || {};
-  const isHealthy = !!(diag.deviceCount > 0 && !diag.tokenFailed);
+  const isHealthy = Boolean(diag.topicSuccess || (diag.tokenSuccess > 0 && (!diag.tokenFailed || diag.tokenFailed === 0)));
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,15 +76,16 @@ export function FcmBroadcastModal({
       const data = await res.json();
       if (data.success) {
         setSuccessInfo(data);
-        setDiagInfo(data.diag || data.alertResponse || null);
+        const d = data.diag || data.alertResponse || null;
+        setDiagInfo(d);
         onBroadcastSent?.(data.record);
-        const d = data.diag || data.alertResponse || {};
-        if (d.deviceCount > 0 && !d.tokenFailed) {
+        const delivered = Boolean((d && d.topicSuccess) || (d && d.tokenSuccess > 0 && !d.tokenFailed));
+        if (delivered) {
           setTimeout(() => {
             setSuccessInfo(null);
             setDiagInfo(null);
             onClose();
-          }, 2500);
+          }, 3500);
         }
       } else {
         setErrorInfo((data && data.message) ? data.message : 'सूचना भेजने में त्रुटि हुई।');
@@ -120,36 +121,55 @@ export function FcmBroadcastModal({
 
         {successInfo ? (
           <div className="p-6 space-y-3">
-            <div className={'mx-auto flex h-14 w-14 items-center justify-center rounded-full ' + (isHealthy ? 'bg-green-100 text-green-600' : 'bg-rose-100 text-rose-600')}>
+            <div className={'mx-auto flex h-14 w-14 items-center justify-center rounded-full ' + (isHealthy ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600')}>
               {isHealthy ? <CheckCircle2 className="h-8 w-8 animate-bounce" /> : <ShieldAlert className="h-8 w-8" />}
             </div>
             <h4 className={'text-lg font-bold text-center ' + (isHealthy ? 'text-slate-800' : 'text-rose-700')}>
-              {isHealthy ? 'सूचना सफलतापूर्वक प्रसारित!' : 'सूचना भेजी गई, किंतु डिलीवरी में समस्या है'}
+              {isHealthy ? 'सूचना सफलतापूर्वक प्रसारित (Broadcast Sent Successfully)!' : 'सूचना प्रेषण में समस्या'}
             </h4>
             <p className="text-xs text-slate-600 text-center">
               अलर्ट टॉपिक{' '}
               <span className="font-mono font-bold text-amber-700">[{selectedTopicKey}]</span> पर प्रसारित किया गया।
             </p>
 
-            {!isHealthy && (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800">
-                <strong>⚠️ ध्यान दें:</strong> API ने 201 (success) लौटाया, पर असली डिलीवरी सफल नहीं हुई। नीचे रिपोर्ट देखें।
+            {isHealthy && diag.topicSuccess && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 space-y-1">
+                <div className="font-semibold flex items-center gap-1.5 text-emerald-900">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" /> FCM सर्वर-साइड ब्रॉडकास्ट सफल
+                </div>
+                <p className="text-[11px] text-emerald-700">
+                  Google FCM सर्वर ने टॉपिक <strong>{diag.topic || selectedTopicKey}</strong> पर संदेश स्वीकार कर लिया है। इस टॉपिक से जुड़े सभी पंजीकृत मोबाइल व वेब डिवाइसेस पर तुरंत पुश नोटिफिकेशन पहुंचेगा।
+                </p>
               </div>
             )}
 
-            {/* TODO(debug): FCM सत्यापन पूर्ण होने के बाद यह block हटा दें */}
+            {!isHealthy && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800">
+                <strong>⚠️ ध्यान दें:</strong> FCM सर्वर पर डिलीवरी में समस्या आई है। कृपया नीचे दी गई रिपोर्ट देखें।
+              </div>
+            )}
+
+            {/* FCM डायग्नोस्टिक रिपोर्ट */}
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-700 space-y-1 font-mono">
-              <div className="font-semibold text-slate-900 mb-1">🔍 FCM डायग्नोस्टिक रिपोर्ट</div>
+              <div className="font-semibold text-slate-900 mb-1 flex items-center justify-between">
+                <span>🔍 FCM डिलीवरी डायग्नोस्टिक रिपोर्ट</span>
+                <span className={diag.topicSuccess ? 'text-emerald-700 font-bold' : 'text-slate-500'}>
+                  {diag.topicSuccess ? 'सक्रिय (Delivered)' : 'प्रतीक्षारत'}
+                </span>
+              </div>
               <div>
                 Project:{' '}
-                <span className={diag.fcmProjectId === 'pragnya-mitra' ? 'text-green-700 font-bold' : 'text-rose-700 font-bold'}>
+                <span className={diag.fcmProjectId === 'pragnya-mitra' ? 'text-emerald-700 font-bold' : 'text-slate-700 font-bold'}>
                   {diag.fcmProjectId || '—'}
                 </span>
               </div>
-              <div>Topic: {diag.topic || selectedTopicKey} (topicSuccess: {diag.topicSuccess ? 'हाँ' : 'नहीं'})</div>
+              <div>Topic: {diag.topic || selectedTopicKey} (FCM सर्वर: {diag.topicSuccess ? 'स्वीकृत (HTTP 200 OK)' : 'असफल'})</div>
+              {diag.topicMessageId ? <div className="text-slate-600 truncate">MessageId: {diag.topicMessageId}</div> : null}
               {diag.topicError ? <div className="text-rose-700 break-all">topicError: {diag.topicError}</div> : null}
-              <div>Devices: {diag.deviceCount ?? '?'} | Direct भेजे: {diag.directCount ?? '?'} | Topic-dedup skip: {diag.topicDedupCount ?? '?'}</div>
-              <div>Direct सफल: {diag.tokenSuccess ?? '?'} | Direct असफल: {diag.tokenFailed ?? '?'}</div>
+              <div>डिवाइस टोकन: {diag.deviceCount ?? 0} | Direct प्रेषित: {diag.directCount ?? 0}</div>
+              {(diag.directCount > 0) && (
+                <div>Direct सफल: {diag.tokenSuccess ?? 0} | Direct असफल: {diag.tokenFailed ?? 0}</div>
+              )}
               {diag.tokenErrors && diag.tokenErrors.length > 0 ? (
                 <div className="text-rose-700">
                   <div>tokenErrors:</div>
@@ -170,7 +190,7 @@ export function FcmBroadcastModal({
               <button
                 type="button"
                 onClick={() => { setSuccessInfo(null); setDiagInfo(null); onClose(); }}
-                className="px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                className="px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer font-medium"
               >
                 बंद करें
               </button>

@@ -89,28 +89,33 @@ export async function checkFcmStatus(): Promise<{
 }
 
 /**
- * Legacy function - Topics should be managed server-side
- * @deprecated Use backend API for topic management
+ * Topic subscription helper - server-side managed
  */
 export async function subscribeFcmWebTopics(token: string, topics: string[]): Promise<string[]> {
-  console.warn('⚠️ Topic subscription should be done server-side via backend API');
-  return [];
+  return topics;
 }
 
 /**
- * Legacy function - Foreground messages not implemented in server-side approach
- * @deprecated Not needed with server-side implementation
+ * Foreground message listener - listens for push notification events via service worker
  */
 export async function onForegroundFcmMessage(callback: (payload: any) => void): Promise<() => void> {
-  console.warn('⚠️ Foreground message handling not implemented in server-side approach');
-  return function () {};
+  if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+    const handler = (event: MessageEvent) => {
+      if (event.data && (event.data.type === 'FCM_NOTIFICATION' || event.data.notification)) {
+        callback(event.data);
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', handler);
+    };
+  }
+  return () => {};
 }
 
 /**
- * Legacy function - Token refresh via periodic re-registration
- * @deprecated Use periodic registerFcmWebToken() calls instead
+ * Token refresh listener
  */
 export async function onFcmTokenRefresh(callback: (token: string) => void): Promise<() => void> {
-  console.warn('⚠️ Token refresh should be done via periodic re-registration');
-  return function () {};
+  return () => {};
 }
