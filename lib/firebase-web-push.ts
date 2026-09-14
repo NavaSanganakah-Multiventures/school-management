@@ -7,6 +7,22 @@ const SW_PATH = '/firebase-messaging-sw.js';
 
 let initPromise: Promise<any> | null = null;
 
+export type WebPushDiagnostic = {
+  supported: boolean;
+  configOk: boolean;
+  configProjectId: string;
+  permission: string;
+  swRegistered: boolean;
+  token: string | null;
+  error: string | null;
+};
+
+let lastWebPushDiagnostic: WebPushDiagnostic | null = null;
+
+export function getWebPushDiagnostic(): WebPushDiagnostic | null {
+  return lastWebPushDiagnostic;
+}
+
 function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
     if (typeof document === 'undefined') { reject(new Error('browser only')); return; }
@@ -46,16 +62,48 @@ export function isWebPushSupported(): boolean {
 }
 
 export async function registerFcmWebToken(): Promise<string | null> {
-  if (!isWebPushSupported()) return null;
-  if (!FIREBASE_WEB_CONFIG.apiKey || !FIREBASE_WEB_CONFIG.projectId || !FIREBASE_WEB_CONFIG.appId) return null;
+  const diag: WebPushDiagnostic = {
+    supported: false,
+    configOk: false,
+    configProjectId: FIREBASE_WEB_CONFIG.projectId || '',
+    permission: (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported',
+    swRegistered: false,
+    token: null,
+    error: null,
+  };
+  lastWebPushDiagnostic = diag;
+
+  diag.supported = isWebPushSupported();
+  if (!diag.supported) {
+    diag.error = 'Web Push supported nahi hai (serviceWorker / PushManager / Notification missing)';
+    return null;
+  }
+
+  diag.configOk = !!(FIREBASE_WEB_CONFIG.apiKey && FIREBASE_WEB_CONFIG.projectId && FIREBASE_WEB_CONFIG.appId);
+  if (!diag.configOk) {
+    diag.error = 'Firebase web config missing hai';
+    return null;
+  }
+
   try {
     const permission = await Notification.requestPermission();
-    if (permission !== 'granted') return null;
+    diag.permission = permission;
+    if (permission !== 'granted') {
+      diag.error = 'Notification permission "Allow" nahi hai (status: ' + permission + '). Browser lock icon -> Notifications -> Allow karein.';
+      return null;
+    }
     const messaging = await getMessaging();
     const swRegistration = await navigator.serviceWorker.register(SW_PATH);
+    diag.swRegistered = true;
     const token = await messaging.getToken({ vapidKey: FIREBASE_VAPID_KEY, serviceWorkerRegistration: swRegistration });
+    diag.token = token || null;
+    if (!token) {
+      diag.error = 'getToken() ne empty token diya';
+    }
     return token || null;
-  } catch (e) {
+  } catch (e: any) {
+    const msg = (e && e.message) ? String(e.message) : ((e && e.code) ? String(e.code) : String(e));
+    diag.error = 'getToken/SW failed: ' + msg;
     console.error('Web push token registration failed', e);
     return null;
   }

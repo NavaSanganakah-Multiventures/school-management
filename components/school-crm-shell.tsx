@@ -38,7 +38,7 @@ import { AdminConsoleScreen } from './screens/admin-console-screen';
 
 import { AddScholarModal } from './modals/add-scholar-modal';
 import { FcmBroadcastModal } from './modals/fcm-broadcast-modal';
-import { registerFcmWebToken, subscribeFcmWebTopics, onForegroundFcmMessage, onFcmTokenRefresh } from '../lib/firebase-web-push';
+import { registerFcmWebToken, subscribeFcmWebTopics, onForegroundFcmMessage, onFcmTokenRefresh, getWebPushDiagnostic } from '../lib/firebase-web-push';
 
 type UserRole = 'Director' | 'Principal' | 'Staff' | 'SuperAdmin';
 
@@ -113,6 +113,7 @@ export function SchoolCrmShell() {
   const [isAddScholarOpen, setIsAddScholarOpen] = useState(false);
   const [isBroadcastOpen, setIsBroadcastOpen] = useState(false);
   const [pushToast, setPushToast] = useState<{ title: string; body: string } | null>(null);
+  const [webPushStatus, setWebPushStatus] = useState<string | null>(null);
 
   const [schoolProfile, setSchoolProfile] = useState<any>({
     schoolName: 'विद्या सेतु स्कूल प्रबंधन',
@@ -183,22 +184,38 @@ export function SchoolCrmShell() {
 
     const sendTokenToServer = async (token: string, topics: string[]) => {
       try {
-        await fetch('/api/notifications/register-token', {
+        const res = await fetch('/api/notifications/register-token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token: token, deviceType: 'web', role: currentUser.role, schoolId: currentUser.schoolId, platform: 'web', topics: topics }),
         });
-      } catch (e) {}
+        const data = await res.json().catch(function () { return {}; });
+        return { ok: res.ok, status: res.status, success: !!(data && data.success), message: (data && data.message) ? data.message : '' };
+      } catch (e) {
+        return { ok: false, status: 0, success: false, message: 'network error' };
+      }
     };
 
     const registerWebDevice = async (token: string) => {
       const subscribedTopics = await subscribeFcmWebTopics(token, webTopics);
-      await sendTokenToServer(token, subscribedTopics);
+      return sendTokenToServer(token, subscribedTopics);
     };
 
-    registerFcmWebToken().then((token) => {
-      if (token) registerWebDevice(token);
-    }).catch(() => {});
+    registerFcmWebToken().then(async (token) => {
+      if (token) {
+        const sent = await registerWebDevice(token);
+        if (sent && sent.ok && sent.success) {
+          setWebPushStatus('granted');
+        } else {
+          setWebPushStatus('Token mila par register-token fail: HTTP ' + (sent ? sent.status : '?') + ' ' + (sent ? sent.message : ''));
+        }
+      } else {
+        const d = getWebPushDiagnostic();
+        setWebPushStatus(d && d.error ? d.error : 'Token nahi mila (unknown)');
+      }
+    }).catch(() => {
+      setWebPushStatus('registerFcmWebToken exception');
+    });
 
     onForegroundFcmMessage((payload) => {
       const n = payload && payload.notification;
@@ -332,6 +349,15 @@ const handleLogout = async () => {
           </div>
         </div>
       </header>
+      {webPushStatus && webPushStatus !== 'granted' && (
+        <div className="flex items-start gap-2 mx-4 mt-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+          <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <strong>🔔 Web पुश सूचना की समस्या:</strong> {webPushStatus}
+          </div>
+          <button onClick={() => setWebPushStatus(null)} className="ml-auto text-rose-500 hover:text-rose-800 cursor-pointer shrink-0"><X className="h-4 w-4" /></button>
+        </div>
+      )}
       {pushToast && (
         <div className="fixed top-16 right-4 z-50 max-w-sm rounded-2xl bg-slate-900 text-white shadow-xl p-4">
           <div className="flex items-start gap-3">
