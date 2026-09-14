@@ -4,6 +4,17 @@ import { isFcmConfigured, sendFcmMessage, type FcmMessage, type FcmSendResult } 
 const app = new Hono<{ Bindings: any }>();
 
 /**
+ * Simple test endpoint to verify API is working
+ */
+app.get('/ping', async (c) => {
+  return c.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    message: 'FCM Proxy API is working'
+  });
+});
+
+/**
  * Web Push Token Registration - Server-Side Approach for Cloudflare Workers
  * 
  * Client sends: { userId, deviceInfo }
@@ -14,20 +25,39 @@ const app = new Hono<{ Bindings: any }>();
  * This bypasses CORS issues on workers.dev by using server-side token management
  */
 app.post('/register-token', async (c) => {
+  // Log incoming request
+  console.log('[FCM] Register token request received');
+  
   try {
-    const { userId, deviceInfo, fcmToken } = await c.req.json();
+    // Parse request body
+    let requestBody;
+    try {
+      requestBody = await c.req.json();
+      console.log('[FCM] Request body:', JSON.stringify(requestBody));
+    } catch (parseError: any) {
+      console.error('[FCM] Failed to parse request body:', parseError);
+      return c.json({ 
+        error: 'Invalid JSON in request body',
+        details: parseError.message 
+      }, 400);
+    }
+
+    const { userId, deviceInfo, fcmToken } = requestBody;
 
     if (!userId) {
+      console.error('[FCM] Missing userId in request');
       return c.json({ error: 'userId required' }, 400);
     }
 
+    console.log('[FCM] Processing for userId:', userId);
+
     // Generate device token
     const deviceToken = fcmToken || `web-device-${userId}-${Date.now()}`;
+    console.log('[FCM] Generated device token:', deviceToken);
 
     // Check if DB exists
     if (!c.env.DB) {
-      // Fallback: Return token without DB storage
-      console.warn('DB not configured - token generated but not stored');
+      console.warn('[FCM] DB not configured - returning token without storage');
       return c.json({
         success: true,
         token: deviceToken,
@@ -37,26 +67,35 @@ app.post('/register-token', async (c) => {
       });
     }
 
-    // Check FCM configured hai ya nahi
-    if (!isFcmConfigured(c.env)) {
+    console.log('[FCM] DB binding found, checking FCM configuration...');
+
+    // Check FCM configured
+    const fcmConfigured = isFcmConfigured(c.env);
+    console.log('[FCM] FCM configured:', fcmConfigured);
+    
+    if (!fcmConfigured) {
+      console.error('[FCM] FCM not configured on server');
       return c.json({ 
         error: 'FCM not configured on server', 
         hint: 'Set FCM_SERVICE_ACCOUNT_JSON secret in Cloudflare Workers'
       }, 500);
     }
 
+    console.log('[FCM] Attempting to store token in database...');
+
     try {
       // Store token in database
       const db = c.env.DB;
       
       // Check if token already exists
+      console.log('[FCM] Checking for existing token...');
       const existing = await db.prepare(`
         SELECT id FROM user_notification_tokens 
         WHERE user_id = ? AND device_token = ?
       `).bind(userId, deviceToken).first();
 
       if (!existing) {
-        // Insert new token
+        console.log('[FCM] Inserting new token...');
         const result = await db.prepare(`
           INSERT INTO user_notification_tokens 
           (user_id, device_token, platform, device_info, created_at, updated_at)
@@ -68,11 +107,13 @@ app.post('/register-token', async (c) => {
           JSON.stringify(deviceInfo || {})
         ).run();
 
+        console.log('[FCM] Insert result:', result.success);
+
         if (!result.success) {
           throw new Error('Database insert failed');
         }
       } else {
-        // Update existing token
+        console.log('[FCM] Updating existing token...');
         await db.prepare(`
           UPDATE user_notification_tokens 
           SET updated_at = datetime('now'),
@@ -85,6 +126,8 @@ app.post('/register-token', async (c) => {
         ).run();
       }
 
+      console.log('[FCM] Token successfully stored in database');
+
       return c.json({
         success: true,
         token: deviceToken,
@@ -94,7 +137,7 @@ app.post('/register-token', async (c) => {
 
     } catch (dbError: any) {
       // Database error - still return token for user
-      console.error('Database error (non-fatal):', dbError);
+      console.error('[FCM] Database error (non-fatal):', dbError.message, dbError.stack);
       
       return c.json({
         success: true,
@@ -107,11 +150,15 @@ app.post('/register-token', async (c) => {
     }
 
   } catch (error: any) {
-    console.error('Token registration error:', error);
+    console.error('[FCM] Token registration error:', error.message);
+    console.error('[FCM] Stack trace:', error.stack);
+    console.error('[FCM] Error details:', JSON.stringify(error));
+    
     return c.json({ 
       error: 'Token registration failed', 
       details: error.message,
-      stack: error.stack
+      stack: error.stack,
+      type: error.constructor.name
     }, 500);
   }
 });
