@@ -4,6 +4,7 @@ import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import {
   buildTokenMessage,
   buildTopicMessage,
+  getFcmProjectId,
   isFcmConfigured,
   sendFcmMessage,
 } from '../lib/fcm';
@@ -129,6 +130,26 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
   const anySuccess = !!topicResult.success || tokenSuccess > 0;
   const overallStatus = fcmConfigured ? (anySuccess ? 'Success' : 'Failed') : 'NotConfigured';
   const fcmMessageId = (topicResult.messageId || topicResult.name || '');
+
+  // TODO(debug): FCM सत्यापन पूर्ण होने के बाद यह diag block हटाया जा सकता है।
+  const fcmProjectId = getFcmProjectId(env);
+  const diag = {
+    fcmProjectId: fcmProjectId,
+    fcmConfigured: fcmConfigured,
+    topic: resolvedTopicKey,
+    targetRole: targetRole,
+    topicSuccess: !!topicResult.success,
+    topicError: topicResult.error || null,
+    topicMessageId: fcmMessageId || null,
+    deviceCount: deviceTokens.length,
+    directCount: directTokens.length,
+    topicDedupCount: tokenSkipped,
+    tokenSuccess: tokenSuccess,
+    tokenFailed: tokenFailed,
+    tokenErrors: tokenErrors.slice(0, 10),
+  };
+  console.log('[FCM] broadcast diag ' + JSON.stringify(diag));
+
   const recordId = 'notif-' + Date.now();
   const timestamp = new Date().toISOString();
 
@@ -144,7 +165,7 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
       resolvedTopicKey,
       deviceTokens.length ? (deviceTokens.length + ' devices') : '',
       overallStatus,
-      JSON.stringify({ schoolId: activeSchoolId, targetRole: targetRole, topic: resolvedTopicKey, topicSuccess: !!topicResult.success, fcmConfigured: fcmConfigured, deviceCount: deviceTokens.length, directCount: directTokens.length, topicDedupCount: tokenSkipped, tokenSuccess: tokenSuccess, tokenFailed: tokenFailed, tokenErrors: tokenErrors.slice(0, 5) }),
+      JSON.stringify({ schoolId: activeSchoolId, fcmProjectId: fcmProjectId, targetRole: targetRole, topic: resolvedTopicKey, topicSuccess: !!topicResult.success, fcmConfigured: fcmConfigured, deviceCount: deviceTokens.length, directCount: directTokens.length, topicDedupCount: tokenSkipped, tokenSuccess: tokenSuccess, tokenFailed: tokenFailed, tokenErrors: tokenErrors.slice(0, 5) }),
       timestamp,
       activeSchoolId,
     ).run();
@@ -165,7 +186,7 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
   };
 
   if (!saved) {
-    return { status: 500, payload: { success: false, message: 'सूचना भेजी गई, किंतु लॉग सहेजने में विफलता हुई।' } };
+    return { status: 500, payload: { success: false, message: 'सूचना भेजी गई, किंतु लॉग सहेजने में विफलता हुई।', diag: diag } };
   }
 
   if (!fcmConfigured) {
@@ -174,6 +195,7 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
       payload: {
         success: false,
         message: 'Firebase पुश सूचनाएँ कॉन्फ़िगर नहीं हैं। कृपया FCM_SERVICE_ACCOUNT_JSON secret सेट करें। (प्रयास लॉग में सहेजा गया)',
+        diag: diag,
         record: baseRecord,
       },
     };
@@ -185,6 +207,7 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
       payload: {
         success: false,
         message: 'FCM टॉपिक [' + resolvedTopicKey + '] पर संदेश भेजने में त्रुटि: ' + (topicResult.error || 'अज्ञात त्रुटि'),
+        diag: diag,
         record: baseRecord,
       },
     };
@@ -204,6 +227,7 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
         tokenSuccess: tokenSuccess,
         tokenFailed: tokenFailed,
       },
+      diag: diag,
       record: baseRecord,
     },
   };
