@@ -15,12 +15,31 @@ export type WebPushDiagnostic = {
   swRegistered: boolean;
   token: string | null;
   error: string | null;
+  networkProbe: { gstatic: boolean; installations: boolean; fcmRegistrations: boolean } | null;
 };
 
 let lastWebPushDiagnostic: WebPushDiagnostic | null = null;
 
 export function getWebPushDiagnostic(): WebPushDiagnostic | null {
   return lastWebPushDiagnostic;
+}
+
+function errMsg(e: any): string {
+  if (!e) return 'unknown';
+  let s = '';
+  if (e.code) s += 'code=' + e.code + ' ';
+  if (e.name) s += e.name + ': ';
+  s += (e.message != null) ? e.message : String(e);
+  return s;
+}
+
+async function probeReachable(url: string): Promise<boolean> {
+  try {
+    await fetch(url, { method: 'GET', mode: 'no-cors', cache: 'no-store' });
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 function loadScript(src: string): Promise<void> {
@@ -70,6 +89,7 @@ export async function registerFcmWebToken(): Promise<string | null> {
     swRegistered: false,
     token: null,
     error: null,
+    networkProbe: null,
   };
   lastWebPushDiagnostic = diag;
 
@@ -85,6 +105,7 @@ export async function registerFcmWebToken(): Promise<string | null> {
     return null;
   }
 
+  // Stage 1: permission
   try {
     const permission = await Notification.requestPermission();
     diag.permission = permission;
@@ -92,18 +113,47 @@ export async function registerFcmWebToken(): Promise<string | null> {
       diag.error = 'Notification permission "Allow" nahi hai (status: ' + permission + '). Browser lock icon -> Notifications -> Allow karein.';
       return null;
     }
-    const messaging = await getMessaging();
-    const swRegistration = await navigator.serviceWorker.register(SW_PATH);
+  } catch (e) {
+    diag.error = 'Permission request failed: ' + errMsg(e);
+    return null;
+  }
+
+  // Stage 2: Firebase SDK init
+  let messaging: any;
+  try {
+    messaging = await getMessaging();
+  } catch (e) {
+    diag.error = 'Firebase SDK init failed: ' + errMsg(e);
+    return null;
+  }
+
+  // Stage 3: service worker register
+  let swRegistration: any;
+  try {
+    swRegistration = await navigator.serviceWorker.register(SW_PATH);
     diag.swRegistered = true;
+  } catch (e) {
+    diag.error = 'Service Worker register failed: ' + errMsg(e);
+    return null;
+  }
+
+  // Stage 4: getToken (network)
+  try {
     const token = await messaging.getToken({ vapidKey: FIREBASE_VAPID_KEY, serviceWorkerRegistration: swRegistration });
     diag.token = token || null;
     if (!token) {
       diag.error = 'getToken() ne empty token diya';
     }
     return token || null;
-  } catch (e: any) {
-    const msg = (e && e.message) ? String(e.message) : ((e && e.code) ? String(e.code) : String(e));
-    diag.error = 'getToken/SW failed: ' + msg;
+  } catch (e) {
+    const gstatic = await probeReachable('https://www.gstatic.com/');
+    const installations = await probeReachable('https://firebaseinstallations.googleapis.com/');
+    const fcmRegistrations = await probeReachable('https://fcmregistrations.googleapis.com/');
+    diag.networkProbe = { gstatic: gstatic, installations: installations, fcmRegistrations: fcmRegistrations };
+    let hint = '';
+    if (!installations) hint += ' | firebaseinstallations.googleapis.com UNREACHABLE';
+    if (!fcmRegistrations) hint += ' | fcmregistrations.googleapis.com UNREACHABLE';
+    diag.error = 'getToken failed: ' + errMsg(e) + hint + ' (probe: gstatic=' + gstatic + ', installations=' + installations + ', fcmReg=' + fcmRegistrations + ')';
     console.error('Web push token registration failed', e);
     return null;
   }
