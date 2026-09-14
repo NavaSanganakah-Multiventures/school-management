@@ -447,23 +447,23 @@ notificationsApp.post('/register-token', async (c) => {
   }
 
   // Ensure table exists
-  await db.prepare(\`
-    CREATE TABLE IF NOT EXISTS fcm_device_tokens (
-      id TEXT PRIMARY KEY,
-      school_id TEXT NOT NULL,
-      user_id TEXT,
-      role TEXT DEFAULT 'Parents',
-      device_token TEXT UNIQUE NOT NULL,
-      device_type TEXT DEFAULT 'mobile_app',
-      platform TEXT DEFAULT 'flutter',
-      subscribed_topics TEXT DEFAULT '[]',
-      is_active INTEGER DEFAULT 1,
-      last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  \`).run().catch(() => {});
+  await db.prepare(
+    'CREATE TABLE IF NOT EXISTS fcm_device_tokens (' +
+    'id TEXT PRIMARY KEY, ' +
+    'school_id TEXT NOT NULL, ' +
+    'user_id TEXT, ' +
+    "role TEXT DEFAULT 'Parents', " +
+    'device_token TEXT UNIQUE NOT NULL, ' +
+    "device_type TEXT DEFAULT 'mobile_app', " +
+    "platform TEXT DEFAULT 'flutter', " +
+    "subscribed_topics TEXT DEFAULT '[]', " +
+    'is_active INTEGER DEFAULT 1, ' +
+    'last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, ' +
+    'created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP' +
+    ')'
+  ).run().catch(() => {});
 
-  const id = isWebToken ? \`web-\${schoolId}-\${userId}\` : \`devtok-\${Date.now()}\`;
+  const id = isWebToken ? ('web-' + schoolId + '-' + userId) : ('devtok-' + Date.now());
   const now = new Date().toISOString();
   await db.prepare(
     'INSERT INTO fcm_device_tokens (id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at) ' +
@@ -496,40 +496,40 @@ notificationsApp.post('/register-client', async (c) => {
     ? body.topics
     : derivedTopics(schoolId, role);
 
-  const clientToken = \`web-client-\${schoolId}-\${userId}\`;
+  const clientToken = 'web-client-' + schoolId + '-' + userId;
 
   if (db) {
-    await db.prepare(\`
-      CREATE TABLE IF NOT EXISTS fcm_device_tokens (
-        id TEXT PRIMARY KEY,
-        school_id TEXT NOT NULL,
-        user_id TEXT,
-        role TEXT DEFAULT 'Parents',
-        device_token TEXT UNIQUE NOT NULL,
-        device_type TEXT DEFAULT 'mobile_app',
-        platform TEXT DEFAULT 'flutter',
-        subscribed_topics TEXT DEFAULT '[]',
-        is_active INTEGER DEFAULT 1,
-        last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    \`).run().catch(() => {});
+    await db.prepare(
+      'CREATE TABLE IF NOT EXISTS fcm_device_tokens (' +
+      'id TEXT PRIMARY KEY, ' +
+      'school_id TEXT NOT NULL, ' +
+      'user_id TEXT, ' +
+      "role TEXT DEFAULT 'Parents', " +
+      'device_token TEXT UNIQUE NOT NULL, ' +
+      "device_type TEXT DEFAULT 'mobile_app', " +
+      "platform TEXT DEFAULT 'flutter', " +
+      "subscribed_topics TEXT DEFAULT '[]', " +
+      'is_active INTEGER DEFAULT 1, ' +
+      'last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, ' +
+      'created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP' +
+      ')'
+    ).run().catch(() => {});
 
     const now = new Date().toISOString();
-    await db.prepare(\`
-      INSERT INTO fcm_device_tokens 
-      (id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-      ON CONFLICT(device_token) DO UPDATE SET 
-        school_id = excluded.school_id,
-        user_id = excluded.user_id,
-        role = excluded.role,
-        device_type = excluded.device_type,
-        platform = excluded.platform,
-        subscribed_topics = excluded.subscribed_topics,
-        is_active = 1,
-        last_seen_at = excluded.last_seen_at
-    \`).bind('devtok-' + Date.now(), schoolId, String(userId), role, clientToken, deviceType, platform, JSON.stringify(topics), now, now).run().catch(() => {});
+    await db.prepare(
+      'INSERT INTO fcm_device_tokens ' +
+      '(id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?) ' +
+      'ON CONFLICT(device_token) DO UPDATE SET ' +
+      'school_id = excluded.school_id, ' +
+      'user_id = excluded.user_id, ' +
+      'role = excluded.role, ' +
+      'device_type = excluded.device_type, ' +
+      'platform = excluded.platform, ' +
+      'subscribed_topics = excluded.subscribed_topics, ' +
+      'is_active = 1, ' +
+      'last_seen_at = excluded.last_seen_at'
+    ).bind('devtok-' + Date.now(), schoolId, String(userId), role, clientToken, deviceType, platform, JSON.stringify(topics), now, now).run().catch(() => {});
   }
 
   return c.json({
@@ -570,38 +570,38 @@ notificationsApp.post('/register-web-push', async (c) => {
     return c.json({ success: true, message: 'Web Push subscription सहेजा गया (डेटाबेस उपलब्ध नहीं)।' }, 200);
   }
 
-  await db.prepare(\`
-    CREATE TABLE IF NOT EXISTS web_push_subscriptions (
-      id TEXT PRIMARY KEY,
-      school_id TEXT NOT NULL,
-      user_id TEXT,
-      role TEXT DEFAULT 'Staff',
-      endpoint TEXT UNIQUE NOT NULL,
-      p256dh TEXT NOT NULL,
-      auth TEXT NOT NULL,
-      subscribed_topics TEXT DEFAULT '[]',
-      is_active INTEGER DEFAULT 1,
-      last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  \`).run().catch(() => {});
+  await db.prepare(
+    'CREATE TABLE IF NOT EXISTS web_push_subscriptions (' +
+    'id TEXT PRIMARY KEY, ' +
+    'school_id TEXT NOT NULL, ' +
+    'user_id TEXT, ' +
+    "role TEXT DEFAULT 'Staff', " +
+    'endpoint TEXT UNIQUE NOT NULL, ' +
+    'p256dh TEXT NOT NULL, ' +
+    'auth TEXT NOT NULL, ' +
+    "subscribed_topics TEXT DEFAULT '[]', " +
+    'is_active INTEGER DEFAULT 1, ' +
+    'last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, ' +
+    'created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP' +
+    ')'
+  ).run().catch(() => {});
 
   const now = new Date().toISOString();
   const id = 'webpush-' + schoolId + '-' + String(userId) + '-' + Date.now();
-  await db.prepare(\`
-    INSERT INTO web_push_subscriptions
-    (id, school_id, user_id, role, endpoint, p256dh, auth, subscribed_topics, is_active, last_seen_at, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-    ON CONFLICT(endpoint) DO UPDATE SET
-      school_id = excluded.school_id,
-      user_id = excluded.user_id,
-      role = excluded.role,
-      p256dh = excluded.p256dh,
-      auth = excluded.auth,
-      subscribed_topics = excluded.subscribed_topics,
-      is_active = 1,
-      last_seen_at = excluded.last_seen_at
-  \`).bind(id, schoolId, String(userId), role, String(endpoint), String(p256dh), String(auth), JSON.stringify(topics), now, now).run();
+  await db.prepare(
+    'INSERT INTO web_push_subscriptions ' +
+    '(id, school_id, user_id, role, endpoint, p256dh, auth, subscribed_topics, is_active, last_seen_at, created_at) ' +
+    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?) ' +
+    'ON CONFLICT(endpoint) DO UPDATE SET ' +
+    'school_id = excluded.school_id, ' +
+    'user_id = excluded.user_id, ' +
+    'role = excluded.role, ' +
+    'p256dh = excluded.p256dh, ' +
+    'auth = excluded.auth, ' +
+    'subscribed_topics = excluded.subscribed_topics, ' +
+    'is_active = 1, ' +
+    'last_seen_at = excluded.last_seen_at'
+  ).bind(id, schoolId, String(userId), role, String(endpoint), String(p256dh), String(auth), JSON.stringify(topics), now, now).run();
 
   return c.json({ success: true, message: 'Web Push subscription सफलतापूर्वक पंजीकृत हुआ।', endpoint: String(endpoint), topics }, 200);
 });
