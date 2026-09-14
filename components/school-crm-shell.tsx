@@ -201,21 +201,29 @@ export function SchoolCrmShell() {
       return sendTokenToServer(token, subscribedTopics);
     };
 
-    registerFcmWebToken().then(async (token) => {
-      if (token) {
-        const sent = await registerWebDevice(token);
-        if (sent && sent.ok && sent.success) {
-          setWebPushStatus('granted');
+    // Register FCM token with userId (server-side implementation)
+    // Only run on client-side after mount
+    if (typeof window === 'undefined') return;
+    
+    if (currentUser && currentUser.id) {
+      registerFcmWebToken(currentUser.id).then(async (token) => {
+        if (token) {
+          const sent = await registerWebDevice(token);
+          if (sent && sent.ok && sent.success) {
+            setWebPushStatus('granted');
+          } else {
+            setWebPushStatus('Token mila par register-token fail: HTTP ' + (sent ? sent.status : '?') + ' ' + (sent ? sent.message : ''));
+          }
         } else {
-          setWebPushStatus('Token mila par register-token fail: HTTP ' + (sent ? sent.status : '?') + ' ' + (sent ? sent.message : ''));
+          const d = getWebPushDiagnostic();
+          setWebPushStatus(d && d.error ? d.error : 'Token nahi mila (unknown)');
         }
-      } else {
-        const d = getWebPushDiagnostic();
-        setWebPushStatus(d && d.error ? d.error : 'Token nahi mila (unknown)');
-      }
-    }).catch(() => {
-      setWebPushStatus('registerFcmWebToken exception');
-    });
+      }).catch(() => {
+        setWebPushStatus('registerFcmWebToken exception');
+      });
+    } else {
+      setWebPushStatus('User not logged in - FCM registration skipped');
+    }
 
     onForegroundFcmMessage((payload) => {
       const n = payload && payload.notification;
