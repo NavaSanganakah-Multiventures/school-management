@@ -21,12 +21,16 @@ if (FIREBASE_WEB_CONFIG.apiKey && FIREBASE_WEB_CONFIG.projectId && FIREBASE_WEB_
   firebase.initializeApp(FIREBASE_WEB_CONFIG);
   const messaging = firebase.messaging();
   messaging.onBackgroundMessage(function (payload) {
-    const notification = payload.notification || {};
-    const title = notification.title || 'विद्या सेतु सूचना';
-    const options = {
-      body: notification.body || '',
-      data: payload.data || {},
-    };
-    self.registration.showNotification(title, options);
+    try {
+      const notification = payload.notification || {};
+      const title = notification.title || 'विद्या सेतु सूचना';
+      const options = {
+        body: notification.body || '',
+        data: payload.data || {},
+      };
+      self.registration.showNotification(title, options);
+    } catch (e) {
+      console.error('FCM background notification failed:', e);
+    }
   });
 }
