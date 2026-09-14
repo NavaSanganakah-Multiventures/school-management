@@ -1,14 +1,15 @@
 'use client';
 
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getMessaging as getMessagingSDK, getToken, onMessage, isSupported } from 'firebase/messaging';
 import { FIREBASE_VAPID_KEY, FIREBASE_WEB_CONFIG } from './firebase-client-config';
 
-const SDK_VERSION = '10.14.1';
 const SW_PATH = '/firebase-messaging-sw.js';
 // Max wait time for the service worker to become active before falling back.
 const SW_ACTIVATE_TIMEOUT_MS = 8000;
 
-let initPromise: Promise<any> | null = null;
 let cachedSwRegistration: ServiceWorkerRegistration | null = null;
+let messagingInstance: any = null;
 
 export type WebPushDiagnostic = {
   supported: boolean;
@@ -49,69 +50,32 @@ async function probeReachable(url: string): Promise<boolean> {
 async function probeCorsReachable(url: string): Promise<boolean> {
   try {
     const res = await fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store' });
-    return res.type !== 'opaque';
+    return res.ok || res.type !== 'opaque';
   } catch (e) {
     return false;
   }
 }
 
-function loadScript(src: string, retries = 3): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (typeof document === 'undefined') { reject(new Error('browser only')); return; }
-    const existing = document.querySelector('script[src="' + src + '"]');
-    if (existing) { resolve(); return; }
-    
-    const attemptLoad = (attempt: number) => {
-      const el = document.createElement('script');
-      el.src = src + (attempt > 0 ? '?retry=' + attempt : '');
-      el.async = true;
-      el.crossOrigin = 'anonymous';
-      
-      el.onload = function () { resolve(); };
-      el.onerror = function () {
-        if (attempt < retries) {
-          console.warn(`Firebase SDK load failed (attempt ${attempt + 1}/${retries}), retrying...`);
-          setTimeout(() => attemptLoad(attempt + 1), 1000 * (attempt + 1));
-        } else {
-          reject(new Error('Firebase SDK load failed after ' + retries + ' retries: ' + src));
-        }
-      };
-      document.head.appendChild(el);
-    };
-    
-    attemptLoad(0);
-  });
-}
-
 async function getMessaging(): Promise<any> {
-  const w = (typeof window === 'undefined' ? null : window) as any;
-  if (!w) throw new Error('browser only');
-  if (w.__vidyasetuMessaging) return w.__vidyasetuMessaging;
-  if (!initPromise) {
-    initPromise = (async () => {
-      try {
-        await loadScript('https://www.gstatic.com/firebasejs/' + SDK_VERSION + '/firebase-app-compat.js');
-        await loadScript('https://www.gstatic.com/firebasejs/' + SDK_VERSION + '/firebase-messaging-compat.js');
-      } catch (e) {
-        console.error('Firebase SDK load failed with retries:', e);
-        throw e;
-      }
-      
-      const fb = w.firebase;
-      if (!fb) throw new Error('Firebase SDK not available after load');
-      
-      try {
-        const app = fb.apps && fb.apps.length ? fb.apps[0] : fb.initializeApp(FIREBASE_WEB_CONFIG);
-        const messaging = fb.messaging(app);
-        w.__vidyasetuMessaging = messaging;
-        return messaging;
-      } catch (e) {
-        console.error('Firebase messaging initialization failed:', e);
-        throw e;
-      }
-    })();
+  if (typeof window === 'undefined') throw new Error('browser only');
+  
+  // Check if messaging is supported
+  const supported = await isSupported();
+  if (!supported) throw new Error('Firebase messaging not supported in this browser');
+  
+  if (messagingInstance) return messagingInstance;
+  
+  try {
+    // Initialize Firebase app if not already initialized
+    const app = getApps().length ? getApp() : initializeApp(FIREBASE_WEB_CONFIG);
+    
+    // Get messaging instance
+    messagingInstance = getMessagingSDK(app);
+    return messagingInstance;
+  } catch (e) {
+    console.error('Firebase messaging initialization failed:', e);
+    throw e;
   }
-  return initPromise;
 }
 
 export function isWebPushSupported(): boolean {
@@ -226,7 +190,10 @@ export async function registerFcmWebToken(): Promise<string | null> {
 
   // Stage 4: getToken (network)
   try {
-    const token = await messaging.getToken({ vapidKey: FIREBASE_VAPID_KEY, serviceWorkerRegistration: swRegistration });
+    const token = await getToken(messaging, { 
+      vapidKey: FIREBASE_VAPID_KEY, 
+      serviceWorkerRegistration: swRegistration 
+    });
     diag.token = token || null;
     if (!token) {
       diag.error = 'getToken() ne empty token diya';
@@ -234,7 +201,7 @@ export async function registerFcmWebToken(): Promise<string | null> {
     return token || null;
   } catch (e) {
     const gstatic = await probeReachable('https://www.gstatic.com/');
-    const sdkCors = await probeCorsReachable('https://www.gstatic.com/firebasejs/' + SDK_VERSION + '/firebase-app-compat.js');
+    const sdkCors = await probeCorsReachable('https://firebasestorage.googleapis.com/');
     const installations = await probeReachable('https://firebaseinstallations.googleapis.com/');
     const fcmRegistrations = await probeReachable('https://fcmregistrations.googleapis.com/');
     diag.networkProbe = { gstatic: gstatic, installations: installations, fcmRegistrations: fcmRegistrations };
@@ -242,12 +209,11 @@ export async function registerFcmWebToken(): Promise<string | null> {
     let hint = '';
     if (!installations) hint += ' | firebaseinstallations.googleapis.com UNREACHABLE';
     if (!fcmRegistrations) hint += ' | fcmregistrations.googleapis.com UNREACHABLE';
-    if (gstatic && installations && fcmRegistrations && !sdkCors) {
-      // CDN reachable via no-cors but blocked via CORS -> likely a script/CORS blocker.
-      hint += ' | possible CDN script blocker / CORS restriction (gstatic CORS probe failed)';
-    } else if (gstatic && installations && fcmRegistrations) {
-      // Everything reachable yet getToken failed -> ad blocker, privacy extension, or stale SW.
-      hint += ' | ad blocker / privacy extension ya stale service worker issue ho sakta hai. Try page refresh ya browser cache clear karein.';
+    if (!sdkCors) {
+      hint += ' | Firebase APIs CORS blocked - browser extension या network policy issue ho sakta hai';
+    }
+    if (gstatic && installations && fcmRegistrations) {
+      hint += ' | Browser cache clear karke refresh karein ya incognito mode me try karein';
     }
 
     diag.error = 'getToken failed: ' + errMsg(e) + hint + ' (probe: gstatic=' + gstatic + ', installations=' + installations + ', fcmReg=' + fcmRegistrations + ', sdkCors=' + sdkCors + ')';
@@ -260,21 +226,11 @@ export async function subscribeFcmWebTopics(token: string, topics: string[]): Pr
   if (!isWebPushSupported()) return [];
   if (!FIREBASE_WEB_CONFIG.apiKey || !FIREBASE_WEB_CONFIG.projectId || !FIREBASE_WEB_CONFIG.appId) return [];
   if (!token || !topics || !topics.length) return [];
-  const subscribed: string[] = [];
-  try {
-    const messaging = await getMessaging();
-    for (const topic of topics) {
-      try {
-        await messaging.subscribeToTopic(token, topic);
-        subscribed.push(topic);
-      } catch (e) {
-        console.error('Web push topic subscription failed: ' + topic, e);
-      }
-    }
-  } catch (e) {
-    console.error('Web push topic subscription failed', e);
-  }
-  return subscribed;
+  
+  // Note: Topic subscription is typically done server-side via Admin SDK
+  // Client-side topic subscription is not directly supported in modular SDK
+  console.warn('Topic subscription should be done server-side via Firebase Admin SDK');
+  return [];
 }
 
 export async function onForegroundFcmMessage(callback: (payload: any) => void): Promise<() => void> {
@@ -282,8 +238,9 @@ export async function onForegroundFcmMessage(callback: (payload: any) => void): 
   if (!FIREBASE_WEB_CONFIG.apiKey || !FIREBASE_WEB_CONFIG.projectId || !FIREBASE_WEB_CONFIG.appId) return function () {};
   try {
     const messaging = await getMessaging();
-    return messaging.onMessage(callback);
+    return onMessage(messaging, callback);
   } catch (e) {
+    console.error('onMessage subscription failed:', e);
     return function () {};
   }
 }
@@ -291,10 +248,9 @@ export async function onForegroundFcmMessage(callback: (payload: any) => void): 
 export async function onFcmTokenRefresh(callback: (token: string) => void): Promise<() => void> {
   if (!isWebPushSupported()) return function () {};
   if (!FIREBASE_WEB_CONFIG.apiKey || !FIREBASE_WEB_CONFIG.projectId || !FIREBASE_WEB_CONFIG.appId) return function () {};
-  try {
-    const messaging = await getMessaging();
-    return messaging.onTokenRefresh(callback);
-  } catch (e) {
-    return function () {};
-  }
+  
+  // Token refresh in modular SDK is handled by monitoring token changes
+  // This is typically done by periodically calling getToken()
+  console.warn('Token refresh monitoring should be implemented via periodic getToken() calls');
+  return function () {};
 }
