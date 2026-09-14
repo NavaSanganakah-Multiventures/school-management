@@ -1,7 +1,6 @@
-'use client';
-
 import React, { useState, useEffect } from 'react';
-import { Bell, Sparkles, Send, ShieldAlert, Tag, CheckCheck } from 'lucide-react';
+import { Bell, Sparkles, Send, ShieldAlert, Tag, CheckCheck, Plus, Trash2 } from 'lucide-react';
+import { AddNoticeModal } from '../modals/add-notice-modal';
 
 interface NoticesScreenProps {
   onOpenFcmModal: () => void;
@@ -12,6 +11,7 @@ export function NoticesScreen({ onOpenFcmModal }: NoticesScreenProps) {
   const [fcmHistory, setFcmHistory] = useState<any[]>([]);
   const [category, setCategory] = useState('All');
   const [activeTab, setActiveTab] = useState<'notices' | 'fcm'>('notices');
+  const [isAddNoticeOpen, setIsAddNoticeOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -40,6 +40,19 @@ export function NoticesScreen({ onOpenFcmModal }: NoticesScreenProps) {
     };
   }, [category]);
 
+  const handleDeleteNotice = async (id: string, title: string) => {
+    if (!confirm(`क्या आप निश्चित रूप से "${title}" नोटिस हटाना चाहते हैं?`)) return;
+    try {
+      const res = await fetch(`/api/notices/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setNotices((prev) => prev.filter((n) => n.id !== id));
+      }
+    } catch {
+      //
+    }
+  };
+
   return (
     <div className="space-y-4 pb-12">
       {/* Header with Broadcast Action */}
@@ -48,13 +61,22 @@ export function NoticesScreen({ onOpenFcmModal }: NoticesScreenProps) {
           <h2 className="text-lg font-bold text-slate-800">नोटिस बोर्ड एवं त्वरित सूचना अलर्ट</h2>
           <p className="text-xs text-slate-500">स्कूल परिपत्र, अवकाश एवं आवश्यक सूचना प्रसारण</p>
         </div>
-        <button
-          onClick={onOpenFcmModal}
-          className="flex items-center justify-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 text-xs font-semibold shadow-sm active:scale-95 transition-all cursor-pointer"
-        >
-          <Sparkles className="h-4 w-4" />
-          नया सूचना अलर्ट प्रसारित करें
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsAddNoticeOpen(true)}
+            className="flex items-center justify-center gap-1.5 rounded-xl bg-blue-900 hover:bg-blue-800 text-white px-4 py-2 text-xs font-semibold shadow-sm active:scale-95 transition-all cursor-pointer"
+          >
+            <Plus className="h-4 w-4" />
+            <span>+ नया नोटिस प्रकाशित करें</span>
+          </button>
+          <button
+            onClick={onOpenFcmModal}
+            className="flex items-center justify-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 text-xs font-semibold shadow-sm active:scale-95 transition-all cursor-pointer"
+          >
+            <Sparkles className="h-4 w-4" />
+            <span>त्वरित FCM अलर्ट</span>
+          </button>
+        </div>
       </div>
 
       {/* Tabs between General Notices & Broadcast Delivery Logs */}
@@ -135,7 +157,16 @@ export function NoticesScreen({ onOpenFcmModal }: NoticesScreenProps) {
                       </span>
                     )}
                   </div>
-                  <span className="text-[11px] text-slate-400">{n.publishedDate}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-400">{n.publishedDate}</span>
+                    <button
+                      onClick={() => handleDeleteNotice(n.id, n.title)}
+                      title="नोटिस हटाएं"
+                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
 
                 <h3 className="font-bold text-sm text-slate-900">{n.title}</h3>
@@ -185,6 +216,15 @@ export function NoticesScreen({ onOpenFcmModal }: NoticesScreenProps) {
           )}
         </div>
       )}
+
+      {/* Add Notice Modal */}
+      <AddNoticeModal
+        isOpen={isAddNoticeOpen}
+        onClose={() => setIsAddNoticeOpen(false)}
+        onSuccess={(newNotice) => {
+          setNotices((prev) => [newNotice, ...prev]);
+        }}
+      />
     </div>
   );
 }

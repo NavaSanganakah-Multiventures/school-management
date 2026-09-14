@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { IndianRupee, CheckCircle2, Clock, AlertCircle, Plus } from 'lucide-react';
+import { IndianRupee, CheckCircle2, Clock, AlertCircle, Plus, Printer } from 'lucide-react';
 import { PayFeeModal } from '../modals/pay-fee-modal';
+import { CreateFeeModal } from '../modals/create-fee-modal';
+import { FeeReceiptModal } from '../modals/fee-receipt-modal';
 
 export function FeesScreen() {
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -11,6 +13,8 @@ export function FeesScreen() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [activePayInvoice, setActivePayInvoice] = useState<any | null>(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [receiptInvoice, setReceiptInvoice] = useState<any | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -55,23 +59,31 @@ export function FeesScreen() {
         </div>
       </div>
 
-      {/* Filter Chips */}
-      <div className="flex items-center justify-between">
+      {/* Filter Chips & Action Button */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
           {['All', 'Paid', 'Partial', 'Unpaid'].map((st) => (
             <button
               key={st}
               onClick={() => setFilter(st)}
-              className={`px-3 py-1 text-xs font-medium rounded-full transition-all shrink-0 ${
+              className={`px-3 py-1 text-xs font-medium rounded-full transition-all shrink-0 cursor-pointer ${
                 filter === st
                   ? 'bg-blue-900 text-white'
-                  : 'bg-white border border-slate-200 text-slate-600'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
               }`}
             >
               {st === 'All' ? 'सभी चालान' : st === 'Paid' ? 'भुगतान पूर्ण' : st === 'Partial' ? 'आंशिक' : 'बकाया'}
             </button>
           ))}
         </div>
+
+        <button
+          onClick={() => setIsCreateModalOpen(true)}
+          className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-sm transition active:scale-95 cursor-pointer shrink-0"
+        >
+          <Plus className="h-4 w-4" />
+          <span>+ नया फीस चालान जारी करें</span>
+        </button>
       </div>
 
       {/* Invoices List */}
@@ -83,7 +95,7 @@ export function FeesScreen() {
             <IndianRupee className="h-10 w-10 text-slate-300 mx-auto mb-3" />
             <p className="text-sm font-bold text-slate-700">वर्तमान में कोई फीस चालान नहीं है</p>
             <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-              सत्र में अभी कोई बकाया या भुगतान चालान दर्ज नहीं है। जब छात्रों का नामांकन होगा और फीस चालान बनाए जाएंगे, तो वे यहाँ प्रदर्शित होंगे।
+              सत्र में अभी कोई बकाया या भुगतान चालान दर्ज नहीं है। नया चालान बनाने के लिए ऊपर <strong>&quot;+ नया फीस चालान जारी करें&quot;</strong> बटन का उपयोग करें।
             </p>
           </div>
         ) : (
@@ -107,11 +119,11 @@ export function FeesScreen() {
                             : 'bg-rose-100 text-rose-800'
                         }`}
                       >
-                        {inv.status === 'Paid' ? 'भुगतान किया गया' : inv.status === 'Partial' ? 'आंशिक भुगतान' : 'बकाया'}
+                        {inv.status === 'Paid' ? 'भुगतान पूर्ण' : inv.status === 'Partial' ? 'आंशिक भुगतान' : 'बकाया'}
                       </span>
                     </div>
                     <h3 className="font-semibold text-sm text-slate-900 mt-1">{inv.title}</h3>
-                    <p className="text-xs text-slate-500">{inv.studentName} • {inv.className}</p>
+                    <p className="text-xs text-slate-500">{inv.studentName} • {inv.className} {inv.section ? `(${inv.section})` : ''}</p>
                   </div>
 
                   <div className="text-right">
@@ -126,18 +138,31 @@ export function FeesScreen() {
                     {inv.paidAt && <span className="ml-3 text-emerald-600">भुगतान तिथि: {inv.paidAt}</span>}
                   </div>
 
-                  {inv.status !== 'Paid' ? (
-                    <button
-                      onClick={() => setActivePayInvoice(inv)}
-                      className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg shadow-xs active:scale-95 transition-all"
-                    >
-                      ₹{dueAmt.toLocaleString('en-IN')} जमा करें
-                    </button>
-                  ) : (
-                    <span className="flex items-center gap-1 text-emerald-700 font-semibold text-xs">
-                      <CheckCircle2 className="h-4 w-4" /> रसीद उपलब्ध
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {inv.paidAmount > 0 && (
+                      <button
+                        onClick={() => setReceiptInvoice(inv)}
+                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition cursor-pointer"
+                        title="रसीद प्रिंट करें"
+                      >
+                        <Printer className="h-3.5 w-3.5 text-slate-600" />
+                        <span>रसीद प्रिंट</span>
+                      </button>
+                    )}
+
+                    {inv.status !== 'Paid' ? (
+                      <button
+                        onClick={() => setActivePayInvoice(inv)}
+                        className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg shadow-xs active:scale-95 transition-all cursor-pointer"
+                      >
+                        ₹{dueAmt.toLocaleString('en-IN')} जमा करें
+                      </button>
+                    ) : (
+                      <span className="flex items-center gap-1 text-emerald-700 font-semibold text-xs py-1">
+                        <CheckCircle2 className="h-4 w-4" /> भुगतान पूर्ण
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -152,6 +177,21 @@ export function FeesScreen() {
         onPaymentSuccess={() => {
           setRefreshKey((k) => k + 1);
         }}
+      />
+
+      {/* Create Fee Modal */}
+      <CreateFeeModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={() => {
+          setRefreshKey((k) => k + 1);
+        }}
+      />
+
+      {/* Printable Fee Receipt Modal */}
+      <FeeReceiptModal
+        invoice={receiptInvoice}
+        onClose={() => setReceiptInvoice(null)}
       />
     </div>
   );

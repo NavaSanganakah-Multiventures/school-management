@@ -123,4 +123,69 @@ feesApp.post('/create-invoice', async (c) => {
   return c.json({ success: true, message: 'चालान ' + invoiceNumber + ' जारी किया गया।', invoice }, 201);
 });
 
+// POST /api/fees/create-bulk
+feesApp.post('/create-bulk', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  const schoolId = getRequestSchoolId(c, authUser);
+  const body = await c.req.json().catch(() => ({}));
+
+  const className = body.className;
+  const title = body.title;
+  const totalAmount = Number(body.totalAmount);
+  const dueDate = body.dueDate || new Date().toISOString().split('T')[0];
+
+  if (!className || !title || !totalAmount) {
+    return c.json({ success: false, message: 'कक्षा, शीर्षक एवं राशि अनिवार्य हैं।' }, 400);
+  }
+
+  const studentsResult = await db.prepare(
+    'SELECT id, full_name, scholar_number, class_name, section FROM students WHERE school_id = ? AND class_name = ? AND status = "Active"'
+  ).bind(schoolId, className).all();
+
+  const students = studentsResult.results || [];
+  if (students.length === 0) {
+    return c.json({ success: false, message: className + ' में कोई सक्रिय छात्र नहीं मिला।' }, 404);
+  }
+
+  const cntRow = await db.prepare('SELECT COUNT(*) AS n FROM fee_invoices WHERE school_id = ?').bind(schoolId).first();
+  let baseCnt = Number(cntRow ? cntRow.n : 0);
+  const year = new Date().getFullYear();
+
+  let createdCount = 0;
+  for (const st of students as any[]) {
+    baseCnt++;
+    const invNum = 'INV-' + year + '/' + String(baseCnt).padStart(3, '0');
+    const invId = 'fee-' + Date.now() + '-' + createdCount;
+
+    await db.prepare(
+      'INSERT INTO fee_invoices (id, invoice_number, student_id, student_name, class_name, title, total_amount, paid_amount, due_date, status, school_id, scholar_number, section) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    ).bind(
+      invId,
+      invNum,
+      st.id,
+      st.full_name,
+      st.class_name,
+      title,
+      totalAmount,
+      0,
+      dueDate,
+      'Unpaid',
+      schoolId,
+      st.scholar_number || '',
+      st.section || ''
+    ).run();
+
+    createdCount++;
+  }
+
+  return c.json({
+    success: true,
+    message: className + ' के ' + createdCount + ' छात्रों के लिए फीस चालान सफलतापूर्वक जारी किए गए।',
+    count: createdCount,
+  }, 201);
+});
+
 export default feesApp;

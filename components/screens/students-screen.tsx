@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Search, Plus, Filter, Phone, UserCheck, Award, Eye, FileText, AlertCircle, Building2, UserX } from 'lucide-react';
 import { AddScholarModal } from '../modals/add-scholar-modal';
 import { ViewScholarModal } from '../modals/view-scholar-modal';
+import { IssueTcModal } from '../modals/issue-tc-modal';
 
 interface StudentsScreenProps {
   userRole: 'Director' | 'Principal' | 'Staff';
@@ -16,6 +17,7 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [activeScholar, setActiveScholar] = useState<any | null>(null);
+  const [tcStudent, setTcStudent] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
   const canManageStudents = userRole === 'Director' || userRole === 'Principal';
@@ -222,15 +224,26 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
                         <button
                           onClick={() => setActiveScholar(student)}
                           title="स्कॉलर कार्ड देखें"
-                          className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-colors"
+                          className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
                         >
                           <Eye className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => setTcStudent(student)}
+                          title={student.status === 'TC_Issued' ? 'टी.सी. देखें व प्रिंट करें' : 'टी.सी. निर्गत करें (Issue TC)'}
+                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                            student.status === 'TC_Issued'
+                              ? 'text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100'
+                              : 'text-slate-500 hover:text-amber-600 hover:bg-amber-50'
+                          }`}
+                        >
+                          <FileText className="h-4 w-4" />
                         </button>
                         {canManageStudents && (
                           <button
                             onClick={() => handleDelete(student.id, student.fullName)}
                             title="हटाएं"
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                           >
                             <UserX className="h-4 w-4" />
                           </button>
@@ -261,6 +274,17 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
         onIssueTc={(studentId) => {
           setStudents((prev) =>
             prev.map((s) => (s.id === studentId ? { ...s, status: 'TC_Issued' } : s))
+          );
+        }}
+      />
+
+      <IssueTcModal
+        isOpen={!!tcStudent}
+        student={tcStudent}
+        onClose={() => setTcStudent(null)}
+        onSuccess={(updated) => {
+          setStudents((prev) =>
+            prev.map((s) => (s.id === updated.id ? { ...s, status: 'TC_Issued' } : s))
           );
         }}
       />

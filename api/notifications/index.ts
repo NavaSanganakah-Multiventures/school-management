@@ -88,6 +88,9 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
 
   let deviceTokens: Array<{ token: string; role: string; deviceType: string; subscribedTopics: string[] }> = [];
   try {
+    // Automatically clean up non-FCM dummy tokens from past dev runs
+    await db.prepare("UPDATE fcm_device_tokens SET is_active = 0 WHERE device_token LIKE 'web-device-%'").run().catch(() => {});
+
     const rows = await db.prepare(
       'SELECT device_token, role, device_type, subscribed_topics FROM fcm_device_tokens WHERE school_id = ? AND is_active = 1'
     ).bind(activeSchoolId).all();
@@ -99,10 +102,14 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
   }
 
   // Web device जो इस topic पर असल में subscribe है उसे topic से ही message मिल जाएगा;
-  // duplicate direct token भेजने से बचें (सिर्फ तब, जब topic भेजना सफल रहा हो)।
+  // duplicate direct token भेजने से बचें। साथ ही डमी (mock) टोकन्स को direct send में न भेजें।
   let tokenSkipped = 0;
   const canSkipViaTopic = fcmConfigured && !!topicResult.success;
   const directTokens = deviceTokens.filter((d) => {
+    // Filter out invalid mock tokens
+    if (!d.token || d.token.startsWith('web-device-') || d.token.length < 30) {
+      return false;
+    }
     if (canSkipViaTopic && String(d.deviceType || '') === 'web' && d.subscribedTopics.indexOf(resolvedTopicKey) >= 0) {
       tokenSkipped++;
       return false;
@@ -118,11 +125,24 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
       const token = directTokens[i].token;
       try {
         const r = await sendFcmMessage(env, buildTokenMessage(token, opts.title, opts.body, dataPayload, priority));
-        if (r.success) tokenSuccess++;
-        else { tokenFailed++; tokenErrors.push('token: ' + (r.error || 'unknown')); }
+        if (r.success) {
+          tokenSuccess++;
+        } else {
+          tokenFailed++;
+          const errStr = r.error || 'unknown';
+          tokenErrors.push('token: ' + errStr);
+          // Auto-deactivate invalid/unregistered tokens in DB
+          if (errStr.includes('not a valid FCM registration token') || errStr.includes('UNREGISTERED') || errStr.includes('INVALID_ARGUMENT') || errStr.includes('NOT_FOUND')) {
+            await db.prepare('UPDATE fcm_device_tokens SET is_active = 0 WHERE device_token = ?').bind(token).run().catch(() => {});
+          }
+        }
       } catch (e: any) {
         tokenFailed++;
-        tokenErrors.push('token: ' + (e && e.message ? e.message : String(e)));
+        const errStr = e && e.message ? e.message : String(e);
+        tokenErrors.push('token: ' + errStr);
+        if (errStr.includes('not a valid FCM registration token') || errStr.includes('UNREGISTERED') || errStr.includes('INVALID_ARGUMENT')) {
+          await db.prepare('UPDATE fcm_device_tokens SET is_active = 0 WHERE device_token = ?').bind(token).run().catch(() => {});
+        }
       }
     }
   }
