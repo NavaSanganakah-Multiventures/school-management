@@ -8,7 +8,7 @@ compatibility_flags = ["nodejs_compat"]
 directory = "./out"
 binding = "ASSETS"
 
-# Production bindings (top-level — used by `npx wrangler deploy` without --env)
+# Production bindings (top-level â used by `npx wrangler deploy` without --env)
 [[d1_databases]]
 binding = "DB"
 database_id = "16648fed-788d-4780-a877-fac56d9b5d27"
@@ -22,15 +22,17 @@ bucket_name = "school-management-production"
 binding = "CONFIG_KV"
 id = "393901911be84d558822c78070a82e94"
 
-# Cloudflare Email Service binding — sends password reset / invite emails.
+# Cloudflare Email Service binding â sends password reset / invite emails.
 [[send_email]]
 name = "SEND_EMAIL"
 
 [vars]
 ENVIRONMENT = "production"
 # FCM project id is derived from FCM_SERVICE_ACCOUNT_JSON.project_id (see api/lib/fcm.ts).
-SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Public School)"
+SCHOOL_NAME = "à¤µà¤¿à¤¦à¥à¤¯à¤¾ à¤¸à¥à¤¤à¥ à¤ªà¤¬à¥à¤²à¤¿à¤ à¤¸à¥à¤à¥à¤² (VidyaSetu Public School)"
 APP_BASE_URL = "https://pragnya.navasanganakah.com"
+WEB_PUSH_VAPID_PUBLIC_KEY = "BJlcKjZBfC5YzmoIxZ1ndHRJAiemr7Rdi4LBuceK6GI7N6g9aV3ctHpKCtZ8RbaPugnfvfJQNBiRTi63CGipHP4"
+WEB_PUSH_VAPID_SUBJECT = "mailto:pragnya@navasanganakah.com"
 
 # -------------------------------------------------------------
 # Preview Environment
@@ -53,5 +55,7 @@ id = "9158f79162824ee1b52e75fe51af71f8"
 
 [env.preview.vars]
 ENVIRONMENT = "preview"
+WEB_PUSH_VAPID_PUBLIC_KEY = "BJlcKjZBfC5YzmoIxZ1ndHRJAiemr7Rdi4LBuceK6GI7N6g9aV3ctHpKCtZ8RbaPugnfvfJQNBiRTi63CGipHP4"
+WEB_PUSH_VAPID_SUBJECT = "mailto:pragnya@navasanganakah.com"
 # FCM project id is derived from FCM_SERVICE_ACCOUNT_JSON.project_id (see api/lib/fcm.ts).
-SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Preview)"
+SCHOOL_NAME = "à¤µà¤¿à¤¦à¥à¤¯à¤¾ à¤¸à¥à¤¤à¥ à¤ªà¤¬à¥à¤²à¤¿à¤ à¤¸à¥à¤à¥à¤² (VidyaSetu Preview)"
