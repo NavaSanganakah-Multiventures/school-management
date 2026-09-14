@@ -71,8 +71,8 @@ function u32be(n: number): Uint8Array {
 }
 
 async function hmacSha256(key: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
-  const cryptoKey = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', cryptoKey, data);
+  const cryptoKey = await crypto.subtle.importKey('raw', key as BufferSource, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', cryptoKey, data as BufferSource);
   return new Uint8Array(sig);
 }
 
@@ -138,7 +138,7 @@ async function createVapidJwt(env: any, origin: string): Promise<string> {
     y: bytesToBase64Url(publicBytes.slice(33, 65)),
   };
   const key = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
-  const signature = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, textEncoder.encode(signingInput)));
+  const signature = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, textEncoder.encode(signingInput) as BufferSource));
   return signingInput + '.' + bytesToBase64Url(signature);
 }
 
@@ -150,7 +150,7 @@ async function encryptPayload(receiverPublicB64Url: string, authB64Url: string, 
 
   const keyPair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
   const senderPublic = new Uint8Array(await crypto.subtle.exportKey('raw', keyPair.publicKey));
-  const receiverKey = await crypto.subtle.importKey('raw', receiverPublic, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+  const receiverKey = await crypto.subtle.importKey('raw', receiverPublic as BufferSource, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
   const ecdhSecret = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: receiverKey }, keyPair.privateKey, 256));
 
   const secret = await hkdfExpand(
@@ -168,11 +168,11 @@ async function encryptPayload(receiverPublicB64Url: string, authB64Url: string, 
   const rs = Math.max(4096, data.length + 18);
   // Single record (last record): plaintext = data || 0x02 (padding delimiter)
   const recordPlaintext = concatBytes(data, new Uint8Array([2]));
-  const aesKey = await crypto.subtle.importKey('raw', cek, { name: 'AES-GCM' }, false, ['encrypt']);
+  const aesKey = await crypto.subtle.importKey('raw', cek as BufferSource, { name: 'AES-GCM' }, false, ['encrypt']);
   const cipherRecord = new Uint8Array(await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: nonceBase, tagLength: 128 },
+    { name: 'AES-GCM', iv: nonceBase as BufferSource, tagLength: 128 },
     aesKey,
-    recordPlaintext,
+    recordPlaintext as BufferSource,
   ));
 
   return concatBytes(salt, u32be(rs), new Uint8Array([senderPublic.length]), senderPublic, cipherRecord);
