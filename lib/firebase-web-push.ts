@@ -91,10 +91,34 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 }
 
 async function getActiveServiceWorker(): Promise<ServiceWorkerRegistration> {
-  // Browsers deduplicate registrations for the same scope; reusing a cached
-  // registration avoids triggering an update() network check on every retry.
-  if (cachedSwRegistration && cachedSwRegistration.active) {
-    return cachedSwRegistration;
+  // Force unregister any existing stale service workers first
+  const existingRegs = await navigator.serviceWorker.getRegistrations();
+  for (const reg of existingRegs) {
+    // Check if this is our Firebase SW
+    if (reg.active?.scriptURL.includes('firebase-messaging-sw.js')) {
+      console.log('Found existing Firebase service worker, checking version...');
+      // Force update to get latest version
+      try {
+        await reg.update();
+        console.log('Service worker update triggered');
+      } catch (e) {
+        console.warn('Service worker update failed, will re-register:', e);
+        await reg.unregister();
+      }
+    }
+  }
+
+  // Check if we have a cached registration that's still valid
+  if (cachedSwRegistration) {
+    try {
+      await cachedSwRegistration.update();
+      if (cachedSwRegistration.active) {
+        return cachedSwRegistration;
+      }
+    } catch (e) {
+      console.warn('Cached SW update failed, will re-register');
+      cachedSwRegistration = null;
+    }
   }
 
   // FCM requires the service worker to be registered at the root scope.
@@ -105,22 +129,19 @@ async function getActiveServiceWorker(): Promise<ServiceWorkerRegistration> {
   });
   cachedSwRegistration = reg;
 
-  // Try to update the service worker to the latest version. Failures here are
-  // non-fatal but are logged so they show up in diagnostics / troubleshooting.
+  // Try to update the service worker to the latest version
   try {
     await reg.update();
   } catch (e) {
     console.warn('Service worker update() failed (non-fatal):', e);
   }
 
-  // If the registration already has an active worker, use it immediately.
+  // If the registration already has an active worker, use it immediately
   if (reg.active) {
     return reg;
   }
 
-  // Wait for the new service worker to become active and control the page, but
-  // bound the wait with a timeout so registerFcmWebToken() never hangs forever
-  // (e.g. if the SW script fails to load or SW registration is blocked).
+  // Wait for the new service worker to become active
   const readyReg = await withTimeout(
     navigator.serviceWorker.ready,
     SW_ACTIVATE_TIMEOUT_MS,
