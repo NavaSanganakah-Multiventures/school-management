@@ -27,6 +27,7 @@ export function FcmBroadcastModal({
   const [successInfo, setSuccessInfo] = useState<any>(null);
   const [errorInfo, setErrorInfo] = useState<string | null>(null);
   const [diagInfo, setDiagInfo] = useState<any>(null);
+  const [deviceStats, setDeviceStats] = useState<{ totalCount: number; webCount: number; mobileCount: number } | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -37,6 +38,19 @@ export function FcmBroadcastModal({
             setTopics(data.topics);
             setSelectedTopicKey(data.topics[0].topicKey);
             setTargetRole(data.topics[0].targetRole);
+          }
+        })
+        .catch(() => {});
+
+      fetch('/api/notifications/devices?schoolId=' + schoolId)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.success) {
+            setDeviceStats({
+              totalCount: data.totalCount || 0,
+              webCount: data.webCount || 0,
+              mobileCount: data.mobileCount || 0,
+            });
           }
         })
         .catch(() => {});
@@ -166,9 +180,14 @@ export function FcmBroadcastModal({
               <div>Topic: {diag.topic || selectedTopicKey} (FCM सर्वर: {diag.topicSuccess ? 'स्वीकृत (HTTP 200 OK)' : 'असफल'})</div>
               {diag.topicMessageId ? <div className="text-slate-600 truncate">MessageId: {diag.topicMessageId}</div> : null}
               {diag.topicError ? <div className="text-rose-700 break-all">topicError: {diag.topicError}</div> : null}
-              <div>डिवाइस टोकन: {diag.deviceCount ?? 0} | Direct प्रेषित: {diag.directCount ?? 0}</div>
+              <div>पंजीकृत डिवाइस टोकन: {diag.deviceCount ?? 0} | Direct प्रेषित: {diag.directCount ?? 0}</div>
               {(diag.directCount > 0) && (
                 <div>Direct सफल: {diag.tokenSuccess ?? 0} | Direct असफल: {diag.tokenFailed ?? 0}</div>
+              )}
+              {diag.deviceCount === 0 && (
+                <div className="text-[10px] text-slate-500 pt-0.5">
+                  (संदेश FCM सर्वर-साइड टॉपिक ब्रॉडकास्ट द्वारा सभी सब्सक्राइब्ड मोबाइल्स व वेब डिवाइसेस पर प्रेषित हुआ है।)
+                </div>
               )}
               {diag.tokenErrors && diag.tokenErrors.length > 0 ? (
                 <div className="text-rose-700">
@@ -270,6 +289,26 @@ export function FcmBroadcastModal({
                   <option value="urgent">आपातकालीन (Urgent SOS)</option>
                 </select>
               </div>
+            </div>
+
+            {/* Registered Devices Status */}
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+              <div className="flex items-center justify-between text-slate-700 font-semibold">
+                <span className="flex items-center gap-1.5 text-[11px]">
+                  <Radio className="h-3 w-3 text-amber-600 animate-pulse" />
+                  पंजीकृत डिवाइस स्थिति (Device Registry)
+                </span>
+                <span className="text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-bold">
+                  {deviceStats ? `${deviceStats.totalCount} पंजीकृत डिवाइस` : 'जांच हो रही है...'}
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-600 flex gap-3">
+                <span>📱 मोबाइल ऐप: <strong>{deviceStats?.mobileCount ?? 0}</strong></span>
+                <span>💻 वेब ब्राउज़र: <strong>{deviceStats?.webCount ?? 0}</strong></span>
+              </div>
+              <p className="text-[9px] text-slate-500 pt-0.5 border-t border-slate-200">
+                💡 <strong>टोकन प्राप्ति:</strong> मोबाइल उपयोगकर्ता फ़्लटर/एंड्रॉइड ऐप खोलते ही स्वतः दर्ज होते हैं। वेब उपयोगकर्ता नोटिफिकेशन अनुमति (Allow) देने पर दर्ज होते हैं। दोनों को टॉपिक <code>{selectedTopicKey}</code> से तुरंत ब्रॉडकास्ट मिलता है।
+              </p>
             </div>
 
             {/* Delivery Channel Options */}

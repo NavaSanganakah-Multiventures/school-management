@@ -216,7 +216,11 @@ export function SchoolCrmShell() {
     if (typeof window === 'undefined') return;
     
     if (currentUser && currentUser.id) {
-      registerFcmWebToken(currentUser.id).then(async (token) => {
+      registerFcmWebToken(currentUser.id, {
+        schoolId: currentUser.schoolId || 'school-01',
+        role: currentUser.role || 'Staff',
+        topics: webTopics,
+      }).then(async (token) => {
         if (token) {
           const sent = await registerWebDevice(token);
           if (sent && (sent.ok || sent.success)) {

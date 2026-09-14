@@ -343,22 +343,49 @@ notificationsApp.post('/register-token', async (c) => {
   const db = getDB(c);
   const authUser = await getAuthUser(c);
   const body = await c.req.json().catch(() => ({}));
-  const token = body.token;
+  const token = body.token || body.deviceToken || body.fcmToken;
 
   if (!token) return c.json({ success: false, message: 'डिवाइस टोकन आवश्यक है।' }, 400);
 
-  const schoolId = body.schoolId || getRequestSchoolId(c, authUser);
-  const role = body.role || (authUser && authUser.role) || 'Parents';
+  if (!isRealFcmToken(token)) {
+    return c.json({
+      success: false,
+      message: 'अमान्य FCM टोकन: केवल Google FCM द्वारा जारी प्रामाणिक टोकन ही पंजीकृत किए जा सकते हैं।',
+      rejectedTokenPrefix: String(token).slice(0, 20)
+    }, 400);
+  }
+
+  const schoolId = body.schoolId || getRequestSchoolId(c, authUser) || 'school-01';
+  const role = body.role || (authUser && authUser.role) || 'Staff';
   const userId = body.userId || (authUser && (authUser.sub || authUser.id || authUser.userId)) || 'anonymous';
-  const deviceType = body.deviceType || 'mobile_app';
+  const deviceType = body.deviceType || (body.platform === 'flutter' ? 'mobile_app' : 'web');
   const platform = body.platform || (deviceType === 'web' ? 'web' : 'flutter');
-  const topics = Array.isArray(body.topics) ? body.topics : (deviceType === 'web' ? [] : derivedTopics(schoolId, role));
+  const topics = Array.isArray(body.topics) && body.topics.length > 0
+    ? body.topics
+    : derivedTopics(schoolId, role);
 
   const subscription = { userId: userId, schoolId: schoolId, role: role, device: deviceType, platform: platform, subscribedTopics: topics };
 
   if (!db) {
     return c.json({ success: true, message: 'डिवाइस टोकन पंजीकरण अनुबंध सहेजा गया (डेटाबेस उपलब्ध नहीं)।', subscription: subscription }, 201);
   }
+
+  // Ensure table exists
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS fcm_device_tokens (
+      id TEXT PRIMARY KEY,
+      school_id TEXT NOT NULL,
+      user_id TEXT,
+      role TEXT DEFAULT 'Parents',
+      device_token TEXT UNIQUE NOT NULL,
+      device_type TEXT DEFAULT 'mobile_app',
+      platform TEXT DEFAULT 'flutter',
+      subscribed_topics TEXT DEFAULT '[]',
+      is_active INTEGER DEFAULT 1,
+      last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run().catch(() => {});
 
   const id = 'devtok-' + Date.now();
   const now = new Date().toISOString();
@@ -369,6 +396,37 @@ notificationsApp.post('/register-token', async (c) => {
   ).bind(id, schoolId, userId, role, token, deviceType, platform, JSON.stringify(topics), now, now).run();
 
   return c.json({ success: true, message: 'डिवाइस टोकन सफलतापूर्वक पंजीकृत हुआ।', subscription: subscription }, 201);
+});
+
+/**
+ * Get registered devices summary for a school
+ */
+notificationsApp.get('/devices', async (c) => {
+  const db = getDB(c);
+  const authUser = await getAuthUser(c);
+  const schoolId = c.req.query('schoolId') || getRequestSchoolId(c, authUser) || 'school-01';
+
+  if (!db) {
+    return c.json({ success: true, schoolId, totalCount: 0, webCount: 0, mobileCount: 0, devices: [] });
+  }
+
+  try {
+    const rows = await db.prepare(
+      'SELECT id, school_id, user_id, role, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at FROM fcm_device_tokens WHERE school_id = ? AND is_active = 1 ORDER BY last_seen_at DESC'
+    ).bind(schoolId).all();
+
+    const devices = (rows.results || []).filter((d: any) => isRealFcmToken(d.device_token || d.id));
+    return c.json({
+      success: true,
+      schoolId: schoolId,
+      totalCount: devices.length,
+      webCount: devices.filter((d: any) => d.device_type === 'web').length,
+      mobileCount: devices.filter((d: any) => d.device_type !== 'web').length,
+      devices: devices,
+    });
+  } catch (e: any) {
+    return c.json({ success: true, schoolId, totalCount: 0, webCount: 0, mobileCount: 0, devices: [] });
+  }
 });
 
 notificationsApp.post('/broadcast', broadcastHandler);
