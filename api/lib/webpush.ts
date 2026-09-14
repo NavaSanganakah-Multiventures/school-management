@@ -40,7 +40,7 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
-function base64UrlToBytes(input: string): Uint8Array {
+function base64UrlToBytes(input: string): Uint8Array<ArrayBuffer> {
   let b64 = String(input || '').replace(/-/g, '+').replace(/_/g, '/');
   while (b64.length % 4 !== 0) b64 += '=';
   const bin = atob(b64);
@@ -49,7 +49,7 @@ function base64UrlToBytes(input: string): Uint8Array {
   return bytes;
 }
 
-function concatBytes(...arrays: Uint8Array[]): Uint8Array {
+function concatBytes(...arrays: Uint8Array[]): Uint8Array<ArrayBuffer> {
   let total = 0;
   for (let i = 0; i < arrays.length; i++) total += arrays[i].length;
   const out = new Uint8Array(total);
@@ -61,7 +61,7 @@ function concatBytes(...arrays: Uint8Array[]): Uint8Array {
   return out;
 }
 
-function u32be(n: number): Uint8Array {
+function u32be(n: number): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(4);
   out[0] = (n >>> 24) & 0xff;
   out[1] = (n >>> 16) & 0xff;
@@ -70,17 +70,17 @@ function u32be(n: number): Uint8Array {
   return out;
 }
 
-async function hmacSha256(key: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
+async function hmacSha256(key: Uint8Array, data: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
   const cryptoKey = await crypto.subtle.importKey('raw', key as BufferSource, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('HMAC', cryptoKey, data as BufferSource);
   return new Uint8Array(sig);
 }
 
-async function hkdfExtract(salt: Uint8Array, ikm: Uint8Array): Promise<Uint8Array> {
+async function hkdfExtract(salt: Uint8Array, ikm: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
   return hmacSha256(salt, ikm);
 }
 
-async function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number): Promise<Uint8Array> {
+async function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number): Promise<Uint8Array<ArrayBuffer>> {
   let output = new Uint8Array(0);
   let t = new Uint8Array(0);
   let counter = 0;
@@ -142,7 +142,7 @@ async function createVapidJwt(env: any, origin: string): Promise<string> {
   return signingInput + '.' + bytesToBase64Url(signature);
 }
 
-async function encryptPayload(receiverPublicB64Url: string, authB64Url: string, plaintext: string): Promise<Uint8Array> {
+async function encryptPayload(receiverPublicB64Url: string, authB64Url: string, plaintext: string): Promise<Uint8Array<ArrayBuffer>> {
   const receiverPublic = base64UrlToBytes(receiverPublicB64Url);
   const authSecret = base64UrlToBytes(authB64Url);
   if (receiverPublic.length !== 65) throw new Error('subscription.keys.p256dh अमान्य है।');
