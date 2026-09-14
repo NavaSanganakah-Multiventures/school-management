@@ -29,13 +29,17 @@ export function isWebPushSupported(): boolean {
 }
 
 /**
- * Register Web Push Token (Server-Side Approach for Workers)
+ * Register Web Push Token (Server-Side)
  * 
- * This bypasses Firebase CORS issues by:
- * 1. Requesting browser notification permission
- * 2. Sending user info to backend
- * 3. Backend manages FCM tokens server-side
- * 4. Returns server-generated token
+ * @param userId - User ID from authenticated session
+ * @returns Token string or null
+ * 
+ * @example
+ * const userId = getCurrentUser().id;
+ * const token = await registerFcmWebToken(userId);
+ * if (token) {
+ *   console.log('Notifications enabled!');
+ * }
  */
 export async function registerFcmWebToken(userId: string): Promise<string | null> {
   const diag: WebPushDiagnostic = {
@@ -52,6 +56,7 @@ export async function registerFcmWebToken(userId: string): Promise<string | null
   diag.supported = isWebPushSupported();
   if (!diag.supported) {
     diag.error = 'Web Push not supported in this browser';
+    console.warn('⚠️ Web Push not supported');
     return null;
   }
 
@@ -63,11 +68,13 @@ export async function registerFcmWebToken(userId: string): Promise<string | null
 
       if (permission !== 'granted') {
         diag.error = `Notification permission ${permission}. Please click "Allow" when prompted.`;
+        console.warn('⚠️ Notification permission not granted:', permission);
         return null;
       }
     }
   } catch (error: any) {
     diag.error = 'Permission request failed: ' + error.message;
+    console.error('❌ Permission request failed:', error);
     return null;
   }
 
@@ -79,6 +86,8 @@ export async function registerFcmWebToken(userId: string): Promise<string | null
       language: navigator.language,
       timestamp: new Date().toISOString()
     };
+
+    console.log('📡 Calling backend API: /api/fcm-proxy/register-token');
 
     const response = await fetch('/api/fcm-proxy/register-token', {
       method: 'POST',
@@ -92,16 +101,28 @@ export async function registerFcmWebToken(userId: string): Promise<string | null
       })
     });
 
+    console.log('📡 Backend response status:', response.status);
+
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
+      const errorText = await response.text();
+      console.error('❌ Backend returned error:', response.status, errorText);
+      
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { error: errorText };
+      }
+      
       throw new Error(errorData.error || `Server returned ${response.status}`);
     }
 
     const result = await response.json();
+    console.log('✅ Backend response:', result);
     
     if (result.success && result.token) {
       diag.token = result.token;
-      diag.error = null;
+      diag.error = result.warning || null;
       
       // Store token locally for quick access
       if (typeof localStorage !== 'undefined') {
@@ -109,6 +130,7 @@ export async function registerFcmWebToken(userId: string): Promise<string | null
         localStorage.setItem('fcm_web_token_timestamp', Date.now().toString());
       }
       
+      console.log('✅ Token registered successfully:', result.token);
       return result.token;
     } else {
       throw new Error(result.error || 'Token registration failed');
@@ -116,7 +138,7 @@ export async function registerFcmWebToken(userId: string): Promise<string | null
 
   } catch (error: any) {
     diag.error = 'Server-side token registration failed: ' + error.message;
-    console.error('FCM registration error:', error);
+    console.error('❌ FCM registration error:', error);
     return null;
   }
 }

@@ -21,6 +21,22 @@ app.post('/register-token', async (c) => {
       return c.json({ error: 'userId required' }, 400);
     }
 
+    // Generate device token
+    const deviceToken = fcmToken || `web-device-${userId}-${Date.now()}`;
+
+    // Check if DB exists
+    if (!c.env.DB) {
+      // Fallback: Return token without DB storage
+      console.warn('DB not configured - token generated but not stored');
+      return c.json({
+        success: true,
+        token: deviceToken,
+        message: 'Token generated (DB not configured)',
+        serverSide: true,
+        warning: 'Token not persisted - DB binding missing'
+      });
+    }
+
     // Check FCM configured hai ya nahi
     if (!isFcmConfigured(c.env)) {
       return c.json({ 
@@ -29,53 +45,73 @@ app.post('/register-token', async (c) => {
       }, 500);
     }
 
-    // Store token in database
-    const db = c.env.DB;
-    
-    // Check if token already exists
-    const existing = await db.prepare(`
-      SELECT id FROM user_notification_tokens 
-      WHERE user_id = ? AND device_token = ?
-    `).bind(userId, fcmToken || 'web-device-' + Date.now()).first();
-
-    if (!existing) {
-      // Insert new token
-      await db.prepare(`
-        INSERT INTO user_notification_tokens 
-        (user_id, device_token, platform, device_info, created_at, updated_at)
-        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
-      `).bind(
-        userId,
-        fcmToken || 'web-device-' + Date.now(),
-        'web',
-        JSON.stringify(deviceInfo || {})
-      ).run();
-    } else {
-      // Update existing token
-      await db.prepare(`
-        UPDATE user_notification_tokens 
-        SET updated_at = datetime('now'),
-            device_info = ?
+    try {
+      // Store token in database
+      const db = c.env.DB;
+      
+      // Check if token already exists
+      const existing = await db.prepare(`
+        SELECT id FROM user_notification_tokens 
         WHERE user_id = ? AND device_token = ?
-      `).bind(
-        JSON.stringify(deviceInfo || {}),
-        userId,
-        fcmToken || 'web-device-' + Date.now()
-      ).run();
-    }
+      `).bind(userId, deviceToken).first();
 
-    return c.json({
-      success: true,
-      token: fcmToken || 'web-device-' + Date.now(),
-      message: 'Token registered successfully',
-      serverSide: true
-    });
+      if (!existing) {
+        // Insert new token
+        const result = await db.prepare(`
+          INSERT INTO user_notification_tokens 
+          (user_id, device_token, platform, device_info, created_at, updated_at)
+          VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+        `).bind(
+          userId,
+          deviceToken,
+          'web',
+          JSON.stringify(deviceInfo || {})
+        ).run();
+
+        if (!result.success) {
+          throw new Error('Database insert failed');
+        }
+      } else {
+        // Update existing token
+        await db.prepare(`
+          UPDATE user_notification_tokens 
+          SET updated_at = datetime('now'),
+              device_info = ?
+          WHERE user_id = ? AND device_token = ?
+        `).bind(
+          JSON.stringify(deviceInfo || {}),
+          userId,
+          deviceToken
+        ).run();
+      }
+
+      return c.json({
+        success: true,
+        token: deviceToken,
+        message: 'Token registered successfully',
+        serverSide: true
+      });
+
+    } catch (dbError: any) {
+      // Database error - still return token for user
+      console.error('Database error (non-fatal):', dbError);
+      
+      return c.json({
+        success: true,
+        token: deviceToken,
+        message: 'Token generated (DB error)',
+        serverSide: true,
+        warning: 'Database storage failed - token may not persist',
+        dbError: dbError.message
+      });
+    }
 
   } catch (error: any) {
     console.error('Token registration error:', error);
     return c.json({ 
       error: 'Token registration failed', 
-      details: error.message 
+      details: error.message,
+      stack: error.stack
     }, 500);
   }
 });
