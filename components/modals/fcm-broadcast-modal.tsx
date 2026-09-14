@@ -19,17 +19,18 @@ export function FcmBroadcastModal({
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [topics, setTopics] = useState<any[]>([]);
-  const [selectedTopicKey, setSelectedTopicKey] = useState(`school_${schoolId}_all`);
+  const [selectedTopicKey, setSelectedTopicKey] = useState('school_' + schoolId + '_all');
   const [targetRole, setTargetRole] = useState('All');
   const [priority, setPriority] = useState('high');
   const [emailDispatchMode, setEmailDispatchMode] = useState<'standard_gmail' | 'domain_official' | 'fcm_only'>('domain_official');
   const [isSending, setIsSending] = useState(false);
   const [successInfo, setSuccessInfo] = useState<any>(null);
   const [errorInfo, setErrorInfo] = useState<string | null>(null);
+  const [diagInfo, setDiagInfo] = useState<any>(null);
 
   useEffect(() => {
     if (isOpen) {
-      fetch(`/api/notifications/topics?schoolId=${schoolId}`)
+      fetch('/api/notifications/topics?schoolId=' + schoolId)
         .then((r) => r.json())
         .then((data) => {
           if (data.success && data.topics?.length) {
@@ -44,12 +45,16 @@ export function FcmBroadcastModal({
 
   if (!isOpen) return null;
 
+  const diag = diagInfo || {};
+  const isHealthy = !!(diag.deviceCount > 0 && !diag.tokenFailed);
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !body) return;
 
     setIsSending(true);
     setErrorInfo(null);
+    setDiagInfo(null);
     try {
       const res = await fetch('/api/notifications/fcm-broadcast', {
         method: 'POST',
@@ -71,16 +76,23 @@ export function FcmBroadcastModal({
       const data = await res.json();
       if (data.success) {
         setSuccessInfo(data);
+        setDiagInfo(data.diag || data.alertResponse || null);
         onBroadcastSent?.(data.record);
-        setTimeout(() => {
-          setSuccessInfo(null);
-          onClose();
-        }, 1800);
+        const d = data.diag || data.alertResponse || {};
+        if (d.deviceCount > 0 && !d.tokenFailed) {
+          setTimeout(() => {
+            setSuccessInfo(null);
+            setDiagInfo(null);
+            onClose();
+          }, 2500);
+        }
       } else {
         setErrorInfo((data && data.message) ? data.message : 'सूचना भेजने में त्रुटि हुई।');
+        setDiagInfo((data && data.diag) ? data.diag : null);
       }
     } catch {
       setErrorInfo('नेटवर्क त्रुटि: सूचना भेजी नहीं जा सकी। कृपया पुनः प्रयास करें।');
+      setDiagInfo(null);
     } finally {
       setIsSending(false);
     }
@@ -107,17 +119,61 @@ export function FcmBroadcastModal({
         </div>
 
         {successInfo ? (
-          <div className="p-8 text-center space-y-3">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-green-600">
-              <CheckCircle2 className="h-8 w-8 animate-bounce" />
+          <div className="p-6 space-y-3">
+            <div className={'mx-auto flex h-14 w-14 items-center justify-center rounded-full ' + (isHealthy ? 'bg-green-100 text-green-600' : 'bg-rose-100 text-rose-600')}>
+              {isHealthy ? <CheckCircle2 className="h-8 w-8 animate-bounce" /> : <ShieldAlert className="h-8 w-8" />}
             </div>
-            <h4 className="text-lg font-bold text-slate-800">सूचना सफलतापूर्वक प्रसारित!</h4>
-            <p className="text-xs text-slate-600">
-              अलर्ट विद्यालय-विशिष्ट सुरक्षित FCM टॉपिक{' '}
-              <span className="font-mono font-bold text-amber-700">[{selectedTopicKey}]</span> पर प्रसारित कर दिया गया है।
+            <h4 className={'text-lg font-bold text-center ' + (isHealthy ? 'text-slate-800' : 'text-rose-700')}>
+              {isHealthy ? 'सूचना सफलतापूर्वक प्रसारित!' : 'सूचना भेजी गई, किंतु डिलीवरी में समस्या है'}
+            </h4>
+            <p className="text-xs text-slate-600 text-center">
+              अलर्ट टॉपिक{' '}
+              <span className="font-mono font-bold text-amber-700">[{selectedTopicKey}]</span> पर प्रसारित किया गया।
             </p>
-            <div className="text-[11px] text-emerald-700 bg-emerald-50 py-1.5 px-3 rounded-lg inline-block border border-emerald-200">
-              डेटा पृथक्करण सत्यापित: अन्य किसी भी विद्यालय में यह संदेश नहीं गया है।
+
+            {!isHealthy && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800">
+                <strong>⚠️ ध्यान दें:</strong> API ने 201 (success) लौटाया, पर असली डिलीवरी सफल नहीं हुई। नीचे रिपोर्ट देखें।
+              </div>
+            )}
+
+            {/* TODO(debug): FCM सत्यापन पूर्ण होने के बाद यह block हटा दें */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-700 space-y-1 font-mono">
+              <div className="font-semibold text-slate-900 mb-1">🔍 FCM डायग्नोस्टिक रिपोर्ट</div>
+              <div>
+                Project:{' '}
+                <span className={diag.fcmProjectId === 'pragnya-mitra' ? 'text-green-700 font-bold' : 'text-rose-700 font-bold'}>
+                  {diag.fcmProjectId || '—'}
+                </span>
+              </div>
+              <div>Topic: {diag.topic || selectedTopicKey} (topicSuccess: {diag.topicSuccess ? 'हाँ' : 'नहीं'})</div>
+              {diag.topicError ? <div className="text-rose-700 break-all">topicError: {diag.topicError}</div> : null}
+              <div>Devices: {diag.deviceCount ?? '?'} | Direct भेजे: {diag.directCount ?? '?'} | Topic-dedup skip: {diag.topicDedupCount ?? '?'}</div>
+              <div>Direct सफल: {diag.tokenSuccess ?? '?'} | Direct असफल: {diag.tokenFailed ?? '?'}</div>
+              {diag.tokenErrors && diag.tokenErrors.length > 0 ? (
+                <div className="text-rose-700">
+                  <div>tokenErrors:</div>
+                  {diag.tokenErrors.map((err: string, i: number) => (
+                    <div key={i} className="pl-2 break-all">• {err}</div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="text-center">
+              <div className="text-[11px] text-emerald-700 bg-emerald-50 py-1.5 px-3 rounded-lg inline-block border border-emerald-200">
+                डेटा पृथक्करण सत्यापित: अन्य किसी भी विद्यालय में यह संदेश नहीं गया है।
+              </div>
+            </div>
+
+            <div className="flex justify-center pt-1">
+              <button
+                type="button"
+                onClick={() => { setSuccessInfo(null); setDiagInfo(null); onClose(); }}
+                className="px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+              >
+                बंद करें
+              </button>
             </div>
           </div>
         ) : (
@@ -172,11 +228,11 @@ export function FcmBroadcastModal({
                     ))
                   ) : (
                     <>
-                      <option value={`school_${schoolId}_all`}>सभी (school_{schoolId}_all)</option>
-                      <option value={`school_${schoolId}_parents`}>केवल अभिभावक (school_{schoolId}_parents)</option>
-                      <option value={`school_${schoolId}_students`}>केवल विद्यार्थी (school_{schoolId}_students)</option>
-                      <option value={`school_${schoolId}_teachers`}>शिक्षक व स्टाफ (school_{schoolId}_teachers)</option>
-                      <option value={`school_${schoolId}_fees_due`}>फीस बकाया (school_{schoolId}_fees_due)</option>
+                      <option value={'school_' + schoolId + '_all'}>सभी ({'school_' + schoolId + '_all'})</option>
+                      <option value={'school_' + schoolId + '_parents'}>केवल अभिभावक ({'school_' + schoolId + '_parents'})</option>
+                      <option value={'school_' + schoolId + '_students'}>केवल विद्यार्थी ({'school_' + schoolId + '_students'})</option>
+                      <option value={'school_' + schoolId + '_teachers'}>शिक्षक व स्टाफ ({'school_' + schoolId + '_teachers'})</option>
+                      <option value={'school_' + schoolId + '_fees_due'}>फीस बकाया ({'school_' + schoolId + '_fees_due'})</option>
                     </>
                   )}
                 </select>
@@ -205,11 +261,7 @@ export function FcmBroadcastModal({
                 <button
                   type="button"
                   onClick={() => setEmailDispatchMode('domain_official')}
-                  className={`p-2.5 rounded-xl border text-left text-xs transition cursor-pointer flex flex-col justify-between ${
-                    emailDispatchMode === 'domain_official'
-                      ? 'border-indigo-600 bg-indigo-50/70 text-indigo-950 font-bold ring-1 ring-indigo-600'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
+                  className={'p-2.5 rounded-xl border text-left text-xs transition cursor-pointer flex flex-col justify-between ' + (emailDispatchMode === 'domain_official' ? 'border-indigo-600 bg-indigo-50/70 text-indigo-950 font-bold ring-1 ring-indigo-600' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50')}
                 >
                   <div className="flex items-center gap-1.5 mb-1">
                     <Globe className="h-3.5 w-3.5 text-indigo-600" />
@@ -223,11 +275,7 @@ export function FcmBroadcastModal({
                 <button
                   type="button"
                   onClick={() => setEmailDispatchMode('standard_gmail')}
-                  className={`p-2.5 rounded-xl border text-left text-xs transition cursor-pointer flex flex-col justify-between ${
-                    emailDispatchMode === 'standard_gmail'
-                      ? 'border-amber-600 bg-amber-50/70 text-amber-950 font-bold ring-1 ring-amber-600'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
+                  className={'p-2.5 rounded-xl border text-left text-xs transition cursor-pointer flex flex-col justify-between ' + (emailDispatchMode === 'standard_gmail' ? 'border-amber-600 bg-amber-50/70 text-amber-950 font-bold ring-1 ring-amber-600' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50')}
                 >
                   <div className="flex items-center gap-1.5 mb-1">
                     <Mail className="h-3.5 w-3.5 text-amber-600" />
@@ -244,17 +292,40 @@ export function FcmBroadcastModal({
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
               <ShieldCheck className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
               <span>
-                <strong>मल्टी-टेनेंसी सुरक्षा:</strong> यह संदेश केवल <span className="font-mono font-bold">[{selectedTopicKey}]</span> के ग्राहकों को डिलीवर होगा। अन्य किसी विद्यालय में इसका डेटा मिक्स नहीं होगा।
+                <strong>मल्टी-टेनेंसी सुरक्षा:</strong> यह संदेश केवल <span className="font-mono font-bold">[{selectedTopicKey}]</span> के ग्राहकों को डिलीवर होगा। अन्य किसी भी विद्यालय में इसका डेटा मिक्स नहीं होगा।
               </span>
             </div>
 
-                        {errorInfo && (
+            {errorInfo && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2">
                 <ShieldAlert className="h-4 w-4 text-rose-600 mt-0.5 shrink-0" />
                 <span>{errorInfo}</span>
               </div>
             )}
-<div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+
+            {errorInfo && diagInfo && (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-700 space-y-1 font-mono">
+                <div className="font-semibold text-slate-900">🔍 FCM डायग्नोस्टिक रिपोर्ट</div>
+                <div>
+                  Project:{' '}
+                  <span className={diagInfo.fcmProjectId === 'pragnya-mitra' ? 'text-green-700 font-bold' : 'text-rose-700 font-bold'}>
+                    {diagInfo.fcmProjectId || '—'}
+                  </span>
+                </div>
+                <div>Devices: {diagInfo.deviceCount ?? '?'} | Direct सफल: {diagInfo.tokenSuccess ?? '?'} | Direct असफल: {diagInfo.tokenFailed ?? '?'}</div>
+                {diagInfo.topicError ? <div className="text-rose-700 break-all">topicError: {diagInfo.topicError}</div> : null}
+                {diagInfo.tokenErrors && diagInfo.tokenErrors.length > 0 ? (
+                  <div className="text-rose-700">
+                    <div>tokenErrors:</div>
+                    {diagInfo.tokenErrors.map((err: string, i: number) => (
+                      <div key={i} className="pl-2 break-all">• {err}</div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
               <button
                 type="button"
                 onClick={onClose}
