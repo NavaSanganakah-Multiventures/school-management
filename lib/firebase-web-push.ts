@@ -1,286 +1,116 @@
 'use client';
 
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getMessaging as getMessagingSDK, getToken, onMessage, isSupported } from 'firebase/messaging';
-import { FIREBASE_VAPID_KEY, FIREBASE_WEB_CONFIG } from './firebase-client-config';
+/**
+ * Firebase Web Push - Server-Side Implementation for Cloudflare Workers
+ * 
+ * This file is a WRAPPER that redirects all FCM operations to server-side implementation.
+ * No client-side Firebase SDK calls - everything goes through backend API.
+ * 
+ * WHY SERVER-SIDE?
+ * - Avoids CORS issues on workers.dev subdomain
+ * - Better security (tokens managed server-side)
+ * - Faster (no Firebase SDK bundle in client)
+ * - Works on any domain (workers.dev, custom domain, localhost)
+ * 
+ * USAGE:
+ * import { registerFcmWebToken } from '@/lib/firebase-web-push';
+ * const token = await registerFcmWebToken(userId);
+ */
 
-const SW_PATH = '/firebase-messaging-sw.js';
-// Max wait time for the service worker to become active before falling back.
-const SW_ACTIVATE_TIMEOUT_MS = 8000;
+import { 
+  registerFcmWebToken as registerServerSide,
+  sendTestNotification as testServerSide,
+  checkFcmStatus as checkServerSide,
+  getWebPushDiagnostic as getDiagnosticServerSide,
+  isWebPushSupported,
+  getStoredToken,
+  clearStoredToken,
+  type WebPushDiagnostic
+} from './firebase-web-push-workers';
 
-let cachedSwRegistration: ServiceWorkerRegistration | null = null;
-let messagingInstance: any = null;
+// Re-export all server-side functions
+export { isWebPushSupported, getStoredToken, clearStoredToken };
+export type { WebPushDiagnostic };
 
-export type WebPushDiagnostic = {
-  supported: boolean;
-  configOk: boolean;
-  configProjectId: string;
-  permission: string;
-  swRegistered: boolean;
-  swActive: boolean;
-  token: string | null;
-  error: string | null;
-  networkProbe: { gstatic: boolean; installations: boolean; fcmRegistrations: boolean } | null;
-};
-
-let lastWebPushDiagnostic: WebPushDiagnostic | null = null;
-
+/**
+ * Get current diagnostic information
+ */
 export function getWebPushDiagnostic(): WebPushDiagnostic | null {
-  return lastWebPushDiagnostic;
+  return getDiagnosticServerSide();
 }
 
-function errMsg(e: any): string {
-  if (!e) return 'unknown';
-  let s = '';
-  if (e.code) s += 'code=' + e.code + ' ';
-  if (e.name) s += e.name + ': ';
-  s += (e.message != null) ? e.message : String(e);
-  return s;
-}
-
-async function probeReachable(url: string): Promise<boolean> {
-  try {
-    await fetch(url, { method: 'GET', mode: 'no-cors', cache: 'no-store' });
-    return true;
-  } catch (e) {
-    return false;
+/**
+ * Register FCM Web Token (Server-Side)
+ * 
+ * @param userId - User ID from authenticated session (required)
+ * @returns Token string or null if failed
+ * 
+ * @example
+ * const userId = getCurrentUser().id;
+ * const token = await registerFcmWebToken(userId);
+ * if (token) {
+ *   console.log('Notifications enabled!');
+ * }
+ */
+export async function registerFcmWebToken(userId?: string | number): Promise<string | null> {
+  if (!userId) {
+    console.error('❌ userId required for FCM registration');
+    return null;
   }
-}
-
-async function probeCorsReachable(url: string): Promise<boolean> {
-  try {
-    const res = await fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store' });
-    return res.ok || res.type !== 'opaque';
-  } catch (e) {
-    return false;
-  }
-}
-
-async function getMessaging(): Promise<any> {
-  if (typeof window === 'undefined') throw new Error('browser only');
   
-  // Check if messaging is supported
-  const supported = await isSupported();
-  if (!supported) throw new Error('Firebase messaging not supported in this browser');
-  
-  if (messagingInstance) return messagingInstance;
-  
-  try {
-    // Initialize Firebase app if not already initialized
-    const app = getApps().length ? getApp() : initializeApp(FIREBASE_WEB_CONFIG);
-    
-    // Get messaging instance
-    messagingInstance = getMessagingSDK(app);
-    return messagingInstance;
-  } catch (e) {
-    console.error('Firebase messaging initialization failed:', e);
-    throw e;
-  }
+  console.log('🔔 Registering FCM token via server-side API...');
+  return await registerServerSide(String(userId));
 }
 
-export function isWebPushSupported(): boolean {
-  if (typeof window === 'undefined') return false;
-  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+/**
+ * Send test notification
+ * 
+ * @param userId - User ID
+ * @param title - Notification title (optional)
+ * @param body - Notification body (optional)
+ */
+export async function sendTestNotification(
+  userId: string | number,
+  title?: string,
+  body?: string
+): Promise<{ success: boolean; error?: string }> {
+  return await testServerSide(String(userId), title, body);
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>(function (resolve) { setTimeout(function () { resolve(fallback); }, ms); }),
-  ]);
+/**
+ * Check if FCM is configured on server
+ */
+export async function checkFcmStatus(): Promise<{
+  configured: boolean;
+  serverSide: boolean;
+  error?: string;
+}> {
+  return await checkServerSide();
 }
 
-async function getActiveServiceWorker(): Promise<ServiceWorkerRegistration> {
-  // Force unregister any existing stale service workers first
-  const existingRegs = await navigator.serviceWorker.getRegistrations();
-  for (const reg of existingRegs) {
-    // Check if this is our Firebase SW
-    if (reg.active?.scriptURL.includes('firebase-messaging-sw.js')) {
-      console.log('Found existing Firebase service worker, checking version...');
-      // Force update to get latest version
-      try {
-        await reg.update();
-        console.log('Service worker update triggered');
-      } catch (e) {
-        console.warn('Service worker update failed, will re-register:', e);
-        await reg.unregister();
-      }
-    }
-  }
-
-  // Check if we have a cached registration that's still valid
-  if (cachedSwRegistration) {
-    try {
-      await cachedSwRegistration.update();
-      if (cachedSwRegistration.active) {
-        return cachedSwRegistration;
-      }
-    } catch (e) {
-      console.warn('Cached SW update failed, will re-register');
-      cachedSwRegistration = null;
-    }
-  }
-
-  // FCM requires the service worker to be registered at the root scope.
-  // Use updateViaCache: 'none' to always fetch the latest version
-  const reg = await navigator.serviceWorker.register(SW_PATH, { 
-    scope: '/', 
-    updateViaCache: 'none'
-  });
-  cachedSwRegistration = reg;
-
-  // Try to update the service worker to the latest version
-  try {
-    await reg.update();
-  } catch (e) {
-    console.warn('Service worker update() failed (non-fatal):', e);
-  }
-
-  // If the registration already has an active worker, use it immediately
-  if (reg.active) {
-    return reg;
-  }
-
-  // Wait for the new service worker to become active
-  const readyReg = await withTimeout(
-    navigator.serviceWorker.ready,
-    SW_ACTIVATE_TIMEOUT_MS,
-    reg
-  );
-  return readyReg;
-}
-
-export async function registerFcmWebToken(): Promise<string | null> {
-  const diag: WebPushDiagnostic = {
-    supported: false,
-    configOk: false,
-    configProjectId: FIREBASE_WEB_CONFIG.projectId || '',
-    permission: (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported',
-    swRegistered: false,
-    swActive: false,
-    token: null,
-    error: null,
-    networkProbe: null,
-  };
-  lastWebPushDiagnostic = diag;
-
-  // Check if running on workers.dev subdomain
-  if (typeof window !== 'undefined' && window.location.hostname.includes('workers.dev')) {
-    diag.error = 'Web push notifications workers.dev subdomain पर CORS blocked हैं। Custom domain use करें या server-side implementation implement करें। Details: CLOUDFLARE_WORKERS_FCM_SOLUTION.md';
-    console.warn('🚨 Firebase FCM blocked on workers.dev subdomain');
-    console.warn('📖 Solution: Add custom domain in Cloudflare Dashboard → Workers → Custom Domains');
-    console.warn('📖 Or see: CLOUDFLARE_WORKERS_FCM_SOLUTION.md for alternatives');
-    return null;
-  }
-
-  diag.supported = isWebPushSupported();
-  if (!diag.supported) {
-    diag.error = 'Web Push supported nahi hai (serviceWorker / PushManager / Notification missing)';
-    return null;
-  }
-
-  diag.configOk = !!(FIREBASE_WEB_CONFIG.apiKey && FIREBASE_WEB_CONFIG.projectId && FIREBASE_WEB_CONFIG.appId);
-  if (!diag.configOk) {
-    diag.error = 'Firebase web config missing hai';
-    return null;
-  }
-
-  // Stage 1: permission
-  try {
-    const permission = await Notification.requestPermission();
-    diag.permission = permission;
-    if (permission !== 'granted') {
-      diag.error = 'Notification permission "Allow" nahi hai (status: ' + permission + '). Browser lock icon -> Notifications -> Allow karein.';
-      return null;
-    }
-  } catch (e) {
-    diag.error = 'Permission request failed: ' + errMsg(e);
-    return null;
-  }
-
-  // Stage 2: Firebase SDK init
-  let messaging: any;
-  try {
-    messaging = await getMessaging();
-  } catch (e) {
-    diag.error = 'Firebase SDK init failed: ' + errMsg(e);
-    return null;
-  }
-
-  // Stage 3: service worker register and wait for active
-  let swRegistration: ServiceWorkerRegistration;
-  try {
-    swRegistration = await getActiveServiceWorker();
-    diag.swRegistered = true;
-    diag.swActive = swRegistration.active !== null;
-  } catch (e) {
-    diag.error = 'Service Worker register failed: ' + errMsg(e);
-    return null;
-  }
-
-  // Stage 4: getToken (network)
-  try {
-    const token = await getToken(messaging, { 
-      vapidKey: FIREBASE_VAPID_KEY, 
-      serviceWorkerRegistration: swRegistration 
-    });
-    diag.token = token || null;
-    if (!token) {
-      diag.error = 'getToken() ne empty token diya';
-    }
-    return token || null;
-  } catch (e) {
-    const gstatic = await probeReachable('https://www.gstatic.com/');
-    const sdkCors = await probeCorsReachable('https://firebasestorage.googleapis.com/');
-    const installations = await probeReachable('https://firebaseinstallations.googleapis.com/');
-    const fcmRegistrations = await probeReachable('https://fcmregistrations.googleapis.com/');
-    diag.networkProbe = { gstatic: gstatic, installations: installations, fcmRegistrations: fcmRegistrations };
-
-    let hint = '';
-    if (!installations) hint += ' | firebaseinstallations.googleapis.com UNREACHABLE';
-    if (!fcmRegistrations) hint += ' | fcmregistrations.googleapis.com UNREACHABLE';
-    if (!sdkCors) {
-      hint += ' | Firebase APIs CORS blocked - browser extension या network policy issue ho sakta hai';
-    }
-    if (gstatic && installations && fcmRegistrations) {
-      hint += ' | Browser cache clear karke refresh karein ya incognito mode me try karein';
-    }
-
-    diag.error = 'getToken failed: ' + errMsg(e) + hint + ' (probe: gstatic=' + gstatic + ', installations=' + installations + ', fcmReg=' + fcmRegistrations + ', sdkCors=' + sdkCors + ')';
-    console.error('Web push token registration failed', e);
-    return null;
-  }
-}
-
+/**
+ * Legacy function - Topics should be managed server-side
+ * @deprecated Use backend API for topic management
+ */
 export async function subscribeFcmWebTopics(token: string, topics: string[]): Promise<string[]> {
-  if (!isWebPushSupported()) return [];
-  if (!FIREBASE_WEB_CONFIG.apiKey || !FIREBASE_WEB_CONFIG.projectId || !FIREBASE_WEB_CONFIG.appId) return [];
-  if (!token || !topics || !topics.length) return [];
-  
-  // Note: Topic subscription is typically done server-side via Admin SDK
-  // Client-side topic subscription is not directly supported in modular SDK
-  console.warn('Topic subscription should be done server-side via Firebase Admin SDK');
+  console.warn('⚠️ Topic subscription should be done server-side via backend API');
   return [];
 }
 
+/**
+ * Legacy function - Foreground messages not implemented in server-side approach
+ * @deprecated Not needed with server-side implementation
+ */
 export async function onForegroundFcmMessage(callback: (payload: any) => void): Promise<() => void> {
-  if (!isWebPushSupported()) return function () {};
-  if (!FIREBASE_WEB_CONFIG.apiKey || !FIREBASE_WEB_CONFIG.projectId || !FIREBASE_WEB_CONFIG.appId) return function () {};
-  try {
-    const messaging = await getMessaging();
-    return onMessage(messaging, callback);
-  } catch (e) {
-    console.error('onMessage subscription failed:', e);
-    return function () {};
-  }
+  console.warn('⚠️ Foreground message handling not implemented in server-side approach');
+  return function () {};
 }
 
+/**
+ * Legacy function - Token refresh via periodic re-registration
+ * @deprecated Use periodic registerFcmWebToken() calls instead
+ */
 export async function onFcmTokenRefresh(callback: (token: string) => void): Promise<() => void> {
-  if (!isWebPushSupported()) return function () {};
-  if (!FIREBASE_WEB_CONFIG.apiKey || !FIREBASE_WEB_CONFIG.projectId || !FIREBASE_WEB_CONFIG.appId) return function () {};
-  
-  // Token refresh in modular SDK is handled by monitoring token changes
-  // This is typically done by periodically calling getToken()
-  console.warn('Token refresh monitoring should be implemented via periodic getToken() calls');
+  console.warn('⚠️ Token refresh should be done via periodic re-registration');
   return function () {};
 }
