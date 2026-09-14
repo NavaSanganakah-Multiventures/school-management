@@ -96,10 +96,19 @@ export async function registerFcmWebToken(
     return null;
   }
 
-  // 2. Register service worker for background and foreground notifications
+  // 2. Clear any stale Firebase IndexedDB databases (completely prevents VersionError)
+  if (typeof window !== 'undefined' && 'indexedDB' in window) {
+    try {
+      window.indexedDB.deleteDatabase('firebase-messaging-database');
+      window.indexedDB.deleteDatabase('firebaseInstallations');
+    } catch (_) {}
+  }
+
+  // 3. Register standard Web Push service worker with cache-busting version
   try {
     if ('serviceWorker' in navigator) {
-      await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
+      const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js?v=2.1.0', { scope: '/' });
+      await reg.update().catch(() => {});
       await navigator.serviceWorker.ready;
     }
   } catch (swErr: any) {
@@ -189,18 +198,48 @@ export async function subscribeFcmWebTopics(token: string, topics: string[]): Pr
 }
 
 export async function onForegroundFcmMessage(callback: (payload: any) => void): Promise<() => void> {
-  if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-    const handler = (event: MessageEvent) => {
-      if (event.data && (event.data.type === 'FCM_NOTIFICATION' || event.data.notification)) {
-        callback(event.data);
+  const disposers: Array<() => void> = [];
+
+  if (typeof window !== 'undefined') {
+    // 1. Service Worker postMessage listener
+    if ('serviceWorker' in navigator) {
+      const swHandler = (event: MessageEvent) => {
+        if (event.data && (event.data.type === 'FCM_NOTIFICATION' || event.data.notification)) {
+          callback(event.data);
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', swHandler);
+      disposers.push(() => navigator.serviceWorker.removeEventListener('message', swHandler));
+    }
+
+    // 2. BroadcastChannel listener across all browser tabs
+    try {
+      const bc = new BroadcastChannel('vidyasetu_fcm');
+      bc.onmessage = (event) => {
+        if (event.data && (event.data.type === 'FCM_NOTIFICATION' || event.data.notification)) {
+          callback(event.data);
+        }
+      };
+      disposers.push(() => {
+        try { bc.close(); } catch (_) {}
+      });
+    } catch (_) {}
+
+    // 3. Window CustomEvent listener
+    const domHandler = (event: any) => {
+      if (event.detail && (event.detail.type === 'FCM_NOTIFICATION' || event.detail.notification)) {
+        callback(event.detail);
       }
     };
-    navigator.serviceWorker.addEventListener('message', handler);
-    return () => {
-      navigator.serviceWorker.removeEventListener('message', handler);
-    };
+    window.addEventListener('fcm_notification', domHandler);
+    disposers.push(() => window.removeEventListener('fcm_notification', domHandler));
   }
-  return () => {};
+
+  return () => {
+    disposers.forEach((d) => {
+      try { d(); } catch (_) {}
+    });
+  };
 }
 
 export async function onFcmTokenRefresh(callback: (token: string) => void): Promise<() => void> {

@@ -236,17 +236,69 @@ export function SchoolCrmShell() {
       console.warn('[FCM] registerFcmWebToken catch:', err);
     });
 
+    const triggerIncomingToast = (title: string, body: string) => {
+      setPushToast({ title, body });
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15);
+          gain.gain.setValueAtTime(0.25, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.45);
+        }
+      } catch (_) {}
+
+      try {
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification(title, {
+            body: body,
+            icon: '/icon.svg',
+            badge: '/icon.svg',
+            tag: 'vidyasetu-' + Date.now(),
+          });
+        }
+      } catch (_) {}
+
+      setTimeout(() => setPushToast(null), 8000);
+    };
+
     onForegroundFcmMessage((payload) => {
-      const n = payload && payload.notification;
+      const n = payload && (payload.notification || payload);
       if (n && n.title) {
-        setPushToast({ title: n.title, body: n.body || '' });
-        setTimeout(() => setPushToast(null), 6000);
+        triggerIncomingToast(n.title, n.body || '');
       }
     }).then((dispose) => { disposeForeground = dispose; }).catch(() => {});
 
     onFcmTokenRefresh((token) => { registerWebDevice(token); }).then((dispose) => { disposeRefresh = dispose; }).catch(() => {});
 
+    // Periodic poll for alerts sent by other administrators
+    let lastKnownNotifId = '';
+    const pollTimer = setInterval(async () => {
+      try {
+        const res = await fetch('/api/notifications/history?schoolId=' + schoolId);
+        const data = await res.json().catch(() => ({}));
+        if (data && data.success && Array.isArray(data.history) && data.history.length > 0) {
+          const latest = data.history[0];
+          if (!lastKnownNotifId) {
+            lastKnownNotifId = latest.id;
+          } else if (latest.id !== lastKnownNotifId) {
+            lastKnownNotifId = latest.id;
+            triggerIncomingToast(latest.title, latest.body || '');
+          }
+        }
+      } catch (_) {}
+    }, 8000);
+
     return () => {
+      clearInterval(pollTimer);
       if (disposeForeground) disposeForeground();
       if (disposeRefresh) disposeRefresh();
     };
@@ -487,6 +539,31 @@ export function SchoolCrmShell() {
 
       <AddScholarModal isOpen={isAddScholarOpen} onClose={() => setIsAddScholarOpen(false)} onSuccess={() => { setActiveTab('students'); }} />
       <FcmBroadcastModal isOpen={isBroadcastOpen} onClose={() => setIsBroadcastOpen(false)} schoolId={currentUser.schoolId || 'school-01'} />
+
+      {pushToast && (
+        <div className="fixed top-5 right-5 z-[9999] max-w-sm w-full bg-white border-2 border-amber-400 rounded-2xl shadow-2xl p-4 flex items-start gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="p-2.5 bg-amber-100 text-amber-800 rounded-xl shrink-0">
+            <Bell className="h-6 w-6 animate-bounce" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-sm font-bold text-slate-900 truncate">{pushToast.title}</h4>
+              <button
+                type="button"
+                onClick={() => setPushToast(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-600 mt-1 line-clamp-3 leading-relaxed">{pushToast.body}</p>
+            <div className="text-[10px] text-emerald-700 font-medium mt-2 flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+              <span>पुश सूचना प्राप्त हुई • अभी-अभी</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

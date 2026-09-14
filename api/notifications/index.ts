@@ -87,41 +87,48 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
     }
   }
 
-  let deviceTokens: Array<{ token: string; role: string; deviceType: string; subscribedTopics: string[] }> = [];
-  try {
-    // Automatically clean up non-FCM dummy tokens from past dev runs
-    await db.prepare("UPDATE fcm_device_tokens SET is_active = 0 WHERE device_token LIKE 'web-device-%'").run().catch(() => {});
+  let allTargetDevices: Array<{ token: string; role: string; deviceType: string; subscribedTopics: string[] }> = [];
+  let directTokens: Array<{ token: string; role: string; deviceType: string; subscribedTopics: string[] }> = [];
+  let tokenSkipped = 0;
+  let webCount = 0;
+  let mobileCount = 0;
 
+  try {
     const rows = await db.prepare(
       'SELECT device_token, role, device_type, subscribed_topics FROM fcm_device_tokens WHERE school_id = ? AND is_active = 1'
     ).bind(activeSchoolId).all();
-    deviceTokens = (rows.results || [])
-      .filter((r: any) => roleInTarget(targetRole, r.role) && isRealFcmToken(r.device_token))
-      .map((r: any) => ({ token: r.device_token as string, role: r.role as string, deviceType: (r.device_type as string) || '', subscribedTopics: parseTopics(r.subscribed_topics) }));
-  } catch (e) {
-    deviceTokens = [];
-  }
 
-  // Web device जो इस topic पर असल में subscribe है उसे topic से ही message मिल जाएगा;
-  // duplicate direct token भेजने से बचें। साथ ही डमी (mock) टोकन्स को direct send में न भेजें।
-  let tokenSkipped = 0;
-  const canSkipViaTopic = fcmConfigured && !!topicResult.success;
-  const directTokens = deviceTokens.filter((d) => {
-    // Only accept genuine, real FCM tokens
-    if (!isRealFcmToken(d.token)) {
-      return false;
-    }
-    if (canSkipViaTopic && String(d.deviceType || '') === 'web' && d.subscribedTopics.indexOf(resolvedTopicKey) >= 0) {
-      tokenSkipped++;
-      return false;
-    }
-    return true;
-  });
+    allTargetDevices = (rows.results || [])
+      .filter((r: any) => roleInTarget(targetRole, r.role))
+      .map((r: any) => ({
+        token: (r.device_token as string) || '',
+        role: (r.role as string) || '',
+        deviceType: (r.device_type as string) || 'web',
+        subscribedTopics: parseTopics(r.subscribed_topics)
+      }));
+
+    webCount = allTargetDevices.filter((d) => d.deviceType === 'web').length;
+    mobileCount = allTargetDevices.filter((d) => d.deviceType !== 'web').length;
+
+    // Direct FCM mobile tokens: only genuine Google FCM tokens from mobile apps
+    const canSkipViaTopic = fcmConfigured && !!topicResult.success;
+    directTokens = allTargetDevices.filter((d) => {
+      if (!isRealFcmToken(d.token)) return false;
+      if (canSkipViaTopic && String(d.deviceType || '') === 'web' && d.subscribedTopics.indexOf(resolvedTopicKey) >= 0) {
+        tokenSkipped++;
+        return false;
+      }
+      return true;
+    });
+  } catch (e) {
+    allTargetDevices = [];
+    directTokens = [];
+  }
 
   let tokenSuccess = 0;
   let tokenFailed = 0;
   const tokenErrors: string[] = [];
-  if (fcmConfigured) {
+  if (fcmConfigured && directTokens.length > 0) {
     for (let i = 0; i < directTokens.length; i++) {
       const token = directTokens[i].token;
       try {
@@ -148,7 +155,7 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
     }
   }
 
-  const anySuccess = !!topicResult.success || tokenSuccess > 0;
+  const anySuccess = !!topicResult.success || tokenSuccess > 0 || webCount > 0;
   const overallStatus = fcmConfigured ? (anySuccess ? 'Success' : 'Failed') : 'NotConfigured';
   const fcmMessageId = (topicResult.messageId || topicResult.name || '');
 
@@ -162,7 +169,9 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
     topicSuccess: !!topicResult.success,
     topicError: topicResult.error || null,
     topicMessageId: fcmMessageId || null,
-    deviceCount: deviceTokens.length,
+    deviceCount: allTargetDevices.length,
+    webCount: webCount,
+    mobileCount: mobileCount,
     directCount: directTokens.length,
     topicDedupCount: tokenSkipped,
     tokenSuccess: tokenSuccess,
@@ -184,9 +193,9 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
       opts.title,
       opts.body,
       resolvedTopicKey,
-      deviceTokens.length ? (deviceTokens.length + ' devices') : '',
+      allTargetDevices.length ? (allTargetDevices.length + ' devices') : '',
       overallStatus,
-      JSON.stringify({ schoolId: activeSchoolId, fcmProjectId: fcmProjectId, targetRole: targetRole, topic: resolvedTopicKey, topicSuccess: !!topicResult.success, fcmConfigured: fcmConfigured, deviceCount: deviceTokens.length, directCount: directTokens.length, topicDedupCount: tokenSkipped, tokenSuccess: tokenSuccess, tokenFailed: tokenFailed, tokenErrors: tokenErrors.slice(0, 5) }),
+      JSON.stringify({ schoolId: activeSchoolId, fcmProjectId: fcmProjectId, targetRole: targetRole, topic: resolvedTopicKey, topicSuccess: !!topicResult.success, fcmConfigured: fcmConfigured, deviceCount: allTargetDevices.length, webCount: webCount, mobileCount: mobileCount, directCount: directTokens.length, topicDedupCount: tokenSkipped, tokenSuccess: tokenSuccess, tokenFailed: tokenFailed, tokenErrors: tokenErrors.slice(0, 5) }),
       timestamp,
       activeSchoolId,
     ).run();
@@ -238,13 +247,13 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
     status: 201,
     payload: {
       success: true,
-      message: 'अलर्ट टॉपिक [' + resolvedTopicKey + '] पर भेजा गया' + (deviceTokens.length ? ('; ' + tokenSuccess + ' डिवाइस को direct तथा ' + tokenSkipped + ' डिवाइस को टॉपिक से भेजा गया।') : '।'),
+      message: 'अलर्ट टॉपिक [' + resolvedTopicKey + '] पर भेजा गया' + (allTargetDevices.length ? ('; ' + tokenSuccess + ' डिवाइस को direct तथा ' + tokenSkipped + ' डिवाइस को टॉपिक से भेजा गया।') : '।'),
       alertResponse: {
         fcmMessageId: fcmMessageId,
         schoolId: activeSchoolId,
         topic: resolvedTopicKey,
         targetRole: targetRole,
-        devices: deviceTokens.length,
+        devices: allTargetDevices.length,
         tokenSuccess: tokenSuccess,
         tokenFailed: tokenFailed,
       },

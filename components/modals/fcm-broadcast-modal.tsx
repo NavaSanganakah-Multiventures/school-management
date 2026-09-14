@@ -89,6 +89,17 @@ export function FcmBroadcastModal({
       });
       const data = await res.json();
       if (data.success) {
+        // Dispatch locally to current window and all other open tabs immediately
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('fcm_notification', {
+            detail: { type: 'FCM_NOTIFICATION', notification: { title, body } }
+          }));
+          try {
+            const bc = new BroadcastChannel('vidyasetu_fcm');
+            bc.postMessage({ type: 'FCM_NOTIFICATION', notification: { title, body } });
+            bc.close();
+          } catch (_) {}
+        }
         setSuccessInfo(data);
         const d = data.diag || data.alertResponse || null;
         setDiagInfo(d);
@@ -180,15 +191,9 @@ export function FcmBroadcastModal({
               <div>Topic: {diag.topic || selectedTopicKey} (FCM सर्वर: {diag.topicSuccess ? 'स्वीकृत (HTTP 200 OK)' : 'असफल'})</div>
               {diag.topicMessageId ? <div className="text-slate-600 truncate">MessageId: {diag.topicMessageId}</div> : null}
               {diag.topicError ? <div className="text-rose-700 break-all">topicError: {diag.topicError}</div> : null}
-              <div>पंजीकृत डिवाइस टोकन: {diag.deviceCount ?? 0} | Direct प्रेषित: {diag.directCount ?? 0}</div>
-              {(diag.directCount > 0) && (
-                <div>Direct सफल: {diag.tokenSuccess ?? 0} | Direct असफल: {diag.tokenFailed ?? 0}</div>
-              )}
-              {diag.deviceCount === 0 && (
-                <div className="text-[10px] text-slate-500 pt-0.5">
-                  (संदेश FCM सर्वर-साइड टॉपिक ब्रॉडकास्ट द्वारा सभी सब्सक्राइब्ड मोबाइल्स व वेब डिवाइसेस पर प्रेषित हुआ है।)
-                </div>
-              )}
+              <div>पंजीकृत डिवाइसेस: {diag.deviceCount ?? 0} (💻 वेब: {diag.webCount ?? 0} | 📱 मोबाइल: {diag.mobileCount ?? 0})</div>
+              <div>Direct मोबाइल प्रेषित: {diag.directCount ?? 0} {diag.directCount > 0 ? `(सफल: ${diag.tokenSuccess ?? 0} | असफल: ${diag.tokenFailed ?? 0})` : '(कोई मोबाइल ऐप टोकन नहीं)'}</div>
+              <div className="text-emerald-700">💻 वेब सूचना: {(diag.webCount || 0) > 0 ? `${diag.webCount} सक्रिय वेब सत्रों पर तत्काल प्रसारित` : '0 वेब सत्र'}</div>
               {diag.tokenErrors && diag.tokenErrors.length > 0 ? (
                 <div className="text-rose-700">
                   <div>tokenErrors:</div>
