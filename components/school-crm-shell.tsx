@@ -352,7 +352,7 @@ const handleLogout = async () => {
       {webPushStatus && webPushStatus !== 'granted' && (
         <div className="flex items-start gap-2 mx-4 mt-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-800">
           <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
-          <div className="min-w-0">
+          <div className="min-w-0 break-words leading-relaxed">
             <strong>🔔 Web पुश सूचना की समस्या:</strong> {webPushStatus}
           </div>
           <button onClick={() => setWebPushStatus(null)} className="ml-auto text-rose-500 hover:text-rose-800 cursor-pointer shrink-0"><X className="h-4 w-4" /></button>
