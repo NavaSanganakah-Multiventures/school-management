@@ -4,8 +4,11 @@ import { FIREBASE_VAPID_KEY, FIREBASE_WEB_CONFIG } from './firebase-client-confi
 
 const SDK_VERSION = '10.14.1';
 const SW_PATH = '/firebase-messaging-sw.js';
+// Max wait time for the service worker to become active before falling back.
+const SW_ACTIVATE_TIMEOUT_MS = 8000;
 
 let initPromise: Promise<any> | null = null;
+let cachedSwRegistration: ServiceWorkerRegistration | null = null;
 
 export type WebPushDiagnostic = {
   supported: boolean;
@@ -13,6 +16,7 @@ export type WebPushDiagnostic = {
   configProjectId: string;
   permission: string;
   swRegistered: boolean;
+  swActive: boolean;
   token: string | null;
   error: string | null;
   networkProbe: { gstatic: boolean; installations: boolean; fcmRegistrations: boolean } | null;
@@ -37,6 +41,15 @@ async function probeReachable(url: string): Promise<boolean> {
   try {
     await fetch(url, { method: 'GET', mode: 'no-cors', cache: 'no-store' });
     return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function probeCorsReachable(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store' });
+    return res.type !== 'opaque';
   } catch (e) {
     return false;
   }
@@ -80,6 +93,48 @@ export function isWebPushSupported(): boolean {
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>(function (resolve) { setTimeout(function () { resolve(fallback); }, ms); }),
+  ]);
+}
+
+async function getActiveServiceWorker(): Promise<ServiceWorkerRegistration> {
+  // Browsers deduplicate registrations for the same scope; reusing a cached
+  // registration avoids triggering an update() network check on every retry.
+  if (cachedSwRegistration && cachedSwRegistration.active) {
+    return cachedSwRegistration;
+  }
+
+  // FCM requires the service worker to be registered at the root scope.
+  const reg = await navigator.serviceWorker.register(SW_PATH, { scope: '/', updateViaCache: 'none' });
+  cachedSwRegistration = reg;
+
+  // Try to update the service worker to the latest version. Failures here are
+  // non-fatal but are logged so they show up in diagnostics / troubleshooting.
+  try {
+    await reg.update();
+  } catch (e) {
+    console.warn('Service worker update() failed (non-fatal):', e);
+  }
+
+  // If the registration already has an active worker, use it immediately.
+  if (reg.active) {
+    return reg;
+  }
+
+  // Wait for the new service worker to become active and control the page, but
+  // bound the wait with a timeout so registerFcmWebToken() never hangs forever
+  // (e.g. if the SW script fails to load or SW registration is blocked).
+  const readyReg = await withTimeout(
+    navigator.serviceWorker.ready,
+    SW_ACTIVATE_TIMEOUT_MS,
+    reg
+  );
+  return readyReg;
+}
+
 export async function registerFcmWebToken(): Promise<string | null> {
   const diag: WebPushDiagnostic = {
     supported: false,
@@ -87,6 +142,7 @@ export async function registerFcmWebToken(): Promise<string | null> {
     configProjectId: FIREBASE_WEB_CONFIG.projectId || '',
     permission: (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported',
     swRegistered: false,
+    swActive: false,
     token: null,
     error: null,
     networkProbe: null,
@@ -127,11 +183,12 @@ export async function registerFcmWebToken(): Promise<string | null> {
     return null;
   }
 
-  // Stage 3: service worker register
-  let swRegistration: any;
+  // Stage 3: service worker register and wait for active
+  let swRegistration: ServiceWorkerRegistration;
   try {
-    swRegistration = await navigator.serviceWorker.register(SW_PATH);
+    swRegistration = await getActiveServiceWorker();
     diag.swRegistered = true;
+    diag.swActive = swRegistration.active !== null;
   } catch (e) {
     diag.error = 'Service Worker register failed: ' + errMsg(e);
     return null;
@@ -147,13 +204,23 @@ export async function registerFcmWebToken(): Promise<string | null> {
     return token || null;
   } catch (e) {
     const gstatic = await probeReachable('https://www.gstatic.com/');
+    const sdkCors = await probeCorsReachable('https://www.gstatic.com/firebasejs/' + SDK_VERSION + '/firebase-app-compat.js');
     const installations = await probeReachable('https://firebaseinstallations.googleapis.com/');
     const fcmRegistrations = await probeReachable('https://fcmregistrations.googleapis.com/');
     diag.networkProbe = { gstatic: gstatic, installations: installations, fcmRegistrations: fcmRegistrations };
+
     let hint = '';
     if (!installations) hint += ' | firebaseinstallations.googleapis.com UNREACHABLE';
     if (!fcmRegistrations) hint += ' | fcmregistrations.googleapis.com UNREACHABLE';
-    diag.error = 'getToken failed: ' + errMsg(e) + hint + ' (probe: gstatic=' + gstatic + ', installations=' + installations + ', fcmReg=' + fcmRegistrations + ')';
+    if (gstatic && installations && fcmRegistrations && !sdkCors) {
+      // CDN reachable via no-cors but blocked via CORS -> likely a script/CORS blocker.
+      hint += ' | possible CDN script blocker / CORS restriction (gstatic CORS probe failed)';
+    } else if (gstatic && installations && fcmRegistrations) {
+      // Everything reachable yet getToken failed -> ad blocker, privacy extension, or stale SW.
+      hint += ' | ad blocker / privacy extension ya stale service worker issue ho sakta hai. Try page refresh ya browser cache clear karein.';
+    }
+
+    diag.error = 'getToken failed: ' + errMsg(e) + hint + ' (probe: gstatic=' + gstatic + ', installations=' + installations + ', fcmReg=' + fcmRegistrations + ', sdkCors=' + sdkCors + ')';
     console.error('Web push token registration failed', e);
     return null;
   }
