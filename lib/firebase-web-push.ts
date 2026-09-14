@@ -55,17 +55,31 @@ async function probeCorsReachable(url: string): Promise<boolean> {
   }
 }
 
-function loadScript(src: string): Promise<void> {
+function loadScript(src: string, retries = 3): Promise<void> {
   return new Promise((resolve, reject) => {
     if (typeof document === 'undefined') { reject(new Error('browser only')); return; }
     const existing = document.querySelector('script[src="' + src + '"]');
     if (existing) { resolve(); return; }
-    const el = document.createElement('script');
-    el.src = src;
-    el.async = true;
-    el.onload = function () { resolve(); };
-    el.onerror = function () { reject(new Error('Firebase SDK load failed: ' + src)); };
-    document.head.appendChild(el);
+    
+    const attemptLoad = (attempt: number) => {
+      const el = document.createElement('script');
+      el.src = src + (attempt > 0 ? '?retry=' + attempt : '');
+      el.async = true;
+      el.crossOrigin = 'anonymous';
+      
+      el.onload = function () { resolve(); };
+      el.onerror = function () {
+        if (attempt < retries) {
+          console.warn(`Firebase SDK load failed (attempt ${attempt + 1}/${retries}), retrying...`);
+          setTimeout(() => attemptLoad(attempt + 1), 1000 * (attempt + 1));
+        } else {
+          reject(new Error('Firebase SDK load failed after ' + retries + ' retries: ' + src));
+        }
+      };
+      document.head.appendChild(el);
+    };
+    
+    attemptLoad(0);
   });
 }
 
@@ -75,14 +89,26 @@ async function getMessaging(): Promise<any> {
   if (w.__vidyasetuMessaging) return w.__vidyasetuMessaging;
   if (!initPromise) {
     initPromise = (async () => {
-      await loadScript('https://www.gstatic.com/firebasejs/' + SDK_VERSION + '/firebase-app-compat.js');
-      await loadScript('https://www.gstatic.com/firebasejs/' + SDK_VERSION + '/firebase-messaging-compat.js');
+      try {
+        await loadScript('https://www.gstatic.com/firebasejs/' + SDK_VERSION + '/firebase-app-compat.js');
+        await loadScript('https://www.gstatic.com/firebasejs/' + SDK_VERSION + '/firebase-messaging-compat.js');
+      } catch (e) {
+        console.error('Firebase SDK load failed with retries:', e);
+        throw e;
+      }
+      
       const fb = w.firebase;
-      if (!fb) throw new Error('Firebase SDK not available');
-      const app = fb.apps && fb.apps.length ? fb.apps[0] : fb.initializeApp(FIREBASE_WEB_CONFIG);
-      const messaging = fb.messaging(app);
-      w.__vidyasetuMessaging = messaging;
-      return messaging;
+      if (!fb) throw new Error('Firebase SDK not available after load');
+      
+      try {
+        const app = fb.apps && fb.apps.length ? fb.apps[0] : fb.initializeApp(FIREBASE_WEB_CONFIG);
+        const messaging = fb.messaging(app);
+        w.__vidyasetuMessaging = messaging;
+        return messaging;
+      } catch (e) {
+        console.error('Firebase messaging initialization failed:', e);
+        throw e;
+      }
     })();
   }
   return initPromise;
@@ -108,7 +134,11 @@ async function getActiveServiceWorker(): Promise<ServiceWorkerRegistration> {
   }
 
   // FCM requires the service worker to be registered at the root scope.
-  const reg = await navigator.serviceWorker.register(SW_PATH, { scope: '/', updateViaCache: 'none' });
+  // Use updateViaCache: 'none' to always fetch the latest version
+  const reg = await navigator.serviceWorker.register(SW_PATH, { 
+    scope: '/', 
+    updateViaCache: 'none'
+  });
   cachedSwRegistration = reg;
 
   // Try to update the service worker to the latest version. Failures here are
