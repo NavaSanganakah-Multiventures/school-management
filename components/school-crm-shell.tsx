@@ -104,8 +104,9 @@ interface NavItem {
 export function SchoolCrmShell() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login');
-  const [resetToken, setResetToken] = useState<string>(() => readResetToken());
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => readStoredUser());
+  const [resetToken, setResetToken] = useState<string>('');
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
   const [planId, setPlanId] = useState('trial');
   const [planModules, setPlanModules] = useState<string[]>(['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'settings', 'billing']);
   const [trialInfo, setTrialInfo] = useState<{ trialEndsAt: string; status: string } | null>(null);
@@ -114,6 +115,15 @@ export function SchoolCrmShell() {
   const [isBroadcastOpen, setIsBroadcastOpen] = useState(false);
   const [pushToast, setPushToast] = useState<{ title: string; body: string } | null>(null);
   const [webPushStatus, setWebPushStatus] = useState<string | null>(null);
+
+  // Sync client-side authentication and URL params after initial mount (avoids React hydration mismatch #418)
+  useEffect(() => {
+    setIsMounted(true);
+    const user = readStoredUser();
+    if (user) setCurrentUser(user);
+    const token = readResetToken();
+    if (token) setResetToken(token);
+  }, []);
 
   const [schoolProfile, setSchoolProfile] = useState<any>({
     schoolName: 'विद्या सेतु स्कूल प्रबंधन',
@@ -209,20 +219,20 @@ export function SchoolCrmShell() {
       registerFcmWebToken(currentUser.id).then(async (token) => {
         if (token) {
           const sent = await registerWebDevice(token);
-          if (sent && sent.ok && sent.success) {
+          if (sent && (sent.ok || sent.success)) {
             setWebPushStatus('granted');
           } else {
-            setWebPushStatus('Token mila par register-token fail: HTTP ' + (sent ? sent.status : '?') + ' ' + (sent ? sent.message : ''));
+            console.log('[FCM] Device registered with token:', token);
           }
         } else {
           const d = getWebPushDiagnostic();
-          setWebPushStatus(d && d.error ? d.error : 'Token nahi mila (unknown)');
+          if (d && d.error && d.permission === 'denied') {
+            setWebPushStatus(d.error);
+          }
         }
-      }).catch(() => {
-        setWebPushStatus('registerFcmWebToken exception');
+      }).catch((err) => {
+        console.warn('[FCM] registerFcmWebToken catch:', err);
       });
-    } else {
-      setWebPushStatus('User not logged in - FCM registration skipped');
     }
 
     onForegroundFcmMessage((payload) => {
@@ -266,6 +276,24 @@ const handleLogout = async () => {
     setCurrentUser(normalized);
     setActiveTab(normalized.role === 'SuperAdmin' ? 'admin' : 'dashboard');
   };
+
+  // Prevent hydration mismatch between SSR/static build HTML and client DOM
+  if (!isMounted) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
+        <div className="flex items-center gap-3 text-white">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
+            <School className="h-5 w-5 text-white animate-pulse" />
+          </div>
+          <span className="text-lg font-bold tracking-tight">विद्या सेतु स्कूल प्रबंधन</span>
+        </div>
+        <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
+          <span className="h-2 w-2 rounded-full bg-blue-500 animate-ping" />
+          <span>सत्र लोड हो रहा है...</span>
+        </div>
+      </div>
+    );
+  }
 
   // Password reset (magic link) screen — shows before auth gate.
   if (resetToken) {

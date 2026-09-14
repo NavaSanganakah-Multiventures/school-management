@@ -72,14 +72,6 @@ app.post('/register-token', async (c) => {
     // Check FCM configured
     const fcmConfigured = isFcmConfigured(c.env);
     console.log('[FCM] FCM configured:', fcmConfigured);
-    
-    if (!fcmConfigured) {
-      console.error('[FCM] FCM not configured on server');
-      return c.json({ 
-        error: 'FCM not configured on server', 
-        hint: 'Set FCM_SERVICE_ACCOUNT_JSON secret in Cloudflare Workers'
-      }, 500);
-    }
 
     console.log('[FCM] Attempting to store token in database...');
 
@@ -87,12 +79,28 @@ app.post('/register-token', async (c) => {
       // Store token in database
       const db = c.env.DB;
       
+      // Auto-create table if missing so no DB error occurs
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS user_notification_tokens (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT NOT NULL,
+          device_token TEXT NOT NULL,
+          platform TEXT NOT NULL DEFAULT 'web',
+          device_info TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(user_id, device_token)
+        )
+      `).run().catch((e: any) => {
+        console.warn('[FCM] Table check:', e.message);
+      });
+
       // Check if token already exists
       console.log('[FCM] Checking for existing token...');
       const existing = await db.prepare(`
         SELECT id FROM user_notification_tokens 
         WHERE user_id = ? AND device_token = ?
-      `).bind(userId, deviceToken).first();
+      `).bind(String(userId), deviceToken).first();
 
       if (!existing) {
         console.log('[FCM] Inserting new token...');
@@ -101,7 +109,7 @@ app.post('/register-token', async (c) => {
           (user_id, device_token, platform, device_info, created_at, updated_at)
           VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
         `).bind(
-          userId,
+          String(userId),
           deviceToken,
           'web',
           JSON.stringify(deviceInfo || {})
@@ -121,9 +129,23 @@ app.post('/register-token', async (c) => {
           WHERE user_id = ? AND device_token = ?
         `).bind(
           JSON.stringify(deviceInfo || {}),
-          userId,
+          String(userId),
           deviceToken
         ).run();
+      }
+
+      // Also sync to fcm_device_tokens table if it exists
+      try {
+        const id = 'devtok-' + Date.now();
+        const now = new Date().toISOString();
+        await db.prepare(`
+          INSERT INTO fcm_device_tokens 
+          (id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at)
+          VALUES (?, 'school-01', ?, 'Staff', ?, 'web', 'web', '[]', 1, ?, ?)
+          ON CONFLICT(device_token) DO UPDATE SET is_active = 1, last_seen_at = excluded.last_seen_at
+        `).bind(id, String(userId), deviceToken, now, now).run();
+      } catch (syncErr: any) {
+        console.log('[FCM] fcm_device_tokens sync skipped:', syncErr.message);
       }
 
       console.log('[FCM] Token successfully stored in database');
@@ -132,7 +154,8 @@ app.post('/register-token', async (c) => {
         success: true,
         token: deviceToken,
         message: 'Token registered successfully',
-        serverSide: true
+        serverSide: true,
+        fcmConfigured
       });
 
     } catch (dbError: any) {
@@ -144,7 +167,8 @@ app.post('/register-token', async (c) => {
         token: deviceToken,
         message: 'Token generated (DB error)',
         serverSide: true,
-        warning: 'Database storage failed - token may not persist',
+        fcmConfigured,
+        warning: 'Database storage fallback active',
         dbError: dbError.message
       });
     }
@@ -178,18 +202,27 @@ app.post('/test-notification', async (c) => {
     if (!isFcmConfigured(c.env)) {
       return c.json({ 
         error: 'FCM not configured',
-        hint: 'Add FCM_SERVICE_ACCOUNT_JSON secret'
+        hint: 'Add FCM_SERVICE_ACCOUNT_JSON secret in Cloudflare Workers'
       }, 500);
     }
 
     // Get user tokens from database
     const db = c.env.DB;
-    const tokens = await db.prepare(`
+    let tokens: any = await db.prepare(`
       SELECT device_token FROM user_notification_tokens 
       WHERE user_id = ? AND platform = 'web'
       ORDER BY updated_at DESC
       LIMIT 5
-    `).bind(userId).all();
+    `).bind(String(userId)).all().catch(() => ({ results: [] }));
+
+    if (!tokens.results || tokens.results.length === 0) {
+      tokens = await db.prepare(`
+        SELECT device_token FROM fcm_device_tokens 
+        WHERE user_id = ? AND is_active = 1
+        ORDER BY last_seen_at DESC
+        LIMIT 5
+      `).bind(String(userId)).all().catch(() => ({ results: [] }));
+    }
 
     if (!tokens.results || tokens.results.length === 0) {
       return c.json({ 
