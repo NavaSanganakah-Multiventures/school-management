@@ -6,7 +6,7 @@ const dashboardStatsApp = new Hono<{ Bindings: any }>();
 
 dashboardStatsApp.get('/', async (c) => {
   const db = getDB(c);
-  if (!db) return c.json({ success: false, message: 'Ã Â¤Â¡Ã Â¥ÂÃ Â¤ÂÃ Â¤Â¾Ã Â¤Â¬Ã Â¥ÂÃ Â¤Â¸ Ã Â¤ÂÃ Â¤ÂªÃ Â¤Â²Ã Â¤Â¬Ã Â¥ÂÃ Â¤Â§ Ã Â¤Â¨Ã Â¤Â¹Ã Â¥ÂÃ Â¤Â Ã Â¤Â¹Ã Â¥ÂÃ Â¥Â¤' }, 500);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
   const schoolId = getRequestSchoolId(c, authUser);
   const today = new Date().toISOString().split('T')[0];
