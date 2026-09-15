@@ -6,7 +6,7 @@ const dashboardStatsApp = new Hono<{ Bindings: any }>();
 
 dashboardStatsApp.get('/', async (c) => {
   const db = getDB(c);
-  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  if (!db) return c.json({ success: false, message: 'Ã Â¤Â¡Ã Â¥ÂÃ Â¤ÂÃ Â¤Â¾Ã Â¤Â¬Ã Â¥ÂÃ Â¤Â¸ Ã Â¤ÂÃ Â¤ÂªÃ Â¤Â²Ã Â¤Â¬Ã Â¥ÂÃ Â¤Â§ Ã Â¤Â¨Ã Â¤Â¹Ã Â¥ÂÃ Â¤Â Ã Â¤Â¹Ã Â¥ÂÃ Â¥Â¤' }, 500);
   const authUser = await getAuthUser(c);
   const schoolId = getRequestSchoolId(c, authUser);
   const today = new Date().toISOString().split('T')[0];
@@ -16,11 +16,11 @@ dashboardStatsApp.get('/', async (c) => {
   const tStaff = await db.prepare('SELECT COUNT(*) AS n FROM teachers WHERE school_id = ?').bind(schoolId).first();
   const tNotices = await db.prepare('SELECT COUNT(*) AS n FROM notices WHERE school_id = ?').bind(schoolId).first();
 
-  const aRows = await db.prepare('SELECT status FROM attendance WHERE school_id = ? AND date = ?').bind(schoolId, today).all();
-  const att = aRows.results || [];
-  const presentCount = att.filter((a) => a.status === 'Present').length;
-  const absentCount = att.filter((a) => a.status === 'Absent').length;
-  const attendanceRate = att.length > 0 ? Math.round((presentCount / att.length) * 100) : 0;
+  const attRow = await db.prepare('SELECT COUNT(*) AS total, SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS present, SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS absent FROM attendance WHERE school_id = ? AND date = ?').bind('Present', 'Absent', schoolId, today).first();
+  const attendanceTotal = attRow ? (attRow.total || 0) : 0;
+  const presentCount = attRow ? (attRow.present || 0) : 0;
+  const absentCount = attRow ? (attRow.absent || 0) : 0;
+  const attendanceRate = attendanceTotal > 0 ? Math.round((presentCount / attendanceTotal) * 100) : 0;
 
   const fRows = await db.prepare('SELECT total_amount, paid_amount FROM fee_invoices WHERE school_id = ?').bind(schoolId).all();
   const fees = fRows.results || [];
@@ -36,7 +36,7 @@ dashboardStatsApp.get('/', async (c) => {
       attendanceRate,
       todayPresent: presentCount,
       todayAbsent: absentCount,
-      attendanceRecordedToday: att.length > 0,
+      attendanceRecordedToday: attendanceTotal > 0,
       totalFeeCollected,
       totalFeeDue,
       activeNoticesCount: tNotices ? tNotices.n : 0,

@@ -19,6 +19,7 @@ import {
   CreditCard,
   ShieldCheck,
   AlertTriangle,
+  Building2,
 } from 'lucide-react';
 
 import { DashboardScreen } from './screens/dashboard-screen';
@@ -35,6 +36,7 @@ import { LoginScreen } from './screens/login-screen';
 import { RegisterScreen } from './screens/register-screen';
 import { ResetPasswordScreen } from './screens/reset-password-screen';
 import { AdminConsoleScreen } from './screens/admin-console-screen';
+import { ClassesScreen } from './screens/classes-screen';
 
 import { AddScholarModal } from './modals/add-scholar-modal';
 import { FcmBroadcastModal } from './modals/fcm-broadcast-modal';
@@ -54,16 +56,16 @@ interface CurrentUser {
 }
 
 function roleEmoji(role: UserRole) {
-  if (role === 'Director') return '👑 निदेशक';
-  if (role === 'Principal') return '🏛️ प्रधानाचार्य';
-  if (role === 'SuperAdmin') return '🛡️ सुपर एडमिन';
-  return '👨‍🏫 शिक्षक/स्टाफ';
+  if (role === 'Director') return 'ð à¤¨à¤¿à¤¦à¥à¤¶à¤';
+  if (role === 'Principal') return 'ðï¸ à¤ªà¥à¤°à¤§à¤¾à¤¨à¤¾à¤à¤¾à¤°à¥à¤¯';
+  if (role === 'SuperAdmin') return 'ð¡ï¸ à¤¸à¥à¤ªà¤° à¤à¤¡à¤®à¤¿à¤¨';
+  return 'ð¨âð« à¤¶à¤¿à¤à¥à¤·à¤/à¤¸à¥à¤à¤¾à¤«';
 }
 function roleShort(role: UserRole) {
-  if (role === 'Director') return 'नि';
-  if (role === 'Principal') return 'प्र';
+  if (role === 'Director') return 'à¤¨à¤¿';
+  if (role === 'Principal') return 'à¤ªà¥à¤°';
   if (role === 'SuperAdmin') return 'SA';
-  return 'शि';
+  return 'à¤¶à¤¿';
 }
 function roleColor(role: UserRole) {
   if (role === 'Director') return 'bg-amber-600';
@@ -127,7 +129,7 @@ export function SchoolCrmShell() {
   }, []);
 
   const [schoolProfile, setSchoolProfile] = useState<any>({
-    schoolName: 'विद्या सेतु स्कूल प्रबंधन',
+    schoolName: 'à¤µà¤¿à¤¦à¥à¤¯à¤¾ à¤¸à¥à¤¤à¥ à¤¸à¥à¤à¥à¤² à¤ªà¥à¤°à¤¬à¤à¤§à¤¨',
     affiliationNumber: '',
     boardName: '',
     academicSession: '2026-2027',
@@ -208,11 +210,11 @@ export function SchoolCrmShell() {
       } else {
         const d = getWebPushDiagnostic();
         if (d && (d.permission === 'denied' || (d.error && d.error.includes('denied')))) {
-          setWebPushStatus('ब्राउज़र में नोटिफिकेशन की अनुमति ब्लॉक है। अलर्ट पाने के लिए ब्राउज़र सेटिंग्स में नोटिफिकेशन चालू करें।');
+          setWebPushStatus('à¤¬à¥à¤°à¤¾à¤à¤à¤¼à¤° à¤®à¥à¤ à¤¨à¥à¤à¤¿à¤«à¤¿à¤à¥à¤¶à¤¨ à¤à¥ à¤à¤¨à¥à¤®à¤¤à¤¿ à¤¬à¥à¤²à¥à¤ à¤¹à¥à¥¤ à¤à¤²à¤°à¥à¤ à¤ªà¤¾à¤¨à¥ à¤à¥ à¤²à¤¿à¤ à¤¬à¥à¤°à¤¾à¤à¤à¤¼à¤° à¤¸à¥à¤à¤¿à¤à¤à¥à¤¸ à¤®à¥à¤ à¤¨à¥à¤à¤¿à¤«à¤¿à¤à¥à¤¶à¤¨ à¤à¤¾à¤²à¥ à¤à¤°à¥à¤à¥¤');
         } else if (d && !d.supported) {
-          setWebPushStatus('इस वेब ब्राउज़र में पुश नोटिफिकेशन समर्थित नहीं है।');
+          setWebPushStatus('à¤à¤¸ à¤µà¥à¤¬ à¤¬à¥à¤°à¤¾à¤à¤à¤¼à¤° à¤®à¥à¤ à¤ªà¥à¤¶ à¤¨à¥à¤à¤¿à¤«à¤¿à¤à¥à¤¶à¤¨ à¤¸à¤®à¤°à¥à¤¥à¤¿à¤¤ à¤¨à¤¹à¥à¤ à¤¹à¥à¥¤');
         } else if (d && d.error && !d.error.includes('default')) {
-          setWebPushStatus('पुश नोटिफिकेशन सेवा कनेक्ट हो रही है...');
+          setWebPushStatus('à¤ªà¥à¤¶ à¤¨à¥à¤à¤¿à¤«à¤¿à¤à¥à¤¶à¤¨ à¤¸à¥à¤µà¤¾ à¤à¤¨à¥à¤à¥à¤ à¤¹à¥ à¤°à¤¹à¥ à¤¹à¥...');
         }
       }
     }).catch((err) => {
@@ -319,17 +321,17 @@ export function SchoolCrmShell() {
           <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
             <School className="h-5 w-5 text-white animate-pulse" />
           </div>
-          <span className="text-lg font-bold tracking-tight">विद्या सेतु स्कूल प्रबंधन</span>
+          <span className="text-lg font-bold tracking-tight">à¤µà¤¿à¤¦à¥à¤¯à¤¾ à¤¸à¥à¤¤à¥ à¤¸à¥à¤à¥à¤² à¤ªà¥à¤°à¤¬à¤à¤§à¤¨</span>
         </div>
         <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
           <span className="h-2 w-2 rounded-full bg-blue-500 animate-ping" />
-          <span>सत्र लोड हो रहा है...</span>
+          <span>à¤¸à¤¤à¥à¤° à¤²à¥à¤¡ à¤¹à¥ à¤°à¤¹à¤¾ à¤¹à¥...</span>
         </div>
       </div>
     );
   }
 
-  // Password reset (magic link) screen — shows before auth gate.
+  // Password reset (magic link) screen â shows before auth gate.
   if (resetToken) {
     const clearReset = () => {
       if (typeof window !== 'undefined') window.history.replaceState({}, '', window.location.pathname);
@@ -351,17 +353,17 @@ export function SchoolCrmShell() {
   const screenRole: 'Director' | 'Principal' | 'Staff' = userRole === 'SuperAdmin' ? 'Director' : userRole;
 
   const navItems: NavItem[] = [
-    { id: 'admin', label: 'सुपर एडमिन कंसोल', icon: ShieldCheck, superAdminOnly: true },
-    { id: 'dashboard', label: 'डैशबोर्ड', icon: LayoutDashboard, allowedRoles: ['Director', 'Principal', 'Staff'] },
-    { id: 'students', label: 'स्कॉलर रजिस्टर', icon: Users, allowedRoles: ['Director', 'Principal', 'Staff'] },
-    { id: 'staff', label: 'स्टाफ एवं शिक्षक निर्देशिका', icon: GraduationCap, allowedRoles: ['Director', 'Principal', 'Staff'] },
-    { id: 'attendance', label: 'दैनिक छात्र उपस्थिति', icon: CalendarCheck, allowedRoles: ['Director', 'Principal', 'Staff'] },
-    { id: 'fees', label: 'फीस पोर्टल एवं चालान', icon: IndianRupee, allowedRoles: ['Director', 'Principal'] },
-    { id: 'exams', label: 'परीक्षा एवं अंक प्रविष्टि', icon: FileSpreadsheet, allowedRoles: ['Director', 'Principal', 'Staff'], requiredModule: 'exams' },
-    { id: 'notices', label: 'सूचना पट्ट एवं पुश अलर्ट', icon: Bell, allowedRoles: ['Director', 'Principal', 'Staff'] },
-    { id: 'principal', label: 'प्रधानाचार्य प्रबंधन', icon: UserCheck, allowedRoles: ['Director'], requiredModule: 'principal', badge: 'प्रो' },
-    { id: 'settings', label: 'स्कूल प्रोफ़ाइल व सेटिंग्स', icon: Settings, allowedRoles: ['Director'] },
-    { id: 'billing', label: 'प्लान व बिलिंग', icon: CreditCard, allowedRoles: ['Director'], badge: 'अपग्रेड' },
+    { id: 'admin', label: 'à¤¸à¥à¤ªà¤° à¤à¤¡à¤®à¤¿à¤¨ à¤à¤à¤¸à¥à¤²', icon: ShieldCheck, superAdminOnly: true },
+    { id: 'dashboard', label: 'à¤¡à¥à¤¶à¤¬à¥à¤°à¥à¤¡', icon: LayoutDashboard, allowedRoles: ['Director', 'Principal', 'Staff'] },
+    { id: 'students', label: 'à¤¸à¥à¤à¥à¤²à¤° à¤°à¤à¤¿à¤¸à¥à¤à¤°', icon: Users, allowedRoles: ['Director', 'Principal', 'Staff'] },
+    { id: 'staff', label: 'à¤¸à¥à¤à¤¾à¤« à¤à¤µà¤ à¤¶à¤¿à¤à¥à¤·à¤ à¤¨à¤¿à¤°à¥à¤¦à¥à¤¶à¤¿à¤à¤¾', icon: GraduationCap, allowedRoles: ['Director', 'Principal', 'Staff'] },
+    { id: 'attendance', label: 'à¤¦à¥à¤¨à¤¿à¤ à¤à¤¾à¤¤à¥à¤° à¤à¤ªà¤¸à¥à¤¥à¤¿à¤¤à¤¿', icon: CalendarCheck, allowedRoles: ['Director', 'Principal', 'Staff'] },
+    { id: 'fees', label: 'à¤«à¥à¤¸ à¤ªà¥à¤°à¥à¤à¤² à¤à¤µà¤ à¤à¤¾à¤²à¤¾à¤¨', icon: IndianRupee, allowedRoles: ['Director', 'Principal'] },
+    { id: 'exams', label: 'à¤ªà¤°à¥à¤à¥à¤·à¤¾ à¤à¤µà¤ à¤à¤à¤ à¤ªà¥à¤°à¤µà¤¿à¤·à¥à¤à¤¿', icon: FileSpreadsheet, allowedRoles: ['Director', 'Principal', 'Staff'], requiredModule: 'exams' },
+    { id: 'notices', label: 'à¤¸à¥à¤à¤¨à¤¾ à¤ªà¤à¥à¤ à¤à¤µà¤ à¤ªà¥à¤¶ à¤à¤²à¤°à¥à¤', icon: Bell, allowedRoles: ['Director', 'Principal', 'Staff'] },
+    { id: 'principal', label: 'à¤ªà¥à¤°à¤§à¤¾à¤¨à¤¾à¤à¤¾à¤°à¥à¤¯ à¤ªà¥à¤°à¤¬à¤à¤§à¤¨', icon: UserCheck, allowedRoles: ['Director'], requiredModule: 'principal', badge: 'à¤ªà¥à¤°à¥' },
+    { id: 'settings', label: 'à¤¸à¥à¤à¥à¤² à¤ªà¥à¤°à¥à¤«à¤¼à¤¾à¤à¤² à¤µ à¤¸à¥à¤à¤¿à¤à¤à¥à¤¸', icon: Settings, allowedRoles: ['Director'] },
+    { id: 'billing', label: 'à¤ªà¥à¤²à¤¾à¤¨ à¤µ à¤¬à¤¿à¤²à¤¿à¤à¤', icon: CreditCard, allowedRoles: ['Director'], badge: 'à¤à¤ªà¤à¥à¤°à¥à¤¡' },
   ];
 
   const filteredNavItems = navItems.filter((item) => {
@@ -383,8 +385,8 @@ export function SchoolCrmShell() {
               <School className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-base font-black tracking-tight text-slate-900 line-clamp-1">{schoolProfile.schoolName || 'विद्या सेतु स्कूल प्रबंधन'}</h1>
-              <p className="text-[11px] text-slate-500 hidden sm:block">सत्र: {schoolProfile.academicSession || '2026-2027'} • भूमिका: {roleEmoji(userRole)}</p>
+              <h1 className="text-base font-black tracking-tight text-slate-900 line-clamp-1">{schoolProfile.schoolName || 'à¤µà¤¿à¤¦à¥à¤¯à¤¾ à¤¸à¥à¤¤à¥ à¤¸à¥à¤à¥à¤² à¤ªà¥à¤°à¤¬à¤à¤§à¤¨'}</h1>
+              <p className="text-[11px] text-slate-500 hidden sm:block">à¤¸à¤¤à¥à¤°: {schoolProfile.academicSession || '2026-2027'} â¢ à¤­à¥à¤®à¤¿à¤à¤¾: {roleEmoji(userRole)}</p>
             </div>
           </div>
         </div>
@@ -392,17 +394,17 @@ export function SchoolCrmShell() {
         <div className="flex items-center gap-2">
           <div className="hidden md:flex items-center gap-1.5 px-3 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-[11px] text-emerald-800 font-medium">
             <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>अधिकृत सत्र सक्रिय</span>
+            <span>à¤à¤§à¤¿à¤à¥à¤¤ à¤¸à¤¤à¥à¤° à¤¸à¤à¥à¤°à¤¿à¤¯</span>
           </div>
 
           {(userRole === 'Director' || userRole === 'Principal') && (
             <>
               <button onClick={() => setIsAddScholarOpen(true)} className="hidden lg:flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer">
-                <span>+ स्कॉलर प्रवेश</span>
+                <span>+ à¤¸à¥à¤à¥à¤²à¤° à¤ªà¥à¤°à¤µà¥à¤¶</span>
               </button>
-              <button onClick={() => setIsBroadcastOpen(true)} className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer" title="पुश सूचना / त्वरित अलर्ट भेजें">
+              <button onClick={() => setIsBroadcastOpen(true)} className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer" title="à¤ªà¥à¤¶ à¤¸à¥à¤à¤¨à¤¾ / à¤¤à¥à¤µà¤°à¤¿à¤¤ à¤à¤²à¤°à¥à¤ à¤­à¥à¤à¥à¤">
                 <Bell className="h-3.5 w-3.5" />
-                <span>त्वरित पुश अलर्ट</span>
+                <span>à¤¤à¥à¤µà¤°à¤¿à¤¤ à¤ªà¥à¤¶ à¤à¤²à¤°à¥à¤</span>
               </button>
             </>
           )}
@@ -418,9 +420,9 @@ export function SchoolCrmShell() {
               </div>
             </div>
 
-            <button onClick={handleLogout} title="लॉगआउट करें" className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 text-slate-600 text-xs font-semibold transition shadow-2xs cursor-pointer">
+            <button onClick={handleLogout} title="à¤²à¥à¤à¤à¤à¤ à¤à¤°à¥à¤" className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 text-slate-600 text-xs font-semibold transition shadow-2xs cursor-pointer">
               <LogOut className="h-3.5 w-3.5" />
-              <span className="hidden md:inline">लॉगआउट</span>
+              <span className="hidden md:inline">à¤²à¥à¤à¤à¤à¤</span>
             </button>
           </div>
         </div>
@@ -429,7 +431,7 @@ export function SchoolCrmShell() {
         <div className="flex items-start gap-2 mx-4 mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2 text-xs text-amber-900 shadow-2xs">
           <Bell className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
           <div className="min-w-0 break-words leading-relaxed">
-            <strong>🔔 सूचना अलर्ट स्थिति:</strong> {webPushStatus}
+            <strong>ð à¤¸à¥à¤à¤¨à¤¾ à¤à¤²à¤°à¥à¤ à¤¸à¥à¤¥à¤¿à¤¤à¤¿:</strong> {webPushStatus}
           </div>
           <button onClick={() => setWebPushStatus(null)} className="ml-auto text-amber-700 hover:text-amber-900 cursor-pointer shrink-0"><X className="h-4 w-4" /></button>
         </div>
@@ -450,13 +452,13 @@ export function SchoolCrmShell() {
                 </div>
               </div>
               <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[10px]">
-                <span className="font-bold text-slate-500">प्रमाणीकृत खाता:</span>
-                <span className="font-semibold text-emerald-700 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> सक्रिय</span>
+                <span className="font-bold text-slate-500">à¤ªà¥à¤°à¤®à¤¾à¤£à¥à¤à¥à¤¤ à¤à¤¾à¤¤à¤¾:</span>
+                <span className="font-semibold text-emerald-700 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> à¤¸à¤à¥à¤°à¤¿à¤¯</span>
               </div>
             </div>
 
             <nav className="space-y-1">
-              <div className="px-2 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">प्रशासनिक मॉड्यूल</div>
+              <div className="px-2 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">à¤ªà¥à¤°à¤¶à¤¾à¤¸à¤¨à¤¿à¤ à¤®à¥à¤¡à¥à¤¯à¥à¤²</div>
               {filteredNavItems.map((item) => {
                 const isActive = activeTab === item.id;
                 const Icon = item.icon;
@@ -476,8 +478,8 @@ export function SchoolCrmShell() {
           </div>
 
           <div className="p-4 border-t border-slate-100 text-slate-500 text-[11px] space-y-1 bg-slate-50/50">
-            <p className="font-bold text-slate-700">विद्या सेतु स्कूल प्रबंधन</p>
-            <p className="text-[10px] text-slate-500">सुरक्षित एवं अधिकृत पोर्टल</p>
+            <p className="font-bold text-slate-700">à¤µà¤¿à¤¦à¥à¤¯à¤¾ à¤¸à¥à¤¤à¥ à¤¸à¥à¤à¥à¤² à¤ªà¥à¤°à¤¬à¤à¤§à¤¨</p>
+            <p className="text-[10px] text-slate-500">à¤¸à¥à¤°à¤à¥à¤·à¤¿à¤¤ à¤à¤µà¤ à¤à¤§à¤¿à¤à¥à¤¤ à¤ªà¥à¤°à¥à¤à¤²</p>
           </div>
         </aside>
 
@@ -487,11 +489,11 @@ export function SchoolCrmShell() {
               <div className="flex items-start gap-3">
                 <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
                 <div>
-                  <div className="text-sm font-bold text-amber-900">7-दिन का फ्री ट्रायल जारी है</div>
-                  <div className="text-xs text-amber-800">सीमित एक्सेस (अधिकतम 50 छात्र / 10 स्टाफ)। {trialInfo && trialInfo.trialEndsAt ? 'ट्रायल ' + trialInfo.trialEndsAt + ' तक वैध है।' : ''} समाप्ति के बाद प्लान सक्रिय करना आवश्यक है।</div>
+                  <div className="text-sm font-bold text-amber-900">7-à¤¦à¤¿à¤¨ à¤à¤¾ à¤«à¥à¤°à¥ à¤à¥à¤°à¤¾à¤¯à¤² à¤à¤¾à¤°à¥ à¤¹à¥</div>
+                  <div className="text-xs text-amber-800">à¤¸à¥à¤®à¤¿à¤¤ à¤à¤à¥à¤¸à¥à¤¸ (à¤à¤§à¤¿à¤à¤¤à¤® 50 à¤à¤¾à¤¤à¥à¤° / 10 à¤¸à¥à¤à¤¾à¤«)à¥¤ {trialInfo && trialInfo.trialEndsAt ? 'à¤à¥à¤°à¤¾à¤¯à¤² ' + trialInfo.trialEndsAt + ' à¤¤à¤ à¤µà¥à¤§ à¤¹à¥à¥¤' : ''} à¤¸à¤®à¤¾à¤ªà¥à¤¤à¤¿ à¤à¥ à¤¬à¤¾à¤¦ à¤ªà¥à¤²à¤¾à¤¨ à¤¸à¤à¥à¤°à¤¿à¤¯ à¤à¤°à¤¨à¤¾ à¤à¤µà¤¶à¥à¤¯à¤ à¤¹à¥à¥¤</div>
                 </div>
               </div>
-              <button onClick={() => setActiveTab('billing')} className="shrink-0 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition cursor-pointer">प्लान देखें व खरीदें →</button>
+              <button onClick={() => setActiveTab('billing')} className="shrink-0 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition cursor-pointer">à¤ªà¥à¤²à¤¾à¤¨ à¤¦à¥à¤à¥à¤ à¤µ à¤à¤°à¥à¤¦à¥à¤ â</button>
             </div>
           )}
 
@@ -502,7 +504,8 @@ export function SchoolCrmShell() {
           {activeTab === 'students' && <StudentsScreen userRole={screenRole} />}
           {activeTab === 'principal' && <PrincipalManagementScreen userRole={userRole} />}
           {activeTab === 'staff' && <StaffScreen userRole={screenRole} />}
-          {activeTab === 'attendance' && <AttendanceScreen onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
+          {activeTab === 'attendance' && <AttendanceScreen userRole={screenRole} currentUserId={currentUser.id} onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
+          {activeTab === 'classes' && <ClassesScreen userRole={screenRole} />}
           {activeTab === 'fees' && <FeesScreen />}
           {activeTab === 'exams' && <ExamsScreen />}
           {activeTab === 'notices' && <NoticesScreen onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
@@ -533,7 +536,7 @@ export function SchoolCrmShell() {
             <p className="text-xs text-slate-600 mt-1 line-clamp-3 leading-relaxed">{pushToast.body}</p>
             <div className="text-[10px] text-emerald-700 font-medium mt-2 flex items-center gap-1">
               <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-              <span>पुश सूचना प्राप्त हुई • अभी-अभी</span>
+              <span>à¤ªà¥à¤¶ à¤¸à¥à¤à¤¨à¤¾ à¤ªà¥à¤°à¤¾à¤ªà¥à¤¤ à¤¹à¥à¤ â¢ à¤à¤­à¥-à¤à¤­à¥</span>
             </div>
           </div>
         </div>
