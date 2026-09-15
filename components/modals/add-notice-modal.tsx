@@ -15,7 +15,7 @@ export function AddNoticeModal({ isOpen, onClose, onSuccess }: AddNoticeModalPro
   const [category, setCategory] = useState('General');
   const [targetAudience, setTargetAudience] = useState('All');
   const [priority, setPriority] = useState('Normal');
-  const [publishedBy, setPublishedBy] = useState('प्राचार्य कार्यालय (Principal Office)');
+  const [publishedBy, setPublishedBy] = useState('प्राचार्य कार्यालय');
   const [sendFcm, setSendFcm] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -108,7 +108,7 @@ export function AddNoticeModal({ isOpen, onClose, onSuccess }: AddNoticeModalPro
             {/* Title */}
             <div>
               <label className="block font-semibold text-slate-700 mb-1">
-                सूचना शीर्षक (Notice Title) <span className="text-rose-500">*</span>
+                सूचना शीर्षक <span className="text-rose-500">*</span>
               </label>
               <input
                 type="text"
@@ -123,31 +123,31 @@ export function AddNoticeModal({ isOpen, onClose, onSuccess }: AddNoticeModalPro
             {/* Category & Audience */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">श्रेणी (Category)</label>
+                <label className="block font-semibold text-slate-700 mb-1">श्रेणी</label>
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
                   className="w-full rounded-lg border border-slate-300 bg-white p-2.5 focus:border-blue-500 focus:outline-hidden"
                 >
-                  <option value="General">सामान्य (General)</option>
-                  <option value="Academic">शैक्षणिक (Academic)</option>
-                  <option value="Holiday">अवकाश (Holiday)</option>
-                  <option value="Exam">परीक्षा (Exam)</option>
-                  <option value="Sports">खेलकूद (Sports)</option>
+                  <option value="General">सामान्य</option>
+                  <option value="Academic">शैक्षणिक</option>
+                  <option value="Holiday">अवकाश</option>
+                  <option value="Exam">परीक्षा</option>
+                  <option value="Sports">खेलकूद</option>
                 </select>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">लक्षित वर्ग (Target Audience)</label>
+                <label className="block font-semibold text-slate-700 mb-1">लक्षित वर्ग</label>
                 <select
                   value={targetAudience}
                   onChange={(e) => setTargetAudience(e.target.value)}
                   className="w-full rounded-lg border border-slate-300 bg-white p-2.5 focus:border-blue-500 focus:outline-hidden"
                 >
                   <option value="All">समस्त (सभी सदस्य)</option>
-                  <option value="Parents">केवल अभिभावक (Parents)</option>
-                  <option value="Students">केवल विद्यार्थी (Students)</option>
-                  <option value="Teachers">केवल शिक्षक व स्टाफ (Staff)</option>
+                  <option value="Parents">केवल अभिभावक</option>
+                  <option value="Students">केवल विद्यार्थी</option>
+                  <option value="Teachers">केवल शिक्षक व स्टाफ</option>
                 </select>
               </div>
             </div>
@@ -155,20 +155,20 @@ export function AddNoticeModal({ isOpen, onClose, onSuccess }: AddNoticeModalPro
             {/* Priority & Published By */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">प्राथमिकता (Priority)</label>
+                <label className="block font-semibold text-slate-700 mb-1">प्राथमिकता</label>
                 <select
                   value={priority}
                   onChange={(e) => setPriority(e.target.value)}
                   className="w-full rounded-lg border border-slate-300 bg-white p-2.5 focus:border-blue-500 focus:outline-hidden"
                 >
-                  <option value="Normal">सामान्य (Normal)</option>
-                  <option value="High">महत्वपूर्ण (High Priority)</option>
-                  <option value="Urgent">अति-आवश्यक (Urgent / Emergency)</option>
+                  <option value="Normal">सामान्य</option>
+                  <option value="High">महत्वपूर्ण (उच्च प्राथमिकता)</option>
+                  <option value="Urgent">अति-आवश्यक (आपातकालीन)</option>
                 </select>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">जारीकर्ता (Published By)</label>
+                <label className="block font-semibold text-slate-700 mb-1">जारीकर्ता / प्रेषक</label>
                 <input
                   type="text"
                   value={publishedBy}
@@ -181,7 +181,7 @@ export function AddNoticeModal({ isOpen, onClose, onSuccess }: AddNoticeModalPro
             {/* Notice Content */}
             <div>
               <label className="block font-semibold text-slate-700 mb-1">
-                सूचना का विस्तृत विवरण (Notice Content) <span className="text-rose-500">*</span>
+                सूचना का विस्तृत विवरण <span className="text-rose-500">*</span>
               </label>
               <textarea
                 required
@@ -203,7 +203,7 @@ export function AddNoticeModal({ isOpen, onClose, onSuccess }: AddNoticeModalPro
                 className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
               />
               <label htmlFor="sendFcmCheckbox" className="text-xs text-amber-950 font-medium cursor-pointer">
-                <strong>त्वरित FCM मोबाइल पुश अलर्ट भेजें:</strong> लक्षित वर्ग के सभी पंजीकृत मोबाइल डिवाइस पर तुरंत सूचना प्राप्त होगी।
+                <strong>त्वरित मोबाइल व वेब पुश अलर्ट भेजें:</strong> लक्षित वर्ग के सभी पंजीकृत उपकरणों पर तुरंत सूचना प्राप्त होगी।
               </label>
             </div>
           </div>
@@ -223,7 +223,7 @@ export function AddNoticeModal({ isOpen, onClose, onSuccess }: AddNoticeModalPro
               className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-blue-900 hover:bg-blue-800 rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
             >
               <Send className="h-3.5 w-3.5" />
-              <span>{submitting ? 'प्रकाशित हो रहा है...' : 'सूचना प्रकाशित करें (Publish)'}</span>
+              <span>{submitting ? 'प्रकाशित हो रहा है...' : 'सूचना प्रकाशित करें'}</span>
             </button>
           </div>
         </form>

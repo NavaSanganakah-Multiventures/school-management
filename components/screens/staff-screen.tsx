@@ -316,7 +316,7 @@ export function StaffScreen({ userRole }: StaffScreenProps) {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">पद (Designation)</label>
+                  <label className="text-xs font-semibold text-slate-700">पद</label>
                   <input
                     type="text"
                     value={newStaff.designation}
@@ -325,7 +325,7 @@ export function StaffScreen({ userRole }: StaffScreenProps) {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">विभाग (Department)</label>
+                  <label className="text-xs font-semibold text-slate-700">विभाग</label>
                   <input
                     type="text"
                     value={newStaff.department}

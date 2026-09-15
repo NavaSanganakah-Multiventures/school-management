@@ -134,13 +134,13 @@ export function ExamsScreen() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-black">परीक्षा एवं परिणाम पोर्टल (Exams & Results)</h1>
+              <h1 className="text-xl font-black">परीक्षा एवं परिणाम पोर्टल</h1>
               <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 text-[10px] font-bold px-2 py-0.5 rounded-full">
                 सत्र 2026-27
               </span>
             </div>
             <p className="text-xs text-blue-200 mt-0.5">
-              परीक्षा समय सारिणी, अंक प्रविष्टि (Marks Entry) एवं सीबीएसई/स्टेट बोर्ड मानक डिजिटल रिपोर्ट कार्ड।
+              परीक्षा समय सारिणी, अंक प्रविष्टि एवं सीबीएसई/स्टेट बोर्ड मानक डिजिटल रिपोर्ट कार्ड।
             </p>
           </div>
         </div>
@@ -158,7 +158,7 @@ export function ExamsScreen() {
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black shadow-md transition-all active:scale-95 cursor-pointer"
           >
             <Edit3 className="h-4 w-4" />
-            <span>अंक प्रविष्टि करें (Enter Marks)</span>
+            <span>अंक प्रविष्टि करें</span>
           </button>
         </div>
       </div>
@@ -167,7 +167,7 @@ export function ExamsScreen() {
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-3 print:hidden">
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-xs text-slate-600 uppercase tracking-wider">
-            परीक्षा समय-सारणी एवं सत्र कैलेंडर (Scheduled Examinations)
+            परीक्षा समय-सारणी एवं सत्र कैलेंडर
           </h2>
           <span className="text-xs text-blue-900 font-semibold">{exams.length} परीक्षाएं सूचीबद्ध</span>
         </div>
@@ -201,7 +201,7 @@ export function ExamsScreen() {
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 print:hidden">
         <div className="flex items-center gap-3">
           <label className="text-xs font-bold text-slate-700 whitespace-nowrap">
-            विद्यार्थी चुनें (Select Student):
+            विद्यार्थी चुनें:
           </label>
           <select
             value={selectedStudentId}
@@ -230,7 +230,7 @@ export function ExamsScreen() {
             className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-40"
           >
             <Printer className="h-3.5 w-3.5" />
-            <span>मार्कशीट प्रिंट करें (Print)</span>
+            <span>मार्कशीट प्रिंट करें</span>
           </button>
         </div>
       </div>
@@ -316,12 +316,12 @@ export function ExamsScreen() {
               <thead className="bg-slate-900 text-white font-bold text-[11px]">
                 <tr>
                   <th className="p-3 w-12 text-center">क्र.सं.</th>
-                  <th className="p-3">विषय का नाम (Subject Name)</th>
-                  <th className="p-3 text-center w-24">पूर्णांक (Max)</th>
-                  <th className="p-3 text-center w-24">उत्तीर्णांक (Min)</th>
-                  <th className="p-3 text-center w-24">प्राप्तांक (Obtained)</th>
-                  <th className="p-3 text-center w-20">ग्रेड (Grade)</th>
-                  <th className="p-3 w-36">टिप्पणी (Remarks)</th>
+                  <th className="p-3">विषय का नाम</th>
+                  <th className="p-3 text-center w-24">पूर्णांक</th>
+                  <th className="p-3 text-center w-24">उत्तीर्णांक</th>
+                  <th className="p-3 text-center w-24">प्राप्तांक</th>
+                  <th className="p-3 text-center w-20">ग्रेड</th>
+                  <th className="p-3 w-36">टिप्पणी</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-medium">
@@ -346,7 +346,7 @@ export function ExamsScreen() {
               <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300">
                 <tr>
                   <td colSpan={2} className="p-3 text-right text-slate-900 font-bold">
-                    महायोग (GRAND TOTAL):
+                    महायोग:
                   </td>
                   <td className="p-3 text-center font-mono text-slate-900 font-bold">
                     {reportCard.maxTotal}
@@ -369,7 +369,7 @@ export function ExamsScreen() {
           {/* Performance & Grading Scale Footer */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-[11px] space-y-1">
-              <span className="font-bold text-slate-700 block mb-1">ग्रेडिंग पैमाना (Grading Scale):</span>
+              <span className="font-bold text-slate-700 block mb-1">ग्रेडिंग पैमाना:</span>
               <p className="text-slate-600">A+ (90%-100%): असाधारण • A (75%-89%): अति उत्तम</p>
               <p className="text-slate-600">B+ (60%-74%): उत्तम • B (45%-59%): संतोषजनक • C (33%-44%): उत्तीर्ण</p>
             </div>
@@ -437,7 +437,7 @@ export function ExamsScreen() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
             <div className="bg-slate-900 p-5 text-white flex items-center justify-between">
-              <h3 className="text-sm font-bold">नई परीक्षा अनुसूची जोड़ें (Schedule Exam)</h3>
+              <h3 className="text-sm font-bold">नई परीक्षा अनुसूची जोड़ें</h3>
               <button
                 onClick={() => setIsNewExamModalOpen(false)}
                 className="text-slate-400 hover:text-white"

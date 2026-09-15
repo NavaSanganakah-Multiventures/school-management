@@ -43,17 +43,17 @@ export function FeesScreen() {
       {/* Fees Summary Cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-          <span className="text-xs text-blue-700 font-medium">कुल देय फीस (Total Dues)</span>
+          <span className="text-xs text-blue-700 font-medium">कुल देय फीस</span>
           <h3 className="text-xl font-bold text-blue-950 mt-1">₹{summary.totalReceivable?.toLocaleString('en-IN')}</h3>
           <p className="text-[11px] text-blue-600 mt-0.5">सत्र 2026-27</p>
         </div>
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-          <span className="text-xs text-emerald-700 font-medium">प्राप्त फीस (Collected)</span>
+          <span className="text-xs text-emerald-700 font-medium">प्राप्त फीस</span>
           <h3 className="text-xl font-bold text-emerald-950 mt-1">₹{summary.totalCollected?.toLocaleString('en-IN')}</h3>
           <p className="text-[11px] text-emerald-600 mt-0.5">सफलतापूर्वक संकलित</p>
         </div>
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
-          <span className="text-xs text-rose-700 font-medium">लंबित फीस (Pending)</span>
+          <span className="text-xs text-rose-700 font-medium">लंबित फीस</span>
           <h3 className="text-xl font-bold text-rose-950 mt-1">₹{summary.totalPending?.toLocaleString('en-IN')}</h3>
           <p className="text-[11px] text-rose-600 mt-0.5">देय तिथि निकट</p>
         </div>

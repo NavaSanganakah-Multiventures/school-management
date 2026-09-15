@@ -80,7 +80,7 @@ export function AttendanceScreen({ onOpenFcmModal }: AttendanceScreenProps) {
       {/* Header Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-bold text-slate-800">दैनिक उपस्थिति रजिस्टर (Smart Attendance)</h2>
+          <h2 className="text-lg font-bold text-slate-800">दैनिक उपस्थिति रजिस्टर</h2>
           <p className="text-xs text-slate-500">कक्षा अनुसार रोल कॉल और अनुपस्थिति अलर्ट</p>
         </div>
 
@@ -94,10 +94,10 @@ export function AttendanceScreen({ onOpenFcmModal }: AttendanceScreenProps) {
           <button
             onClick={markAllPresent}
             disabled={saving}
-            className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl shadow-xs transition-all active:scale-95 disabled:opacity-50"
+            className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl shadow-xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
           >
             <Check className="h-3.5 w-3.5" />
-            सभी उपस्थित (All Present)
+            सभी उपस्थित अंकित करें
           </button>
         </div>
       </div>
@@ -109,15 +109,15 @@ export function AttendanceScreen({ onOpenFcmModal }: AttendanceScreenProps) {
           <p className="text-base font-bold text-slate-800">{records.length}</p>
         </div>
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-2.5 text-emerald-800">
-          <span className="text-[10px]">उपस्थित (Present)</span>
+          <span className="text-[10px] font-semibold">उपस्थित</span>
           <p className="text-base font-bold">{records.filter((r) => r.status === 'Present').length}</p>
         </div>
         <div className="rounded-xl border border-red-200 bg-red-50 p-2.5 text-red-800">
-          <span className="text-[10px]">अनुपस्थित (Absent)</span>
+          <span className="text-[10px] font-semibold">अनुपस्थित</span>
           <p className="text-base font-bold">{records.filter((r) => r.status === 'Absent').length}</p>
         </div>
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-amber-800">
-          <span className="text-[10px]">अवकाश (Leave)</span>
+          <span className="text-[10px] font-semibold">अवकाश</span>
           <p className="text-base font-bold">{records.filter((r) => r.status === 'Leave').length}</p>
         </div>
       </div>

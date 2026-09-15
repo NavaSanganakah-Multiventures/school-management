@@ -38,9 +38,9 @@ export function PrincipalManagementScreen({ userRole }: PrincipalScreenProps) {
     return (
       <div className="p-8 text-center bg-rose-50 rounded-2xl border border-rose-200 text-rose-800">
         <AlertTriangle className="h-10 w-10 text-rose-600 mx-auto mb-3" />
-        <h3 className="text-lg font-bold">पहुंच प्रतिबंधित (Access Restricted)</h3>
+        <h3 className="text-lg font-bold">पहुंच प्रतिबंधित</h3>
         <p className="text-sm text-rose-700 mt-1 max-w-md mx-auto">
-          प्रधानाचार्य का पदभार बदलने और प्रबंधित करने का विशेष अधिकार केवल स्कूल निदेशक (Director) के पास सुरक्षित है।
+          प्रधानाचार्य का पदभार बदलने और प्रबंधित करने का विशेष अधिकार केवल स्कूल निदेशक के पास सुरक्षित है।
         </p>
       </div>
     );
@@ -56,17 +56,17 @@ export function PrincipalManagementScreen({ userRole }: PrincipalScreenProps) {
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/20 rounded-full text-xs font-bold text-amber-100 mb-2">
             <Shield className="h-3.5 w-3.5" />
-            <span>निदेशक नियंत्रण कक्ष (Director Control Room)</span>
+            <span>निदेशक नियंत्रण कक्ष</span>
           </div>
           <h1 className="text-2xl font-black">प्रधानाचार्य प्रबंधन एवं पदभार</h1>
           <p className="text-xs text-amber-100 mt-1">
-            स्कूल के शैक्षणिक प्रमुख (Principal) का विवरण, संपर्क, वेतन एवं आवश्यकता पड़ने पर नए प्रधानाचार्य की नियुक्ति का सीधा नियंत्रण।
+            स्कूल के शैक्षणिक प्रमुख (प्रधानाचार्य) का विवरण, संपर्क, वेतन एवं आवश्यकता पड़ने पर नए प्रधानाचार्य की नियुक्ति का सीधा नियंत्रण।
           </p>
         </div>
 
         <button
           onClick={() => setIsModalOpen(true)}
-          className="px-5 py-3 rounded-xl bg-white text-amber-900 hover:bg-amber-50 font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 shrink-0 hover:scale-102"
+          className="px-5 py-3 rounded-xl bg-white text-amber-900 hover:bg-amber-50 font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 shrink-0 hover:scale-102 cursor-pointer"
         >
           <UserCheck className="h-5 w-5 text-amber-700" />
           <span>प्रधानाचार्य बदलें / नया पदभार</span>
@@ -78,10 +78,10 @@ export function PrincipalManagementScreen({ userRole }: PrincipalScreenProps) {
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
           <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
             <Sparkles className="h-4 w-4 text-amber-600" />
-            <span>वर्तमान में पदस्थ प्रधानाचार्य (Current Head of School)</span>
+            <span>वर्तमान में पदस्थ प्रधानाचार्य</span>
           </div>
           <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-            सक्रिय कार्यकाल (Active Tenure)
+            सक्रिय कार्यकाल
           </span>
         </div>
 
@@ -143,7 +143,7 @@ export function PrincipalManagementScreen({ userRole }: PrincipalScreenProps) {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
             <History className="h-4 w-4 text-slate-600" />
-            <span>प्रधानाचार्य नियुक्ति एवं कार्यकाल इतिहास (Appointment History)</span>
+            <span>प्रधानाचार्य नियुक्ति एवं कार्यकाल इतिहास</span>
           </div>
           <span className="text-xs text-slate-500">कुल दर्ज रिकॉर्ड: {history.length}</span>
         </div>

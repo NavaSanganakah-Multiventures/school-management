@@ -133,9 +133,9 @@ export function FcmBroadcastModal({
           <div className="flex items-center gap-2">
             <Bell className="h-5 w-5" />
             <div>
-              <h3 className="font-semibold text-base">FCM त्वरित सूचना एवं ब्रॉडकास्ट इंजन</h3>
+              <h3 className="font-semibold text-base">त्वरित सूचना एवं पुश अलर्ट ब्रॉडकास्ट</h3>
               <p className="text-[10px] text-amber-100 flex items-center gap-1">
-                <ShieldCheck className="h-3 w-3" /> सुरक्षित बहु-विद्यालय पृथक्करण (Multi-Tenant Topics)
+                <ShieldCheck className="h-3 w-3" /> सुरक्षित विद्यालय डेटा पृथक्करण
               </p>
             </div>
           </div>
@@ -150,50 +150,50 @@ export function FcmBroadcastModal({
               {isHealthy ? <CheckCircle2 className="h-8 w-8 animate-bounce" /> : <ShieldAlert className="h-8 w-8" />}
             </div>
             <h4 className={'text-lg font-bold text-center ' + (isHealthy ? 'text-slate-800' : 'text-rose-700')}>
-              {isHealthy ? 'सूचना सफलतापूर्वक प्रसारित (Broadcast Sent Successfully)!' : 'सूचना प्रेषण में समस्या'}
+              {isHealthy ? 'सूचना सफलतापूर्वक प्रसारित हो गई!' : 'सूचना प्रेषण में समस्या'}
             </h4>
             <p className="text-xs text-slate-600 text-center">
-              अलर्ट टॉपिक{' '}
+              अलर्ट समूह{' '}
               <span className="font-mono font-bold text-amber-700">[{selectedTopicKey}]</span> पर प्रसारित किया गया।
             </p>
 
             {isHealthy && diag.topicSuccess && (
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 space-y-1">
                 <div className="font-semibold flex items-center gap-1.5 text-emerald-900">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" /> FCM सर्वर-साइड ब्रॉडकास्ट सफल
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" /> पुश नोटिफिकेशन ब्रॉडकास्ट सफल
                 </div>
                 <p className="text-[11px] text-emerald-700">
-                  Google FCM सर्वर ने टॉपिक <strong>{diag.topic || selectedTopicKey}</strong> पर संदेश स्वीकार कर लिया है। इस टॉपिक से जुड़े सभी पंजीकृत मोबाइल व वेब डिवाइसेस पर तुरंत पुश नोटिफिकेशन पहुंचेगा।
+                  पुश सर्वर ने संदेश स्वीकार कर लिया है। इस समूह से जुड़े सभी पंजीकृत मोबाइल व वेब उपकरणों पर तुरंत नोटिफिकेशन पहुंचेगा।
                 </p>
               </div>
             )}
 
             {!isHealthy && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800">
-                <strong>⚠️ ध्यान दें:</strong> FCM सर्वर पर डिलीवरी में समस्या आई है। कृपया नीचे दी गई रिपोर्ट देखें।
+                <strong>⚠️ ध्यान दें:</strong> डिलीवरी में समस्या आई है। कृपया नीचे दी गई रिपोर्ट देखें।
               </div>
             )}
 
-            {/* FCM डायग्नोस्टिक रिपोर्ट */}
+            {/* डायग्नोस्टिक रिपोर्ट */}
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-700 space-y-1 font-mono">
               <div className="font-semibold text-slate-900 mb-1 flex items-center justify-between">
-                <span>🔍 FCM डिलीवरी डायग्नोस्टिक रिपोर्ट</span>
+                <span>🔍 डिलीवरी डायग्नोस्टिक रिपोर्ट</span>
                 <span className={diag.topicSuccess ? 'text-emerald-700 font-bold' : 'text-slate-500'}>
-                  {diag.topicSuccess ? 'सक्रिय (Delivered)' : 'प्रतीक्षारत'}
+                  {diag.topicSuccess ? 'सक्रिय (प्रेषित)' : 'प्रतीक्षारत'}
                 </span>
               </div>
               <div>
-                Project:{' '}
-                <span className={diag.fcmProjectId === 'pragnya-mitra' ? 'text-emerald-700 font-bold' : 'text-slate-700 font-bold'}>
+                प्रोजेक्ट:{' '}
+                <span className="text-slate-700 font-bold">
                   {diag.fcmProjectId || '—'}
                 </span>
               </div>
-              <div>Topic: {diag.topic || selectedTopicKey} (FCM सर्वर: {diag.topicSuccess ? 'स्वीकृत (HTTP 200 OK)' : 'असफल'})</div>
+              <div>ग्रुप: {diag.topic || selectedTopicKey} ({diag.topicSuccess ? 'स्वीकृत व प्रेषित' : 'असफल'})</div>
               {diag.topicMessageId ? <div className="text-slate-600 truncate">MessageId: {diag.topicMessageId}</div> : null}
-              {diag.topicError ? <div className="text-rose-700 break-all">topicError: {diag.topicError}</div> : null}
-              <div>पंजीकृत डिवाइसेस: {diag.deviceCount ?? 0} (💻 वेब: {diag.webCount ?? 0} | 📱 मोबाइल: {diag.mobileCount ?? 0})</div>
-              <div>Direct मोबाइल प्रेषित: {diag.directCount ?? 0} {diag.directCount > 0 ? `(सफल: ${diag.tokenSuccess ?? 0} | असफल: ${diag.tokenFailed ?? 0})` : '(कोई मोबाइल ऐप टोकन नहीं)'}</div>
-              <div className="text-emerald-700">💻 वेब सूचना: {(diag.webCount || 0) > 0 ? `${diag.webCount} सक्रिय वेब सत्रों पर तत्काल प्रसारित` : '0 वेब सत्र'}</div>
+              {diag.topicError ? <div className="text-rose-700 break-all">त्रुटि: {diag.topicError}</div> : null}
+              <div>पंजीकृत उपकरण: {diag.deviceCount ?? 0} (💻 वेब: {diag.webCount ?? 0} | 📱 मोबाइल: {diag.mobileCount ?? 0})</div>
+              <div>सीधे मोबाइल प्रेषित: {diag.directCount ?? 0} {diag.directCount > 0 ? `(सफल: ${diag.tokenSuccess ?? 0} | असफल: ${diag.tokenFailed ?? 0})` : '(कोई मोबाइल ऐप पंजीकृत नहीं)'}</div>
+              <div className="text-emerald-700">💻 वेब सूचना: {(diag.webCount || 0) > 0 ? `${diag.webCount} सक्रिय वेब ब्राउज़र पर तत्काल प्रसारित` : 'कोई सक्रिय वेब ब्राउज़र नहीं'}</div>
               {diag.tokenErrors && diag.tokenErrors.length > 0 ? (
                 <div className="text-rose-700">
                   <div>tokenErrors:</div>
@@ -224,7 +224,7 @@ export function FcmBroadcastModal({
           <form onSubmit={handleSend} className="p-5 space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                शीर्षक (Notification Title) *
+                सूचना का शीर्षक *
               </label>
               <input
                 type="text"
@@ -238,7 +238,7 @@ export function FcmBroadcastModal({
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                संदेश विवरण (Body / Message) *
+                संदेश विवरण *
               </label>
               <textarea
                 rows={3}
@@ -253,7 +253,7 @@ export function FcmBroadcastModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  पृथक FCM टॉपिक (School-Isolated Topic) *
+                  लक्षित वर्ग / समूह चयन *
                 </label>
                 <select
                   value={selectedTopicKey}
@@ -262,36 +262,36 @@ export function FcmBroadcastModal({
                     const found = topics.find((t) => t.topicKey === e.target.value);
                     if (found) setTargetRole(found.targetRole);
                   }}
-                  className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none font-mono"
+                  className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none"
                 >
                   {topics.length > 0 ? (
                     topics.map((t) => (
                       <option key={t.topicKey} value={t.topicKey}>
-                        {t.displayName} ({t.topicKey})
+                        {t.displayName}
                       </option>
                     ))
                   ) : (
                     <>
-                      <option value={'school_' + schoolId + '_all'}>सभी ({'school_' + schoolId + '_all'})</option>
-                      <option value={'school_' + schoolId + '_parents'}>केवल अभिभावक ({'school_' + schoolId + '_parents'})</option>
-                      <option value={'school_' + schoolId + '_students'}>केवल विद्यार्थी ({'school_' + schoolId + '_students'})</option>
-                      <option value={'school_' + schoolId + '_teachers'}>शिक्षक व स्टाफ ({'school_' + schoolId + '_teachers'})</option>
-                      <option value={'school_' + schoolId + '_fees_due'}>फीस बकाया ({'school_' + schoolId + '_fees_due'})</option>
+                      <option value={'school_' + schoolId + '_all'}>सभी (समस्त छात्र, शिक्षक व अभिभावक)</option>
+                      <option value={'school_' + schoolId + '_parents'}>केवल अभिभावक</option>
+                      <option value={'school_' + schoolId + '_students'}>केवल विद्यार्थी</option>
+                      <option value={'school_' + schoolId + '_teachers'}>शिक्षक व स्टाफ</option>
+                      <option value={'school_' + schoolId + '_fees_due'}>केवल फीस बकाया वाले छात्र</option>
                     </>
                   )}
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">प्राथमिकता (Priority)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">प्राथमिकता</label>
                 <select
                   value={priority}
                   onChange={(e) => setPriority(e.target.value)}
                   className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none"
                 >
-                  <option value="high">उच्च (High Alert - तुरंत ध्वनि)</option>
-                  <option value="normal">सामान्य (Normal Notice)</option>
-                  <option value="urgent">आपातकालीन (Urgent SOS)</option>
+                  <option value="high">उच्च प्राथमिकता (तुरंत ध्वनि अलर्ट)</option>
+                  <option value="normal">सामान्य सूचना</option>
+                  <option value="urgent">आपातकालीन (अति आवश्यक)</option>
                 </select>
               </div>
             </div>
@@ -301,10 +301,10 @@ export function FcmBroadcastModal({
               <div className="flex items-center justify-between text-slate-700 font-semibold">
                 <span className="flex items-center gap-1.5 text-[11px]">
                   <Radio className="h-3 w-3 text-amber-600 animate-pulse" />
-                  पंजीकृत डिवाइस स्थिति (Device Registry)
+                  पंजीकृत डिवाइस स्थिति
                 </span>
                 <span className="text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-bold">
-                  {deviceStats ? `${deviceStats.totalCount} पंजीकृत डिवाइस` : 'जांच हो रही है...'}
+                  {deviceStats ? `${deviceStats.totalCount} पंजीकृत उपकरण` : 'जांच हो रही है...'}
                 </span>
               </div>
               <div className="text-[10px] text-slate-600 flex gap-3">
@@ -312,14 +312,14 @@ export function FcmBroadcastModal({
                 <span>💻 वेब ब्राउज़र: <strong>{deviceStats?.webCount ?? 0}</strong></span>
               </div>
               <p className="text-[9px] text-slate-500 pt-0.5 border-t border-slate-200">
-                💡 <strong>टोकन प्राप्ति:</strong> मोबाइल उपयोगकर्ता फ़्लटर/एंड्रॉइड ऐप खोलते ही स्वतः दर्ज होते हैं। वेब उपयोगकर्ता नोटिफिकेशन अनुमति (Allow) देने पर दर्ज होते हैं। दोनों को टॉपिक <code>{selectedTopicKey}</code> से तुरंत ब्रॉडकास्ट मिलता है।
+                💡 <strong>उपकरण पंजीकरण:</strong> मोबाइल ऐप उपयोगकर्ता और वेब पोर्टल उपयोगकर्ता नोटिफिकेशन अनुमति देने पर स्वतः पंजीकृत हो जाते हैं और उन्हें तुरंत अलर्ट प्राप्त होता है।
               </p>
             </div>
 
             {/* Delivery Channel Options */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                प्रेषण चैनल एवं ईमेल सेवा का चयन (Delivery Channels)
+                प्रेषण चैनल एवं ईमेल सेवा का चयन
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -356,7 +356,7 @@ export function FcmBroadcastModal({
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
               <ShieldCheck className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
               <span>
-                <strong>मल्टी-टेनेंसी सुरक्षा:</strong> यह संदेश केवल <span className="font-mono font-bold">[{selectedTopicKey}]</span> के ग्राहकों को डिलीवर होगा। अन्य किसी भी विद्यालय में इसका डेटा मिक्स नहीं होगा।
+                <strong>सुरक्षित विद्यालय पृथक्करण:</strong> यह संदेश केवल आपके विद्यालय के चयनित समूह को ही डिलीवर होगा। अन्य किसी विद्यालय में नहीं जाएगा।
               </span>
             </div>
 
@@ -369,15 +369,15 @@ export function FcmBroadcastModal({
 
             {errorInfo && diagInfo && (
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-700 space-y-1 font-mono">
-                <div className="font-semibold text-slate-900">🔍 FCM डायग्नोस्टिक रिपोर्ट</div>
+                <div className="font-semibold text-slate-900">🔍 डिलीवरी डायग्नोस्टिक रिपोर्ट</div>
                 <div>
-                  Project:{' '}
-                  <span className={diagInfo.fcmProjectId === 'pragnya-mitra' ? 'text-green-700 font-bold' : 'text-rose-700 font-bold'}>
+                  प्रोजेक्ट:{' '}
+                  <span className="text-slate-700 font-bold">
                     {diagInfo.fcmProjectId || '—'}
                   </span>
                 </div>
-                <div>Devices: {diagInfo.deviceCount ?? '?'} | Direct सफल: {diagInfo.tokenSuccess ?? '?'} | Direct असफल: {diagInfo.tokenFailed ?? '?'}</div>
-                {diagInfo.topicError ? <div className="text-rose-700 break-all">topicError: {diagInfo.topicError}</div> : null}
+                <div>उपकरण: {diagInfo.deviceCount ?? '?'} | सीधे सफल: {diagInfo.tokenSuccess ?? '?'} | असफल: {diagInfo.tokenFailed ?? '?'}</div>
+                {diagInfo.topicError ? <div className="text-rose-700 break-all">त्रुटि: {diagInfo.topicError}</div> : null}
                 {diagInfo.tokenErrors && diagInfo.tokenErrors.length > 0 ? (
                   <div className="text-rose-700">
                     <div>tokenErrors:</div>
@@ -403,7 +403,7 @@ export function FcmBroadcastModal({
                 className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-xs disabled:opacity-50 cursor-pointer"
               >
                 <Send className="h-3.5 w-3.5" />
-                {isSending ? 'अलर्ट प्रसारित हो रहा है...' : 'सुरक्षित FCM अलर्ट भेजें'}
+                {isSending ? 'अलर्ट प्रसारित हो रहा है...' : 'सुरक्षित पुश अलर्ट भेजें'}
               </button>
             </div>
           </form>

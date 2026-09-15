@@ -6,6 +6,22 @@ interface NoticesScreenProps {
   onOpenFcmModal: () => void;
 }
 
+const categoryLabels: Record<string, string> = {
+  All: 'सभी',
+  General: 'सामान्य',
+  Academic: 'शैक्षणिक',
+  Holiday: 'अवकाश',
+  Exam: 'परीक्षा',
+  Sports: 'खेलकूद',
+};
+
+const audienceLabels: Record<string, string> = {
+  All: 'समस्त',
+  Parents: 'केवल अभिभावक',
+  Students: 'केवल विद्यार्थी',
+  Teachers: 'शिक्षक व स्टाफ',
+};
+
 export function NoticesScreen({ onOpenFcmModal }: NoticesScreenProps) {
   const [notices, setNotices] = useState<any[]>([]);
   const [fcmHistory, setFcmHistory] = useState<any[]>([]);
@@ -74,7 +90,7 @@ export function NoticesScreen({ onOpenFcmModal }: NoticesScreenProps) {
             className="flex items-center justify-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 text-xs font-semibold shadow-sm active:scale-95 transition-all cursor-pointer"
           >
             <Sparkles className="h-4 w-4" />
-            <span>त्वरित FCM अलर्ट</span>
+            <span>त्वरित पुश अलर्ट</span>
           </button>
         </div>
       </div>
@@ -107,17 +123,24 @@ export function NoticesScreen({ onOpenFcmModal }: NoticesScreenProps) {
         <div className="space-y-3">
           {/* Categories */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-            {['All', 'General', 'Academic', 'Holiday', 'Exam', 'Sports'].map((cat) => (
+            {[
+              { id: 'All', label: 'सभी' },
+              { id: 'General', label: 'सामान्य' },
+              { id: 'Academic', label: 'शैक्षणिक' },
+              { id: 'Holiday', label: 'अवकाश' },
+              { id: 'Exam', label: 'परीक्षा' },
+              { id: 'Sports', label: 'खेलकूद' },
+            ].map((cat) => (
               <button
-                key={cat}
-                onClick={() => setCategory(cat)}
-                className={`px-3 py-1 text-xs font-medium rounded-full transition-all shrink-0 ${
-                  category === cat
+                key={cat.id}
+                onClick={() => setCategory(cat.id)}
+                className={`px-3 py-1 text-xs font-medium rounded-full transition-all shrink-0 cursor-pointer ${
+                  category === cat.id
                     ? 'bg-blue-900 text-white'
-                    : 'bg-white border border-slate-200 text-slate-600'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
                 }`}
               >
-                {cat === 'All' ? 'सभी' : cat}
+                {cat.label}
               </button>
             ))}
           </div>
@@ -149,7 +172,7 @@ export function NoticesScreen({ onOpenFcmModal }: NoticesScreenProps) {
                           : 'bg-blue-100 text-blue-800'
                       }`}
                     >
-                      {n.category}
+                      {categoryLabels[n.category] || n.category}
                     </span>
                     {(n.alertSent || (n as any).fcmSent) && (
                       <span className="flex items-center gap-0.5 text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
@@ -174,7 +197,7 @@ export function NoticesScreen({ onOpenFcmModal }: NoticesScreenProps) {
 
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
                   <span>जारीकर्ता: <strong>{n.publishedBy}</strong></span>
-                  <span>लक्षित वर्ग: {n.targetAudience}</span>
+                  <span>लक्षित वर्ग: {audienceLabels[n.targetAudience] || n.targetAudience}</span>
                 </div>
               </div>
             ))

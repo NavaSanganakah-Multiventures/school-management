@@ -112,7 +112,7 @@ export function DashboardScreen({
       visible: true,
     },
     {
-      title: 'आज की उपस्थिति (Attendance)',
+      title: 'आज की उपस्थिति',
       value: dbStats.attendanceRecordedToday ? `${dbStats.attendanceRate}%` : 'दर्ज नहीं',
       change: dbStats.attendanceRecordedToday
         ? `${dbStats.todayPresent} उपस्थित • ${dbStats.todayAbsent} अनुपस्थित`
@@ -125,7 +125,7 @@ export function DashboardScreen({
       visible: true,
     },
     {
-      title: 'सत्र फीस संकलन (Fee Collection)',
+      title: 'सत्र फीस संकलन',
       value: `₹${(dbStats.totalFeeCollected || 0).toLocaleString('en-IN')}`,
       change:
         dbStats.totalFeeDue > 0
@@ -171,7 +171,7 @@ export function DashboardScreen({
                     : 'bg-emerald-500/30 text-emerald-200 border border-emerald-400/30'
                 }`}
               >
-                भूमिका: {isDirector ? 'निदेशक (Director)' : isPrincipal ? 'प्रधानाचार्य (Principal)' : 'स्टाफ शिक्षक (Staff)'}
+                भूमिका: {isDirector ? 'निदेशक' : isPrincipal ? 'प्रधानाचार्य' : 'स्टाफ शिक्षक'}
               </span>
             </div>
 
@@ -179,7 +179,7 @@ export function DashboardScreen({
               {schoolProfile?.schoolName || 'विद्या सेतु सीनियर सेकेंडरी स्कूल'}
             </h1>
             <p className="text-xs text-slate-300 mt-1">
-              नमस्ते, <strong className="text-white font-semibold">{currentUser?.fullName}</strong> ({currentUser?.designation}) • प्रशासनिक सीआरएम पोर्टल
+              नमस्ते, <strong className="text-white font-semibold">{currentUser?.fullName}</strong> ({currentUser?.designation}) • प्रशासनिक पोर्टल
             </p>
           </div>
 
@@ -224,7 +224,7 @@ export function DashboardScreen({
               <ShieldCheck className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-bold text-sm text-amber-950">सर्वोच्च प्रशासनिक अधिकार (Director Mode Active)</h3>
+              <h3 className="font-bold text-sm text-amber-950">सर्वोच्च प्रशासनिक अधिकार (निदेशक मोड)</h3>
               <p className="text-xs text-amber-800">
                 आपके पास स्कूल प्रोफाइल, प्रधानाचार्य नियुक्ति/इतिहास, वित्तीय लेखा-जोखा और संपूर्ण दाखिला-खारिज रजिस्टर का पूर्ण नियंत्रण है।
               </p>

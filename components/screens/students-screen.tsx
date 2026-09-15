@@ -81,14 +81,14 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
         {canManageStudents ? (
           <button
             onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-md hover:bg-blue-700 transition-all shrink-0 hover:scale-102"
+            className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-md hover:bg-blue-700 transition-all shrink-0 hover:scale-102 cursor-pointer"
           >
             <Plus className="h-4 w-4" />
-            <span>नया स्कॉलर प्रवेश (New Admission)</span>
+            <span>+ नया स्कॉलर प्रवेश</span>
           </button>
         ) : (
           <div className="text-xs px-3 py-2 bg-slate-100 rounded-xl text-slate-600 font-medium">
-            स्टाफ मोड: केवल अवलोकन अनुमति (Read Only)
+            स्टाफ मोड: केवल अवलोकन अनुमति
           </div>
         )}
       </div>
@@ -114,7 +114,7 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
           <select
             value={selectedClass}
             onChange={(e) => setSelectedClass(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-blue-600 focus:outline-hidden bg-white"
+            className="rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-blue-600 focus:outline-hidden bg-white cursor-pointer"
           >
             {classesList.map((c) => (
               <option key={c} value={c}>{c}</option>
@@ -128,11 +128,11 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-blue-600 focus:outline-hidden bg-white"
+            className="rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-blue-600 focus:outline-hidden bg-white cursor-pointer"
           >
-            <option value="All">सभी (All)</option>
-            <option value="Active">सक्रिय (Active)</option>
-            <option value="TC_Issued">टी.सी. निर्गत (TC Issued)</option>
+            <option value="All">सभी</option>
+            <option value="Active">सक्रिय</option>
+            <option value="TC_Issued">टी.सी. निर्गत</option>
           </select>
         </div>
       </div>
@@ -169,7 +169,7 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
                   <th className="px-4 py-3.5">अभिभावक संपर्क</th>
                   <th className="px-4 py-3.5">प्रवेश दिनांक</th>
                   <th className="px-4 py-3.5">स्थिति</th>
-                  <th className="px-4 py-3.5 text-right">कार्य (Actions)</th>
+                  <th className="px-4 py-3.5 text-right">कार्य</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -230,7 +230,7 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
                         </button>
                         <button
                           onClick={() => setTcStudent(student)}
-                          title={student.status === 'TC_Issued' ? 'टी.सी. देखें व प्रिंट करें' : 'टी.सी. निर्गत करें (Issue TC)'}
+                          title={student.status === 'TC_Issued' ? 'टी.सी. देखें व प्रिंट करें' : 'टी.सी. निर्गत करें'}
                           className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                             student.status === 'TC_Issued'
                               ? 'text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100'
