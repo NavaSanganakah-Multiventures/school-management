@@ -6,7 +6,7 @@ const dashboardStatsApp = new Hono<{ Bindings: any }>();
 
 dashboardStatsApp.get('/', async (c) => {
   const db = getDB(c);
-  if (!db) return c.json({ success: false, message: 'à¤¡à¥à¤à¤¾à¤¬à¥à¤¸ à¤à¤ªà¤²à¤¬à¥à¤§ à¤¨à¤¹à¥à¤ à¤¹à¥à¥¤' }, 500);
+  if (!db) return c.json({ success: false, message: 'Ã Â¤Â¡Ã Â¥ÂÃ Â¤ÂÃ Â¤Â¾Ã Â¤Â¬Ã Â¥ÂÃ Â¤Â¸ Ã Â¤ÂÃ Â¤ÂªÃ Â¤Â²Ã Â¤Â¬Ã Â¥ÂÃ Â¤Â§ Ã Â¤Â¨Ã Â¤Â¹Ã Â¥ÂÃ Â¤Â Ã Â¤Â¹Ã Â¥ÂÃ Â¥Â¤' }, 500);
   const authUser = await getAuthUser(c);
   const schoolId = getRequestSchoolId(c, authUser);
   const today = new Date().toISOString().split('T')[0];
@@ -36,7 +36,7 @@ dashboardStatsApp.get('/', async (c) => {
       attendanceRate,
       todayPresent: presentCount,
       todayAbsent: absentCount,
-      attendanceRecordedToday: att.length > 0,
+      attendanceRecordedToday: attendanceTotal > 0,
       totalFeeCollected,
       totalFeeDue,
       activeNoticesCount: tNotices ? tNotices.n : 0,
