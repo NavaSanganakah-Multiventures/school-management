@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/user_model.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../widgets/activity_log_sheet.dart';
 import 'login_screen.dart';
 import 'teacher_attendance_screen.dart';
 
@@ -20,7 +21,7 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
   bool _isLoading = true;
   Map<String, dynamic> _stats = {};
   List<dynamic> _schoolAbsentees = [];
-  String _today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  final String _today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
   @override
   void initState() {
@@ -118,6 +119,11 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
+            icon: const Icon(Icons.history_edu),
+            tooltip: 'स्टाफ कार्यकलाप ऑडिट',
+            onPressed: () => ActivityLogSheet.show(context, user: widget.user),
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadDashboardData,
           ),
@@ -184,22 +190,42 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Quick Action: Take Class Attendance
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => TeacherAttendanceScreen(user: widget.user),
+                    // Quick Actions
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => TeacherAttendanceScreen(user: widget.user),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.checklist_rtl, size: 16),
+                            label: const Text('उपस्थिति रजिस्टर', style: TextStyle(fontSize: 12)),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              side: const BorderSide(color: Color(0xFF4338CA)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
                           ),
-                        );
-                      },
-                      icon: const Icon(Icons.checklist_rtl),
-                      label: const Text('कक्षा-वार उपस्थिति रजिस्टर खोलें →'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        side: const BorderSide(color: Color(0xFF4338CA)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () => ActivityLogSheet.show(context, user: widget.user),
+                            icon: const Icon(Icons.history_edu, size: 16),
+                            label: const Text('स्टाफ ऑडिट ट्रेल', style: TextStyle(fontSize: 12)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF312E81),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 16),
 

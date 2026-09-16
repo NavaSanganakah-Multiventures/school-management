@@ -15,6 +15,7 @@ import billingApp from './billing';
 import adminApp from './admin';
 import fcmProxyApp from './fcm-proxy';
 import classesApp from './classes';
+import activityLogsApp from './activity-logs';
 
 const app = new Hono<{ Bindings: any }>().basePath('/api');
 
@@ -47,5 +48,6 @@ app.route('/billing', billingApp);
 app.route('/admin', adminApp);
 app.route('/classes', classesApp);
 app.route('/fcm-proxy', fcmProxyApp);
+app.route('/activity-logs', activityLogsApp);
 
 export default app;

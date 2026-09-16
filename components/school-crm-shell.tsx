@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   AlertTriangle,
   Building2,
+  History,
 } from 'lucide-react';
 
 import { DashboardScreen } from './screens/dashboard-screen';
@@ -37,6 +38,7 @@ import { RegisterScreen } from './screens/register-screen';
 import { ResetPasswordScreen } from './screens/reset-password-screen';
 import { AdminConsoleScreen } from './screens/admin-console-screen';
 import { ClassesScreen } from './screens/classes-screen';
+import { ActivityLogsScreen } from './screens/activity-logs-screen';
 
 import { AddScholarModal } from './modals/add-scholar-modal';
 import { FcmBroadcastModal } from './modals/fcm-broadcast-modal';
@@ -117,6 +119,8 @@ export function SchoolCrmShell() {
   const [isBroadcastOpen, setIsBroadcastOpen] = useState(false);
   const [pushToast, setPushToast] = useState<{ title: string; body: string } | null>(null);
   const [webPushStatus, setWebPushStatus] = useState<string | null>(null);
+  const [assignedClasses, setAssignedClasses] = useState<string[]>([]);
+  const [isClassTeacher, setIsClassTeacher] = useState(false);
   const lastRegisteredUserIdRef = useRef<string | null>(null);
 
   // Sync client-side authentication and URL params after initial mount (avoids React hydration mismatch #418)
@@ -127,6 +131,20 @@ export function SchoolCrmShell() {
     const token = readResetToken();
     if (token) setResetToken(token);
   }, []);
+
+  // Fetch teacher's assigned classes
+  useEffect(() => {
+    if (!currentUser) return;
+    fetch('/api/classes/my-classes')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.assignedClasses)) {
+          setAssignedClasses(data.assignedClasses);
+          setIsClassTeacher(data.assignedClasses.length > 0);
+        }
+      })
+      .catch(() => {});
+  }, [currentUser]);
 
   const [schoolProfile, setSchoolProfile] = useState<any>({
     schoolName: 'विद्या सेतु स्कूल प्रबंधन',
@@ -358,6 +376,12 @@ export function SchoolCrmShell() {
     { id: 'students', label: 'स्कॉलर रजिस्टर', icon: Users, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'staff', label: 'स्टाफ एवं शिक्षक निर्देशिका', icon: GraduationCap, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'attendance', label: 'दैनिक छात्र उपस्थिति', icon: CalendarCheck, allowedRoles: ['Director', 'Principal', 'Staff'] },
+    {
+      id: 'activity-logs',
+      label: userRole === 'Staff' ? 'मेरी कार्यकलाप हिस्ट्री' : userRole === 'Principal' ? 'स्टाफ कार्यकलाप व ऑडिट' : 'स्कूल कार्यकलाप ऑडिट',
+      icon: History,
+      allowedRoles: ['Director', 'Principal', 'Staff', 'SuperAdmin'],
+    },
     { id: 'classes', label: 'कक्षा एवं अध्यापक आवंटन', icon: Building2, allowedRoles: ['Director', 'Principal'] },
     { id: 'fees', label: 'फीस पोर्टल एवं चालान', icon: IndianRupee, allowedRoles: ['Director', 'Principal'] },
     { id: 'exams', label: 'परीक्षा एवं अंक प्रविष्टि', icon: FileSpreadsheet, allowedRoles: ['Director', 'Principal', 'Staff'], requiredModule: 'exams' },
@@ -398,7 +422,7 @@ export function SchoolCrmShell() {
             <span>अधिकृत सत्र सक्रिय</span>
           </div>
 
-          {(userRole === 'Director' || userRole === 'Principal') && (
+          {(userRole === 'Director' || userRole === 'Principal' || (userRole === 'Staff' && isClassTeacher)) && (
             <>
               <button onClick={() => setIsAddScholarOpen(true)} className="hidden lg:flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer">
                 <span>+ स्कॉलर प्रवेश</span>
@@ -502,7 +526,8 @@ export function SchoolCrmShell() {
           {activeTab === 'dashboard' && (
             <DashboardScreen onNavigate={(tab) => setActiveTab(tab)} onOpenAddStudent={() => setIsAddScholarOpen(true)} onOpenFcmModal={() => setIsBroadcastOpen(true)} userRole={screenRole} currentUser={currentUser} schoolProfile={schoolProfile} />
           )}
-          {activeTab === 'students' && <StudentsScreen userRole={screenRole} />}
+          {activeTab === 'students' && <StudentsScreen userRole={screenRole} currentUser={currentUser} />}
+          {activeTab === 'activity-logs' && <ActivityLogsScreen userRole={userRole} currentUser={currentUser} />}
           {activeTab === 'principal' && <PrincipalManagementScreen userRole={userRole} />}
           {activeTab === 'staff' && <StaffScreen userRole={screenRole} />}
           {activeTab === 'attendance' && <AttendanceScreen userRole={screenRole} currentUserId={currentUser.id} onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
@@ -515,7 +540,13 @@ export function SchoolCrmShell() {
         </main>
       </div>
 
-      <AddScholarModal isOpen={isAddScholarOpen} onClose={() => setIsAddScholarOpen(false)} onSuccess={() => { setActiveTab('students'); }} />
+      <AddScholarModal
+        isOpen={isAddScholarOpen}
+        onClose={() => setIsAddScholarOpen(false)}
+        assignedClasses={assignedClasses}
+        isClassTeacher={isClassTeacher && userRole === 'Staff'}
+        onSuccess={() => { setActiveTab('students'); }}
+      />
       <FcmBroadcastModal isOpen={isBroadcastOpen} onClose={() => setIsBroadcastOpen(false)} schoolId={currentUser.schoolId || 'school-01'} />
 
       {pushToast && (

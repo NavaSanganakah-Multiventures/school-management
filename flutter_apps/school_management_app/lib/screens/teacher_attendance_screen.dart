@@ -5,6 +5,7 @@ import '../models/user_model.dart';
 import '../models/attendance_model.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../widgets/activity_log_sheet.dart';
 import 'login_screen.dart';
 
 class TeacherAttendanceScreen extends StatefulWidget {
@@ -152,7 +153,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('अनुपस्थित अभिभावक पुश अलर्ट'),
         content: Text(
-          'क्या आप आज अनुपस्थित ${_selectedClass} के ${absentees.length} छात्रों के अभिभावकों के मोबाइल पर त्वरित पुश अलर्ट भेजना चाहते हैं?',
+          'क्या आप आज अनुपस्थित $_selectedClass के ${absentees.length} छात्रों के अभिभावकों के मोबाइल पर त्वरित पुश अलर्ट भेजना चाहते हैं?',
         ),
         actions: [
           TextButton(
@@ -221,6 +222,227 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
     }
   }
 
+  Future<void> _openAddStudentDialog() async {
+    final nameCtrl = TextEditingController();
+    final scholarCtrl = TextEditingController();
+    final parentCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    String gender = 'Male';
+    DateTime? dob;
+    bool isSaving = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.person_add, color: Colors.indigo, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('नया छात्र प्रवेश', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    Text('कक्षा: $_selectedClass', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'विद्यार्थी का पूरा नाम *',
+                    hintText: 'उदा. अमित कुमार शर्मा',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: scholarCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'स्कॉलर / एस.आर. नंबर (ऐच्छिक)',
+                    hintText: 'उदा. SR-2026-089',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: parentCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'पिता / अभिभावक का नाम *',
+                    hintText: 'उदा. राजेश शर्मा',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: phoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'अभिभावक मोबाइल नंबर *',
+                    hintText: '10 अंकों का मोबाइल',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: gender,
+                        decoration: const InputDecoration(
+                          labelText: 'लिंग',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'Male', child: Text('छात्र (M)')),
+                          DropdownMenuItem(value: 'Female', child: Text('छात्रा (F)')),
+                          DropdownMenuItem(value: 'Other', child: Text('अन्य')),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) setDialogState(() => gender = val);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () async {
+                          final picked = await showDatePicker(
+                            context: ctx,
+                            initialDate: DateTime(2015, 1, 1),
+                            firstDate: DateTime(2000),
+                            lastDate: DateTime.now(),
+                          );
+                          if (picked != null) {
+                            setDialogState(() => dob = picked);
+                          }
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'जन्म तिथि',
+                            isDense: true,
+                            border: OutlineInputBorder(),
+                          ),
+                          child: Text(
+                            dob != null ? DateFormat('dd/MM/yyyy').format(dob!) : 'चुनें',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: dob != null ? Colors.black87 : Colors.grey,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSaving ? null : () => Navigator.of(dialogCtx).pop(),
+              child: const Text('रद्द करें'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0F172A),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      final name = nameCtrl.text.trim();
+                      final parent = parentCtrl.text.trim();
+                      final phone = phoneCtrl.text.trim();
+
+                      if (name.isEmpty) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(content: Text('कृपया विद्यार्थी का नाम भरें।'), backgroundColor: Colors.red),
+                        );
+                        return;
+                      }
+                      if (phone.isEmpty || phone.length < 10) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(content: Text('कृपया वैध मोबाइल नंबर भरें।'), backgroundColor: Colors.red),
+                        );
+                        return;
+                      }
+
+                      setDialogState(() => isSaving = true);
+
+                      try {
+                        final res = await _api.post('/api/students', body: {
+                          'name': name,
+                          'scholarNumber': scholarCtrl.text.trim(),
+                          'parentName': parent,
+                          'parentPhone': phone,
+                          'gender': gender,
+                          'dob': dob != null ? DateFormat('yyyy-MM-dd').format(dob!) : null,
+                          'currentClass': _selectedClass,
+                          'status': 'Active',
+                        });
+
+                        if (res['success'] == true) {
+                          if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('छात्र $name को कक्षा $_selectedClass में सफलतापूर्वक प्रवेशित किया गया।'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                            _loadAttendance();
+                          }
+                        } else {
+                          setDialogState(() => isSaving = false);
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(res['error'] ?? 'प्रवेश विफल रहा'), backgroundColor: Colors.red),
+                            );
+                          }
+                        }
+                      } catch (err) {
+                        setDialogState(() => isSaving = false);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('त्रुटि: $err'), backgroundColor: Colors.red),
+                          );
+                        }
+                      }
+                    },
+              child: isSaving
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('प्रवेश दर्ज करें'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _records.where((r) {
@@ -248,6 +470,16 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
         backgroundColor: const Color(0xFF0F172A),
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.person_add),
+            tooltip: 'नया छात्र प्रवेश',
+            onPressed: _openAddStudentDialog,
+          ),
+          IconButton(
+            icon: const Icon(Icons.history),
+            tooltip: 'मेरी गतिविधि डायरी',
+            onPressed: () => ActivityLogSheet.show(context, user: widget.user),
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'लॉगआउट',
