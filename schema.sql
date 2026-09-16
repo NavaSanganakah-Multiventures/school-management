@@ -1,7 +1,7 @@
 -- VidyaSetu School Management — D1 schema (reference)
--- This file mirrors db_migrations/0001..0005. Apply changes via wrangler migrations;
--- use this file only as a human-readable reference of the final schema.
-
+-- This file mirrors db_migrations/0001..0013 (all migrations, in order).
+-- Apply changes via wrangler migrations; use this file only as a human-readable
+-- reference of the migration sequence and final schema.
 -- Migration: 0001_initial_schema.sql
 -- Description: Initial schema setup for Cloudflare D1 database (VidyaSetu School Management)
 
@@ -134,7 +134,6 @@ CREATE TABLE IF NOT EXISTS timetables (
     room_number TEXT
 );
 
-
 -- Migration: 0002_scholar_and_roles.sql
 -- Description: Add School Profile, 3-Role CRM User Auth (Director, Principal, Staff), Principal Change History, and Comprehensive Scholar Register fields
 
@@ -189,7 +188,6 @@ CREATE TABLE IF NOT EXISTS principal_history (
     remarks TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
 
 -- Migration: 0003_enterprise_plans_autopay_multitenancy.sql
 -- Description: Multi-Tenancy Architecture, Enterprise Subscription & Auto-Pay, Custom Domain Email Add-on, and Isolated School FCM Topics
@@ -296,7 +294,6 @@ CREATE TABLE IF NOT EXISTS school_fcm_topics (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (school_id) REFERENCES school_tenants(id)
 );
-
 
 -- Migration: 0004_auth_trial_razorpay_admin.sql
 -- Description: Real auth (hashed passwords, signed sessions), Super Admin, school
@@ -485,7 +482,6 @@ VALUES
      '{"reportCards":true,"principalHistory":true,"autopay":true,"domainEmail":true,"multiSchool":true,"prioritySupport":true,"customDomainIncluded":true}',
      0, 1, 0, 3, datetime('now'), datetime('now'));
 
-
 -- Migration: 0006_fcm_device_tokens.sql
 -- Description: Stores FCM registration tokens for website (web push) and mobile app
 -- devices so broadcasts can be delivered directly to website staff devices, and the
@@ -508,8 +504,41 @@ CREATE TABLE IF NOT EXISTS fcm_device_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_fcm_device_tokens_school ON fcm_device_tokens(school_id, device_type);
 
+-- Migration: 0007_fcm_web_topic_reset.sql
+-- Description: One-time data cleanup — reset legacy web-device FCM topics after the web-push topic fix.
+-- Older web-device rows stored *derived* FCM topics (school_<id>_all + role topic)
+-- even though the web client never actually subscribed to them. The web client now
+-- subscribes to topics itself and reports the real list on every registration, so
+-- reset legacy web rows to an empty list. This keeps direct-token delivery working
+-- until those devices re-register with the updated client.
+UPDATE fcm_device_tokens SET subscribed_topics = '[]' WHERE device_type = 'web';
+
+-- Migration: 0008_staff_login_accounts.sql
+-- Description: Link staff (teachers) records to system_users login accounts so
+-- teachers/staff can log in and receive web push notifications.
+
+ALTER TABLE teachers ADD COLUMN login_user_id TEXT;
+
+-- Migration: 0009_password_reset_tokens.sql
+-- Description: Single-use password reset / invite tokens for staff & school users.
+-- Tokens are stored only as SHA-256 hashes (never plaintext) and expire after 30 minutes.
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  user_type TEXT NOT NULL CHECK(user_type IN ('system', 'admin')),
+  token_hash TEXT NOT NULL,
+  type TEXT NOT NULL CHECK(type IN ('invite', 'reset')),
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user ON password_reset_tokens(user_id, created_at);
+
 -- Migration: 0010_user_notification_tokens.sql
--- Description: Stores notification tokens for server-side FCM proxy
+-- Description: Stores notification tokens for server-side FCM proxy for Cloudflare Workers
+
 CREATE TABLE IF NOT EXISTS user_notification_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
@@ -522,3 +551,92 @@ CREATE TABLE IF NOT EXISTS user_notification_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_notification_tokens_user ON user_notification_tokens(user_id);
+
+-- Migration: 0011_web_push_subscriptions.sql
+-- Description: Stores native browser Web Push subscriptions (PushSubscription JSON) so
+-- the server can deliver real background push notifications via VAPID + RFC 8291.
+-- This complements fcm_device_tokens (mobile FCM) and replaces the old fake
+-- web-client-* session tokens for actual web push delivery.
+
+CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+    id TEXT PRIMARY KEY,
+    school_id TEXT NOT NULL,
+    user_id TEXT,
+    role TEXT DEFAULT 'Staff',
+    endpoint TEXT UNIQUE NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    subscribed_topics TEXT DEFAULT '[]',
+    is_active INTEGER DEFAULT 1,
+    last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (school_id) REFERENCES school_tenants(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_school ON web_push_subscriptions(school_id, role, is_active);
+
+-- Migration: 0012_class_teacher_assignment.sql
+-- Description: Class-teacher assignment and attendance permission schema.
+
+CREATE TABLE IF NOT EXISTS class_teachers (
+    id TEXT PRIMARY KEY,
+    school_id TEXT NOT NULL,
+    class_name TEXT NOT NULL,
+    teacher_user_id TEXT NOT NULL,
+    teacher_name TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(school_id, class_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_class_teachers_school_class ON class_teachers(school_id, class_name);
+CREATE INDEX IF NOT EXISTS idx_class_teachers_teacher ON class_teachers(school_id, teacher_user_id);
+
+CREATE INDEX IF NOT EXISTS idx_attendance_school_date ON attendance(school_id, date);
+CREATE INDEX IF NOT EXISTS idx_students_school_status_class ON students(school_id, status, class_name);
+
+-- Migration: 0013_class_assignments_timetables_tc_workflow.sql
+-- Description: Class Teacher Assignment, Timetable Periods Allocation, and TC Request/Approval Workflow
+
+-- 1. Classes: add class_teacher_id to link with teachers/staff table
+ALTER TABLE classes ADD COLUMN class_teacher_id TEXT;
+ALTER TABLE classes ADD COLUMN max_students INTEGER DEFAULT 45;
+
+-- 2. Timetables: add school_id, teacher_id, class_name, section
+ALTER TABLE timetables ADD COLUMN school_id TEXT DEFAULT 'school-01';
+ALTER TABLE timetables ADD COLUMN teacher_id TEXT;
+ALTER TABLE timetables ADD COLUMN class_name TEXT;
+ALTER TABLE timetables ADD COLUMN section TEXT;
+
+-- 3. TC Requests: Class Teacher request -> Principal/Director Approval Workflow
+CREATE TABLE IF NOT EXISTS tc_requests (
+    id TEXT PRIMARY KEY,
+    school_id TEXT NOT NULL,
+    student_id TEXT NOT NULL,
+    scholar_number TEXT,
+    student_name TEXT NOT NULL,
+    class_name TEXT NOT NULL,
+    section TEXT,
+    requested_by_user_id TEXT NOT NULL,
+    requested_by_name TEXT NOT NULL,
+    requested_by_role TEXT NOT NULL DEFAULT 'Staff',
+    request_date TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    conduct TEXT DEFAULT 'उत्कृष्ट एवं चरित्रवान (Good & Exemplary)',
+    working_days TEXT DEFAULT '210',
+    present_days TEXT DEFAULT '194',
+    fees_dues_status TEXT DEFAULT 'मार्च 2026 तक समस्त शुल्क चुकता (All Dues Cleared)',
+    remarks TEXT,
+    status TEXT NOT NULL DEFAULT 'Pending_Approval' CHECK(status IN ('Pending_Approval', 'Approved', 'Rejected')),
+    reviewed_by_user_id TEXT,
+    reviewed_by_name TEXT,
+    reviewed_by_role TEXT,
+    reviewed_at TIMESTAMP,
+    tc_number TEXT,
+    issue_date TEXT,
+    rejection_reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_tc_requests_school ON tc_requests(school_id, status);
+CREATE INDEX IF NOT EXISTS idx_tc_requests_student ON tc_requests(student_id);

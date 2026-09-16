@@ -61,15 +61,27 @@ classesApp.get('/my-classes', async (c) => {
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
 
-  if (canManageClassTeachers(authUser.role as any)) {
-    const rows = await db.prepare('SELECT DISTINCT class_name FROM students WHERE school_id = ? AND status = ? ORDER BY class_name')
-      .bind(schoolId, 'Active').all();
-    return c.json({ success: true, role: authUser.role, classes: (rows.results || []).map((r: any) => r.class_name) });
-  }
+  const activeStudents = await db.prepare('SELECT DISTINCT class_name FROM students WHERE school_id = ? AND status = ? ORDER BY class_name')
+    .bind(schoolId, 'Active').all();
+  const studentClasses = ((activeStudents.results || []) as any[]).map(r => normalizeClassName(r.class_name));
+  const allClasses = Array.from(new Set([...studentClasses, ...DEFAULT_CLASS_ORDER]));
 
-  const rows = await db.prepare('SELECT class_name FROM class_teachers WHERE school_id = ? AND teacher_user_id = ? ORDER BY class_name')
+  const assignedRows = await db.prepare('SELECT class_name FROM class_teachers WHERE school_id = ? AND teacher_user_id = ? ORDER BY class_name')
     .bind(schoolId, authUser.sub).all();
-  return c.json({ success: true, role: authUser.role, classes: (rows.results || []).map((r: any) => r.class_name) });
+  const assignedClasses = ((assignedRows.results || []) as any[]).map(r => normalizeClassName(r.class_name));
+
+  const isAdmin = canManageClassTeachers(authUser.role as any);
+
+  return c.json({
+    success: true,
+    role: authUser.role,
+    isAdmin,
+    classes: isAdmin ? allClasses : (assignedClasses.length > 0 ? assignedClasses : allClasses),
+    assignedClasses,
+    allClasses,
+    isClassTeacher: assignedClasses.length > 0,
+    canMarkAll: isAdmin,
+  });
 });
 
 classesApp.post('/assign-teacher', async (c) => {
@@ -105,6 +117,10 @@ classesApp.post('/assign-teacher', async (c) => {
     'ON CONFLICT(school_id, class_name) DO UPDATE SET teacher_user_id=excluded.teacher_user_id, teacher_name=excluded.teacher_name'
   ).bind(id, schoolId, className, teacherUserId, teacher.full_name).run();
 
+  try {
+    await db.prepare('UPDATE classes SET class_teacher_id = ? WHERE name = ?').bind(teacherUserId, className).run();
+  } catch (e) {}
+
   return c.json({
     success: true,
     message: className + ' का कक्षा अध्यापक ' + teacher.full_name + ' नियुक्त किया गया।',
@@ -128,6 +144,10 @@ classesApp.post('/remove-teacher', async (c) => {
   if (!className) return c.json({ success: false, message: 'कक्षा का नाम आवश्यक है।' }, 400);
 
   await db.prepare('DELETE FROM class_teachers WHERE school_id = ? AND class_name = ?').bind(schoolId, className).run();
+  try {
+    await db.prepare('UPDATE classes SET class_teacher_id = NULL WHERE name = ?').bind(className).run();
+  } catch (e) {}
+
   return c.json({ success: true, message: className + ' से कक्षा अध्यापक हटा दिया गया।' });
 });
 
