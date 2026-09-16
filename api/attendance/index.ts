@@ -51,21 +51,44 @@ attendanceApp.get('/', async (c) => {
     ? (await db.prepare('SELECT class_name FROM class_teachers WHERE school_id = ? AND teacher_user_id = ? ORDER BY class_name').bind(schoolId, authUser.sub).all()).results?.map((r: any) => r.class_name) || []
     : [];
 
-  const allowed = allowedClassesForUser(authUser, className, assignedClasses);
-  if (allowed && allowed.length === 0) {
-    return c.json({
-      success: true, date, stats: { total: 0, present: 0, absent: 0, leave: 0, rate: 0 }, records: [], assignedClasses, canMark: false,
-      message: 'आपको किसी भी कक्षा के लिए कक्षा अध्यापक के रूप में नियुक्त नहीं किया गया है।',
-    });
+  const isAdmin = authUser.role === 'Director' || authUser.role === 'Principal' || authUser.role === 'SuperAdmin';
+  const targetClass = className && className !== 'All' ? className : null;
+
+  let queryClasses: string[] | null = null;
+  let accessMessage: string | null = null;
+  let canMark = false;
+
+  if (isAdmin) {
+    queryClasses = targetClass ? [targetClass] : null;
+    canMark = true;
+  } else {
+    // Staff member (Class Teacher or Non-Class Teacher)
+    if (targetClass) {
+      queryClasses = [targetClass];
+      const isAssigned = assignedClasses.includes(targetClass);
+      canMark = isAssigned;
+      if (!isAssigned) {
+        accessMessage = 'आप इस कक्षा (' + targetClass + ') के अधिकृत कक्षा अध्यापक नहीं हैं। केवल पठन अधिकार (Read-Only) उपलब्ध है।';
+      }
+    } else {
+      if (assignedClasses.length > 0) {
+        queryClasses = assignedClasses;
+        canMark = assignedClasses.length === 1; // If multiple assigned, marking single requires specific class
+      } else {
+        queryClasses = null; // show general classes in read-only mode
+        canMark = false;
+        accessMessage = 'आप किसी भी कक्षा के कक्षा अध्यापक नहीं हैं। उपस्थिति दर्ज करने का अधिकार केवल अधिकृत कक्षा अध्यापक, प्रधानाचार्य या निदेशक को है।';
+      }
+    }
   }
 
-  const { clause, params } = classListWhereClause(allowed || []);
+  const { clause, params } = classListWhereClause(queryClasses || []);
   const sql =
     'SELECT s.id AS student_id, s.first_name, s.last_name, s.class_name, s.section, s.roll_number, s.scholar_number, a.id AS att_id, a.status, a.remarks, a.marked_by ' +
     'FROM students s LEFT JOIN attendance a ON a.student_id = s.id AND a.date = ? ' +
     'WHERE s.school_id = ? AND s.status = ?' + clause + ' ORDER BY s.class_name, s.roll_number, s.first_name';
 
-  const queryParams = [date, schoolId, 'Active', ...(allowed ? params : [])];
+  const queryParams = [date, schoolId, 'Active', ...(queryClasses ? params : [])];
   const rows = await db.prepare(sql).bind(...queryParams).all();
 
   const list = ((rows.results || []) as any[]).map((s) => {
@@ -89,8 +112,6 @@ attendanceApp.get('/', async (c) => {
   const absent = list.filter((r) => r.status === 'Absent').length;
   const leave = list.filter((r) => r.status === 'Leave').length;
   const rate = total > 0 ? Math.round((present / total) * 100) : 0;
-  const isAdmin = authUser.role === 'Director' || authUser.role === 'Principal' || authUser.role === 'SuperAdmin';
-  const canMark = isAdmin || (assignedClasses.length > 0);
 
   return c.json({
     success: true,
@@ -99,6 +120,7 @@ attendanceApp.get('/', async (c) => {
     records: list,
     assignedClasses,
     canMark,
+    message: accessMessage,
   });
 });
 
@@ -123,7 +145,7 @@ attendanceApp.post('/mark', async (c) => {
 
   const permitted = await canMarkAttendanceForClass(db, schoolId, authUser, student.class_name);
   if (!permitted) {
-    return c.json({ success: false, message: 'केवल कक्षा अध्यापक/प्रधानाचार्य/निदेशक ही इस कक्षा की उपस्थिति दर्ज कर सकते हैं।' }, 403);
+    return c.json({ success: false, message: 'अनुमति अस्वीकृत: केवल अधिकृत कक्षा अध्यापक, प्रधानाचार्य या निदेशक ही इस कक्षा की उपस्थिति दर्ज कर सकते हैं।' }, 403);
   }
 
   const id = 'att-' + studentId + '-' + targetDate;
@@ -159,11 +181,11 @@ attendanceApp.post('/mark-all-present', async (c) => {
 
   if (!isAdmin && className && className !== 'All') {
     if (!allowed!.includes(className)) {
-      return c.json({ success: false, message: 'आप इस कक्षा के लिए कक्षा अध्यापक नहीं हैं।' }, 403);
+      return c.json({ success: false, message: 'अनुमति अस्वीकृत: आप ' + className + ' के अधिकृत कक्षा अध्यापक नहीं हैं।' }, 403);
     }
     allowed = [className];
   } else if (!isAdmin && (!allowed || allowed.length === 0)) {
-    return c.json({ success: false, message: 'आपको किसी भी कक्षा के लिए कक्षा अध्यापक नियुक्त नहीं किया गया है।' }, 403);
+    return c.json({ success: false, message: 'अनुमति अस्वीकृत: आप किसी भी कक्षा के कक्षा अध्यापक नहीं हैं। केवल कक्षा अध्यापक, प्रधानाचार्य या निदेशक ही उपस्थिति दर्ज कर सकते हैं।' }, 403);
   }
 
   const { clause, params } = classListWhereClause(allowed || []);

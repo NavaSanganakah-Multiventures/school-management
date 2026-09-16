@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Building2, X, AlertTriangle, Loader2 } from 'lucide-react';
 
 interface ClassesScreenProps {
@@ -31,11 +31,7 @@ export function ClassesScreen({ userRole }: ClassesScreenProps) {
 
   const canManage = userRole === 'Director' || userRole === 'Principal';
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -50,7 +46,11 @@ export function ClassesScreen({ userRole }: ClassesScreenProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const assignTeacher = async (className: string, teacherUserId: string) => {
     setSavingMap(prev => ({ ...prev, [className]: true }));
