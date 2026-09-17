@@ -43,6 +43,7 @@ function mapStudent(r: any): any {
     status,
     tcIssueDate: r.tc_issue_date || '',
     remarks: r.remarks || '',
+    missingDetails: r.missing_details || '',
   };
 }
 
