@@ -16,6 +16,7 @@ import adminApp from './admin';
 import fcmProxyApp from './fcm-proxy';
 import classesApp from './classes';
 import activityLogsApp from './activity-logs';
+import masterAdminApp from './master-admin';
 
 const app = new Hono<{ Bindings: any }>().basePath('/api');
 
@@ -25,11 +26,11 @@ app.get('/health', (c) => {
   return c.json({
     status: 'online',
     timestamp: new Date().toISOString(),
-    system: 'VidyaSetu School Management System & CRM API',
-    engine: 'Hono.js Engine',
+    system: 'Pragnya Mitra School Management System & ERP API',
+    engine: 'Hono.js Engine on Cloudflare Workers / workerd',
     rolesSupported: ['SuperAdmin', 'Director', 'Principal', 'Staff'],
     paymentGateway: 'Razorpay',
-    database: 'Cloudflare D1 (real data)',
+    database: 'Cloudflare D1 (Multi-Worker Isolated Architecture)',
   });
 });
 
@@ -49,5 +50,6 @@ app.route('/admin', adminApp);
 app.route('/classes', classesApp);
 app.route('/fcm-proxy', fcmProxyApp);
 app.route('/activity-logs', activityLogsApp);
+app.route('/master', masterAdminApp);
 
 export default app;

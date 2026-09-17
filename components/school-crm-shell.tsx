@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Building2,
   History,
+  Server,
 } from 'lucide-react';
 
 import { DashboardScreen } from './screens/dashboard-screen';
@@ -39,6 +40,7 @@ import { ResetPasswordScreen } from './screens/reset-password-screen';
 import { AdminConsoleScreen } from './screens/admin-console-screen';
 import { ClassesScreen } from './screens/classes-screen';
 import { ActivityLogsScreen } from './screens/activity-logs-screen';
+import { MasterControlScreen } from './screens/master-control-screen';
 
 import { AddScholarModal } from './modals/add-scholar-modal';
 import { FcmBroadcastModal } from './modals/fcm-broadcast-modal';
@@ -328,7 +330,7 @@ export function SchoolCrmShell() {
     localStorage.setItem('vidyasetu_user', JSON.stringify(normalized));
     localStorage.setItem('vidyasetu_token', token);
     setCurrentUser(normalized);
-    setActiveTab(normalized.role === 'SuperAdmin' ? 'admin' : 'dashboard');
+    setActiveTab(normalized.role === 'SuperAdmin' ? 'master' : 'dashboard');
   };
 
   // Prevent hydration mismatch between SSR/static build HTML and client DOM
@@ -371,6 +373,7 @@ export function SchoolCrmShell() {
   const screenRole: 'Director' | 'Principal' | 'Staff' = userRole === 'SuperAdmin' ? 'Director' : userRole;
 
   const navItems: NavItem[] = [
+    { id: 'master', label: 'मास्टर कंट्रोल प्लेन (Multi-Worker)', icon: Server, superAdminOnly: true },
     { id: 'admin', label: 'सुपर एडमिन कंसोल', icon: ShieldCheck, superAdminOnly: true },
     { id: 'dashboard', label: 'डैशबोर्ड', icon: LayoutDashboard, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'students', label: 'स्कॉलर रजिस्टर', icon: Users, allowedRoles: ['Director', 'Principal', 'Staff'] },
@@ -410,7 +413,7 @@ export function SchoolCrmShell() {
               <School className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-base font-black tracking-tight text-slate-900 line-clamp-1">{schoolProfile.schoolName || 'विद्या सेतु स्कूल प्रबंधन'}</h1>
+              <h1 className="text-base font-black tracking-tight text-slate-900 line-clamp-1">{schoolProfile.schoolName || 'प्रज्ञा मित्र स्कूल प्रबंधन'}</h1>
               <p className="text-[11px] text-slate-500 hidden sm:block">सत्र: {schoolProfile.academicSession || '2026-2027'} • भूमिका: {roleEmoji(userRole)}</p>
             </div>
           </div>
@@ -522,6 +525,7 @@ export function SchoolCrmShell() {
             </div>
           )}
 
+          {activeTab === 'master' && <MasterControlScreen />}
           {activeTab === 'admin' && <AdminConsoleScreen />}
           {activeTab === 'dashboard' && (
             <DashboardScreen onNavigate={(tab) => setActiveTab(tab)} onOpenAddStudent={() => setIsAddScholarOpen(true)} onOpenFcmModal={() => setIsBroadcastOpen(true)} userRole={screenRole} currentUser={currentUser} schoolProfile={schoolProfile} />
