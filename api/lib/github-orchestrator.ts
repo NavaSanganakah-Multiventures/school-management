@@ -11,6 +11,53 @@ export interface GitHubConfig {
   repo: string; // Template / Main repo
 }
 
+/**
+ * Generates a collision-safe unique ID using crypto random bytes.
+ * Avoids Date.now() millisecond collisions in high-throughput scenarios.
+ */
+export function generateUniqueId(prefix: string = ''): string {
+  const ts = Date.now().toString(36);
+  const rand = Array.from(crypto.getRandomValues(new Uint8Array(6)))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  return prefix ? `${prefix}_${ts}_${rand}` : `${ts}_${rand}`;
+}
+
+/**
+ * Retries a fetch call with exponential backoff on transient failures (5xx, 429, network errors).
+ * @param fn - Async function that returns a Response
+ * @param maxRetries - Maximum retry attempts (default: 3)
+ * @param baseDelayMs - Base delay in milliseconds (default: 500)
+ */
+async function fetchWithRetry(
+  fn: () => Promise<Response>,
+  maxRetries: number = 3,
+  baseDelayMs: number = 500
+): Promise<Response> {
+  let lastError: any;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fn();
+      // Retry on 429 (rate limit) or 5xx server errors
+      if (attempt < maxRetries && (res.status === 429 || res.status >= 500)) {
+        const retryAfter = res.headers.get('Retry-After');
+        const delayMs = retryAfter
+          ? parseInt(retryAfter, 10) * 1000
+          : baseDelayMs * Math.pow(2, attempt);
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, baseDelayMs * Math.pow(2, attempt)));
+      }
+    }
+  }
+  throw lastError || new Error('fetchWithRetry: सभी प्रयास विफल।');
+}
+
 export function getGitHubConfig(c: any): GitHubConfig | null {
   const token = (c.env && (c.env.GITHUB_TOKEN || c.env.GH_TOKEN)) || '';
   const fullRepo = (c.env && c.env.GITHUB_REPO) || 'NavaSanganakah-Multiventures/school-management';
@@ -39,7 +86,7 @@ export async function generateDedicatedSchoolRepository(
 
   try {
     const url = `https://api.github.com/repos/${config.owner}/${config.repo}/generate`;
-    const res = await fetch(url, {
+    const res = await fetchWithRetry(() => fetch(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${config.token}`,
@@ -54,7 +101,7 @@ export async function generateDedicatedSchoolRepository(
         include_all_branches: false,
         private: params.isPrivate ?? false,
       }),
-    });
+    }));
 
     if (res.status === 201) {
       const data = await res.json() as any;
@@ -108,7 +155,7 @@ export async function dispatchWorkflowInSchoolRepo(
     const targetRepo = params.repoName || config.repo;
     const url = `https://api.github.com/repos/${config.owner}/${targetRepo}/actions/workflows/${workflow}/dispatches`;
 
-    const res = await fetch(url, {
+    const res = await fetchWithRetry(() => fetch(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${config.token}`,
@@ -120,7 +167,7 @@ export async function dispatchWorkflowInSchoolRepo(
         ref: params.ref || 'main',
         inputs: params.inputs || {},
       }),
-    });
+    }));
 
     if (res.status === 204) {
       return { success: true };
@@ -148,13 +195,13 @@ export async function createSchoolCustomBranch(
   const repo = targetRepo || config.repo;
   try {
     const refUrl = `https://api.github.com/repos/${config.owner}/${repo}/git/ref/heads/${baseBranch}`;
-    const baseRes = await fetch(refUrl, {
+    const baseRes = await fetchWithRetry(() => fetch(refUrl, {
       headers: {
         'Authorization': `Bearer ${config.token}`,
         'Accept': 'application/vnd.github+json',
         'User-Agent': 'Pragnya-Mitra-Orchestrator',
       },
-    });
+    }));
 
     const baseData = await baseRes.json() as any;
     if (!baseData || !baseData.object || !baseData.object.sha) {
@@ -164,7 +211,7 @@ export async function createSchoolCustomBranch(
     const sha = baseData.object.sha;
 
     const createUrl = `https://api.github.com/repos/${config.owner}/${repo}/git/refs`;
-    const createRes = await fetch(createUrl, {
+    const createRes = await fetchWithRetry(() => fetch(createUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${config.token}`,
@@ -176,7 +223,7 @@ export async function createSchoolCustomBranch(
         ref: `refs/heads/${newBranchName}`,
         sha,
       }),
-    });
+    }));
 
     const createData = await createRes.json() as any;
     if (createRes.status === 201 || createRes.status === 422) {

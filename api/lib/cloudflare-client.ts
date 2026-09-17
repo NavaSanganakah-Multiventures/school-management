@@ -10,6 +10,37 @@ export interface CloudflareApiConfig {
   apiToken: string;
 }
 
+/**
+ * Retries a fetch call with exponential backoff on transient failures (5xx, 429, network errors).
+ */
+async function fetchWithRetry(
+  fn: () => Promise<Response>,
+  maxRetries: number = 3,
+  baseDelayMs: number = 500
+): Promise<Response> {
+  let lastError: any;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fn();
+      if (attempt < maxRetries && (res.status === 429 || res.status >= 500)) {
+        const retryAfter = res.headers.get('Retry-After');
+        const delayMs = retryAfter
+          ? parseInt(retryAfter, 10) * 1000
+          : baseDelayMs * Math.pow(2, attempt);
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, baseDelayMs * Math.pow(2, attempt)));
+      }
+    }
+  }
+  throw lastError || new Error('fetchWithRetry: सभी प्रयास विफल।');
+}
+
 export function getCloudflareConfig(c: any): CloudflareApiConfig | null {
   const accountId = (c.env && (c.env.CLOUDFLARE_ACCOUNT_ID || c.env.CF_ACCOUNT_ID)) || '';
   const apiToken = (c.env && (c.env.CLOUDFLARE_API_TOKEN || c.env.CF_API_TOKEN)) || '';
@@ -26,14 +57,14 @@ export async function createDedicatedD1Database(
 ): Promise<{ success: boolean; uuid: string; name: string; error?: string }> {
   try {
     const url = `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/d1/database`;
-    const res = await fetch(url, {
+    const res = await fetchWithRetry(() => fetch(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${config.apiToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ name: databaseName }),
-    });
+    }));
 
     const data = await res.json() as any;
     if (data.success && data.result) {
@@ -57,27 +88,29 @@ export async function createDedicatedD1Database(
 
 /**
  * Creates a new dedicated Cloudflare R2 Media Bucket for a school.
+ * Uses POST /r2/buckets with bucket name in body per Cloudflare API v4 docs.
  */
 export async function createDedicatedR2Bucket(
   config: CloudflareApiConfig,
   bucketName: string
 ): Promise<{ success: boolean; name: string; error?: string }> {
   try {
-    const url = `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/r2/buckets/${bucketName}`;
-    const res = await fetch(url, {
-      method: 'PUT',
+    const url = `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/r2/buckets`;
+    const res = await fetchWithRetry(() => fetch(url, {
+      method: 'POST',
       headers: {
         'Authorization': `Bearer ${config.apiToken}`,
         'Content-Type': 'application/json',
       },
-    });
+      body: JSON.stringify({ name: bucketName }),
+    }));
 
     const data = await res.json() as any;
     if (data.success) {
       return { success: true, name: bucketName };
     }
 
-    // 409 usually indicates bucket already exists (which is fine)
+    // 409 usually indicates bucket already exists (which is fine — idempotent)
     if (res.status === 409) {
       return { success: true, name: bucketName };
     }
@@ -103,7 +136,7 @@ export async function putWorkerSecret(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const url = `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/workers/scripts/${scriptName}/secrets`;
-    const res = await fetch(url, {
+    const res = await fetchWithRetry(() => fetch(url, {
       method: 'PUT',
       headers: {
         'Authorization': `Bearer ${config.apiToken}`,
@@ -114,7 +147,7 @@ export async function putWorkerSecret(
         text: secretText,
         type: 'secret_text',
       }),
-    });
+    }));
 
     const data = await res.json() as any;
     if (data.success) {
@@ -126,3 +159,4 @@ export async function putWorkerSecret(
     return { success: false, error: err?.message || String(err) };
   }
 }
+

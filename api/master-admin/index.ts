@@ -7,7 +7,8 @@ import {
   generateDedicatedSchoolRepository,
   createSchoolCustomBranch,
   triggerSchoolDeployWorkflow,
-  dispatchWorkflowInSchoolRepo
+  dispatchWorkflowInSchoolRepo,
+  generateUniqueId
 } from '../lib/github-orchestrator';
 import { invalidateSchoolBrandingCache } from '../lib/config-cache';
 
@@ -110,27 +111,32 @@ masterAdminApp.post('/provision-school', async (c) => {
   const now = new Date().toISOString();
 
   try {
-    await db.prepare(`
-      INSERT INTO master_schools (
-        id, school_slug, school_name, custom_domain,
-        cf_worker_name, cf_worker_url, cf_d1_database_uuid, cf_d1_database_name,
-        cf_r2_bucket_name, cf_kv_namespace_id,
-        github_repo_name, github_repo_url, github_branch,
-        director_name, director_email, director_phone,
-        contact_phone, contact_email,
-        deployment_status, config_sync_status, subscription_plan, license_status,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      schoolId, slug, schoolName, customDomain,
-      workerName, workerUrl, d1Uuid, d1Name,
-      r2BucketName, '',
-      repoName, repoUrl, githubBranch,
-      directorName, directorEmail, directorPhone,
-      contactPhone, contactEmail,
-      'Provisioned', 'Synced', plan, 'Active',
-      now, now
-    ).run();
+    // Use D1 batch() for atomic transaction — all writes succeed or none do
+    const stmts: any[] = [];
+
+    stmts.push(
+      db.prepare(`
+        INSERT INTO master_schools (
+          id, school_slug, school_name, custom_domain,
+          cf_worker_name, cf_worker_url, cf_d1_database_uuid, cf_d1_database_name,
+          cf_r2_bucket_name, cf_kv_namespace_id,
+          github_repo_name, github_repo_url, github_branch,
+          director_name, director_email, director_phone,
+          contact_phone, contact_email,
+          deployment_status, config_sync_status, subscription_plan, license_status,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        schoolId, slug, schoolName, customDomain,
+        workerName, workerUrl, d1Uuid, d1Name,
+        r2BucketName, '',
+        repoName, repoUrl, githubBranch,
+        directorName, directorEmail, directorPhone,
+        contactPhone, contactEmail,
+        'Provisioned', 'Synced', plan, 'Active',
+        now, now
+      )
+    );
 
     // Default edge configurations for Zero-DB-Cost Edge ENV loading
     const defaultConfigs = [
@@ -145,20 +151,27 @@ masterAdminApp.post('/provision-school', async (c) => {
     ];
 
     for (const [k, v, sec] of defaultConfigs) {
-      await db.prepare(`
-        INSERT INTO master_school_configs (id, school_id, config_key, config_value, is_secret, synced_to_worker, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).bind(`cfg_${schoolId}_${k}`, schoolId, k, v, sec, 1, now).run();
+      stmts.push(
+        db.prepare(`
+          INSERT INTO master_school_configs (id, school_id, config_key, config_value, is_secret, synced_to_worker, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).bind(generateUniqueId('cfg'), schoolId, k, v, sec, 1, now)
+      );
     }
 
-    await db.prepare(`
-      INSERT INTO master_orchestration_logs (id, school_id, action_type, status, details, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(
-      `log_${Date.now()}`, schoolId, 'PROVISION_SCHOOL', 'SUCCESS',
-      `विद्यालय '${schoolName}' का समर्पित वर्कर '${workerName}', रिपो '${repoName}', D1 UUID '${d1Uuid}' एवं R2 '${r2BucketName}' प्रोविज़न किया गया।`,
-      now
-    ).run();
+    stmts.push(
+      db.prepare(`
+        INSERT INTO master_orchestration_logs (id, school_id, action_type, status, details, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).bind(
+        generateUniqueId('log'), schoolId, 'PROVISION_SCHOOL', 'SUCCESS',
+        `विद्यालय '${schoolName}' का समर्पित वर्कर '${workerName}', रिपो '${repoName}', D1 UUID '${d1Uuid}' एवं R2 '${r2BucketName}' प्रोविज़न किया गया।`,
+        now
+      )
+    );
+
+    // Execute all statements atomically
+    await db.batch(stmts);
 
     return c.json({
       success: true,
@@ -254,7 +267,7 @@ masterAdminApp.post('/director-update-school', async (c) => {
     INSERT INTO master_orchestration_logs (id, school_id, action_type, status, details, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).bind(
-    `log_${Date.now()}`, schoolId, 'DIRECTOR_UPDATE', 'SUCCESS',
+    generateUniqueId('log'), schoolId, 'DIRECTOR_UPDATE', 'SUCCESS',
     `डायरेक्टर द्वारा मुख्य पोर्टल से स्कूल सेटिंग्स अपडेट की गईं और वर्कर ENV में सिंक हुईं।`,
     now
   ).run();
@@ -294,10 +307,11 @@ masterAdminApp.post('/sync-worker-env', async (c) => {
   let syncedCount = 0;
   if (cfConfig && configs.results) {
     for (const item of configs.results) {
-      if (item.is_secret) {
+      // Sync ALL config items to worker secrets (not just is_secret=1)
+      try {
         await putWorkerSecret(cfConfig, school.cf_worker_name, item.config_key, item.config_value);
         syncedCount++;
-      }
+      } catch (_) {}
     }
   }
 
@@ -311,7 +325,7 @@ masterAdminApp.post('/sync-worker-env', async (c) => {
     INSERT INTO master_orchestration_logs (id, school_id, action_type, status, details, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).bind(
-    `log_${Date.now()}`, schoolId, 'SYNC_ENV', 'SUCCESS',
+    generateUniqueId('log'), schoolId, 'SYNC_ENV', 'SUCCESS',
     `वर्कर '${school.cf_worker_name}' के एनवायरनमेंट वेरिएबल्स शून्य-लागत कैश हेतु सिंक किए गए।`,
     now
   ).run();
@@ -357,7 +371,7 @@ masterAdminApp.post('/create-custom-branch', async (c) => {
     INSERT INTO master_orchestration_logs (id, school_id, action_type, status, details, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).bind(
-    `log_${Date.now()}`, schoolId, 'CREATE_BRANCH', 'SUCCESS',
+    generateUniqueId('log'), schoolId, 'CREATE_BRANCH', 'SUCCESS',
     `कस्टम गिटहब शाखा '${customBranchName}' बनाई गई और स्कूल से लिंक की गई।`,
     now
   ).run();
@@ -407,7 +421,7 @@ masterAdminApp.post('/deploy-school', async (c) => {
     INSERT INTO master_orchestration_logs (id, school_id, action_type, status, details, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).bind(
-    `log_${Date.now()}`, schoolId, 'TRIGGER_DEPLOY', workflowTriggered ? 'SUCCESS' : 'SIMULATED',
+    generateUniqueId('log'), schoolId, 'TRIGGER_DEPLOY', workflowTriggered ? 'SUCCESS' : 'SIMULATED',
     `वर्कर '${school.cf_worker_name}' का डिप्लॉयमेंट वर्कफ़्लो (${school.github_branch || 'main'}) ट्रिगर किया गया।`,
     now
   ).run();

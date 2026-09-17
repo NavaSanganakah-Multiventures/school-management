@@ -498,6 +498,7 @@ export interface D1Statement {
 }
 export interface MiniD1 {
   prepare(query: string): D1Statement;
+  batch(stmts: D1Statement[]): Promise<any[]>;
 }
 
 // D1 access helper. Each route reads/writes real data through this binding.
