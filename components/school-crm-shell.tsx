@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Building2,
   History,
+  Store,
 } from 'lucide-react';
 
 import { DashboardScreen } from './screens/dashboard-screen';
@@ -39,10 +40,12 @@ import { ResetPasswordScreen } from './screens/reset-password-screen';
 import { AdminConsoleScreen } from './screens/admin-console-screen';
 import { ClassesScreen } from './screens/classes-screen';
 import { ActivityLogsScreen } from './screens/activity-logs-screen';
+import { PluginMarketplaceScreen } from './screens/plugin-marketplace-screen';
 
 import { AddScholarModal } from './modals/add-scholar-modal';
 import { FcmBroadcastModal } from './modals/fcm-broadcast-modal';
 import { registerFcmWebToken, onForegroundFcmMessage, getWebPushDiagnostic } from '../lib/firebase-web-push';
+import { AIAssistantWidget } from './ai-assistant-widget';
 
 type UserRole = 'Director' | 'Principal' | 'Staff' | 'SuperAdmin';
 
@@ -121,6 +124,7 @@ export function SchoolCrmShell() {
   const [webPushStatus, setWebPushStatus] = useState<string | null>(null);
   const [assignedClasses, setAssignedClasses] = useState<string[]>([]);
   const [isClassTeacher, setIsClassTeacher] = useState(false);
+  const [activePlugins, setActivePlugins] = useState<string[]>([]);
   const lastRegisteredUserIdRef = useRef<string | null>(null);
 
   // Sync client-side authentication and URL params after initial mount (avoids React hydration mismatch #418)
@@ -141,6 +145,16 @@ export function SchoolCrmShell() {
         if (data.success && Array.isArray(data.assignedClasses)) {
           setAssignedClasses(data.assignedClasses);
           setIsClassTeacher(data.assignedClasses.length > 0);
+        }
+      })
+      .catch(() => {});
+
+    // Fetch active plugins
+    fetch('/api/plugins/active')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.activePlugins)) {
+          setActivePlugins(data.activePlugins);
         }
       })
       .catch(() => {});
@@ -388,6 +402,7 @@ export function SchoolCrmShell() {
     { id: 'notices', label: 'सूचना पट्ट एवं पुश अलर्ट', icon: Bell, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'principal', label: 'प्रधानाचार्य प्रबंधन', icon: UserCheck, allowedRoles: ['Director'], requiredModule: 'principal', badge: 'प्रो' },
     { id: 'settings', label: 'स्कूल प्रोफ़ाइल व सेटिंग्स', icon: Settings, allowedRoles: ['Director'] },
+    { id: 'plugins', label: 'प्लगइन मार्केटप्लेस', icon: Store, allowedRoles: ['Director', 'SuperAdmin'], badge: 'नया' },
     { id: 'billing', label: 'प्लान व बिलिंग', icon: CreditCard, allowedRoles: ['Director'], badge: 'अपग्रेड' },
   ];
 
@@ -534,9 +549,10 @@ export function SchoolCrmShell() {
           {activeTab === 'classes' && <ClassesScreen userRole={screenRole} />}
           {activeTab === 'fees' && <FeesScreen />}
           {activeTab === 'exams' && <ExamsScreen />}
-          {activeTab === 'notices' && <NoticesScreen onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
-          {activeTab === 'settings' && <SchoolSettingsScreen userRole={userRole} />}
-          {activeTab === 'billing' && <BillingPlansScreen userRole={userRole} onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
+          { activeTab === 'notices' && <NoticesScreen onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
+          { activeTab === 'settings' && <SchoolSettingsScreen userRole={userRole} /> }
+          { activeTab === 'plugins' && <PluginMarketplaceScreen /> }
+          { activeTab === 'billing' && <BillingPlansScreen userRole={userRole} onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
         </main>
       </div>
 
@@ -573,6 +589,8 @@ export function SchoolCrmShell() {
           </div>
         </div>
       )}
+
+      {activePlugins.includes('plugin-ai-assistant') && <AIAssistantWidget />}
     </div>
   );
 }
