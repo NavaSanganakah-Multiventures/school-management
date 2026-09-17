@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Building2,
   History,
+  Store,
 } from 'lucide-react';
 
 import { DashboardScreen } from './screens/dashboard-screen';
@@ -39,6 +40,7 @@ import { ResetPasswordScreen } from './screens/reset-password-screen';
 import { AdminConsoleScreen } from './screens/admin-console-screen';
 import { ClassesScreen } from './screens/classes-screen';
 import { ActivityLogsScreen } from './screens/activity-logs-screen';
+import { PluginMarketplaceScreen } from './screens/plugin-marketplace-screen';
 
 import { AddScholarModal } from './modals/add-scholar-modal';
 import { FcmBroadcastModal } from './modals/fcm-broadcast-modal';
@@ -388,6 +390,7 @@ export function SchoolCrmShell() {
     { id: 'notices', label: 'सूचना पट्ट एवं पुश अलर्ट', icon: Bell, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'principal', label: 'प्रधानाचार्य प्रबंधन', icon: UserCheck, allowedRoles: ['Director'], requiredModule: 'principal', badge: 'प्रो' },
     { id: 'settings', label: 'स्कूल प्रोफ़ाइल व सेटिंग्स', icon: Settings, allowedRoles: ['Director'] },
+    { id: 'plugins', label: 'प्लगइन मार्केटप्लेस', icon: Store, allowedRoles: ['Director', 'SuperAdmin'], badge: 'नया' },
     { id: 'billing', label: 'प्लान व बिलिंग', icon: CreditCard, allowedRoles: ['Director'], badge: 'अपग्रेड' },
   ];
 
@@ -534,9 +537,10 @@ export function SchoolCrmShell() {
           {activeTab === 'classes' && <ClassesScreen userRole={screenRole} />}
           {activeTab === 'fees' && <FeesScreen />}
           {activeTab === 'exams' && <ExamsScreen />}
-          {activeTab === 'notices' && <NoticesScreen onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
-          {activeTab === 'settings' && <SchoolSettingsScreen userRole={userRole} />}
-          {activeTab === 'billing' && <BillingPlansScreen userRole={userRole} onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
+          { activeTab === 'notices' && <NoticesScreen onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
+          { activeTab === 'settings' && <SchoolSettingsScreen userRole={userRole} /> }
+          { activeTab === 'plugins' && <PluginMarketplaceScreen /> }
+          { activeTab === 'billing' && <BillingPlansScreen userRole={userRole} onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
         </main>
       </div>
 

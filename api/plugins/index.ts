@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
-import { verifyJwt } from '../lib/jwt';
+import { verifyToken } from '../lib/auth';
 
 const pluginsApp = new Hono<{ Bindings: any }>();
 
@@ -8,7 +8,7 @@ const pluginsApp = new Hono<{ Bindings: any }>();
 async function authCheck(c: any) {
   const token = getCookie(c, 'auth_token') || c.req.header('Authorization')?.replace('Bearer ', '');
   if (!token) return null;
-  return await verifyJwt(token, c.env.JWT_SECRET);
+  return await verifyToken(c, token);
 }
 
 // 1. GET /api/plugins/marketplace -> List all global plugins for purchase/subscription
@@ -17,10 +17,10 @@ pluginsApp.get('/marketplace', async (c) => {
     const user = await authCheck(c);
     if (!user) return c.json({ success: false, error: 'Unauthorized' }, 401);
 
-    // Get all active plugins
+    // Get all active plugins (global + private for this school)
     const { results: plugins } = await c.env.DB.prepare(
-      `SELECT * FROM plugins WHERE is_active = 1`
-    ).all();
+      `SELECT * FROM plugins WHERE is_active = 1 AND (type = 'global' OR (type = 'private' AND target_school_id = ?))`
+    ).bind(user.schoolId).all();
 
     // Get currently subscribed plugins for this school
     let mySubscriptions: any[] = [];
