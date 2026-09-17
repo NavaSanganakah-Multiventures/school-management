@@ -215,14 +215,22 @@ export function StudentsScreen({ userRole, currentUser }: StudentsScreenProps) {
                     <td className="px-4 py-3.5 font-bold text-blue-700">
                       {student.scholarNumber}
                     </td>
-                    <td className="px-4 py-3.5 font-bold text-slate-900">
+                      <td className="px-4 py-3.5 font-bold text-slate-900">
                       <div className="flex items-center gap-2.5">
                         <div className="h-8 w-8 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center shrink-0 text-xs">
                           {student.fullName.slice(0, 1)}
                         </div>
                         <div>
-                          <p>{student.fullName}</p>
-                          <p className="text-[11px] text-slate-400 font-normal">रोल नं: {student.rollNumber || '—'}</p>
+                          <p className="flex items-center gap-1">
+                            {student.fullName}
+                            {student.missingDetails && (
+                              <AlertCircle className="h-3.5 w-3.5 text-rose-500 shrink-0" title={`Missing Details: ${student.missingDetails}`} />
+                            )}
+                          </p>
+                          <p className="text-[11px] text-slate-400 font-normal">
+                            रोल नं: {student.rollNumber || '—'}
+                            {student.missingDetails && <span className="ml-2 text-rose-500 truncate max-w-[120px] inline-block align-bottom" title={student.missingDetails}>(Missing: {student.missingDetails})</span>}
+                          </p>
                         </div>
                       </div>
                     </td>

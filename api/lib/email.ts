@@ -77,3 +77,50 @@ export async function sendPasswordResetEmail(env: any, input: PasswordResetEmail
     return { sent: false, error: (e && (e.message || e.code)) || 'ईमेल भेजने में त्रुटि हुई।' };
   }
 }
+
+export interface NotificationEmailInput {
+  to: string;
+  subject: string;
+  title?: string;
+  message: string;
+}
+
+export async function sendNotificationEmail(env: any, input: NotificationEmailInput): Promise<EmailSendResult> {
+  const binding = env && env.SEND_EMAIL;
+  if (!binding || typeof binding.send !== 'function') {
+    return { sent: false, error: 'SEND_EMAIL binding उपलब्ध नहीं है।' };
+  }
+
+  const title = input.title || 'महत्वपूर्ण सूचना';
+  const html = [
+    '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1e293b;line-height:1.6">',
+    '<h1 style="font-size:20px;color:#e11d48;margin:0 0 16px;">Pragnya Mitra Alerts</h1>',
+    '<h2 style="font-size:16px;margin:0 0 12px;">' + title + '</h2>',
+    '<p style="font-size:14px;margin:0 0 24px;white-space:pre-wrap;">' + input.message + '</p>',
+    '<p style="font-size:12px;color:#cbd5e1;margin:0;border-top:1px solid #e2e8f0;padding-top:12px;">यह एक स्वचालित ईमेल है, कृपया इसका उत्तर न दें।</p>',
+    '</div>'
+  ].join('');
+
+  const text = [
+    'Pragnya Mitra Alerts',
+    '',
+    title,
+    '',
+    input.message,
+    '',
+    'यह एक स्वचालित ईमेल है, कृपया इसका उत्तर न दें।'
+  ].join('\n');
+
+  try {
+    await binding.send({
+      to: input.to,
+      from: { email: 'pragnya@navasanganakah.com', name: 'Pragnya Mitra Alerts' },
+      subject: input.subject,
+      html: html,
+      text: text
+    });
+    return { sent: true };
+  } catch (e: any) {
+    return { sent: false, error: (e && (e.message || e.code)) || 'ईमेल भेजने में त्रुटि हुई।' };
+  }
+}
