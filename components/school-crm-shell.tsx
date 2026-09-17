@@ -22,6 +22,7 @@ import {
   Building2,
   History,
   Store,
+  Sparkles,
 } from 'lucide-react';
 
 import { DashboardScreen } from './screens/dashboard-screen';
@@ -41,6 +42,7 @@ import { AdminConsoleScreen } from './screens/admin-console-screen';
 import { ClassesScreen } from './screens/classes-screen';
 import { ActivityLogsScreen } from './screens/activity-logs-screen';
 import { PluginMarketplaceScreen } from './screens/plugin-marketplace-screen';
+import { AIAssistantScreen } from './screens/ai-assistant-screen';
 
 import { AddScholarModal } from './modals/add-scholar-modal';
 import { FcmBroadcastModal } from './modals/fcm-broadcast-modal';
@@ -390,6 +392,7 @@ export function SchoolCrmShell() {
     { id: 'students', label: 'स्कॉलर रजिस्टर', icon: Users, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'staff', label: 'स्टाफ एवं शिक्षक निर्देशिका', icon: GraduationCap, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'attendance', label: 'दैनिक छात्र उपस्थिति', icon: CalendarCheck, allowedRoles: ['Director', 'Principal', 'Staff'] },
+    { id: 'ai', label: 'विद्या AI असिस्टेंट', icon: Sparkles, allowedRoles: ['Director', 'Principal', 'Staff', 'SuperAdmin'], badge: 'AI' },
     {
       id: 'activity-logs',
       label: userRole === 'Staff' ? 'मेरी कार्यकलाप हिस्ट्री' : userRole === 'Principal' ? 'स्टाफ कार्यकलाप व ऑडिट' : 'स्कूल कार्यकलाप ऑडिट',
@@ -410,6 +413,7 @@ export function SchoolCrmShell() {
     if (item.superAdminOnly) return userRole === 'SuperAdmin';
     if (!item.allowedRoles || item.allowedRoles.indexOf(userRole) === -1) return false;
     if (item.requiredModule && planModules.indexOf(item.requiredModule) === -1) return false;
+    if (item.id === 'ai' && !activePlugins.includes('plugin-ai-assistant')) return false;
     return true;
   });
 
@@ -553,6 +557,7 @@ export function SchoolCrmShell() {
           { activeTab === 'settings' && <SchoolSettingsScreen userRole={userRole} /> }
           { activeTab === 'plugins' && <PluginMarketplaceScreen /> }
           { activeTab === 'billing' && <BillingPlansScreen userRole={userRole} onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
+          { activeTab === 'ai' && <AIAssistantScreen /> }
         </main>
       </div>
 
