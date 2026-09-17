@@ -185,10 +185,10 @@ export function IssueTcModal({ isOpen, student, onClose, onSuccess }: IssueTcMod
                 <span>शिक्षा विभाग • मध्य प्रदेश शासन मान्यता प्राप्त</span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950 uppercase">
-                विद्या सेतु उच्चतर माध्यमिक विद्यालय
+                प्रज्ञा मित्र उच्चतर माध्यमिक विद्यालय
               </h1>
               <h2 className="text-xs font-extrabold tracking-widest text-slate-700 uppercase">
-                VIDYASETU HIGHER SECONDARY SCHOOL
+                PRAGNYA MITRA HIGHER SECONDARY SCHOOL
               </h2>
               <p className="text-[11px] text-slate-600 mt-1">
                 संस्था मान्यता कोड: 231405098 • डी.आई.एस.ई. (DISE) कोड: 23200109923
@@ -323,7 +323,7 @@ export function IssueTcModal({ isOpen, student, onClose, onSuccess }: IssueTcMod
 
         {/* Footer (Hidden in Print) */}
         <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0 print:hidden text-xs">
-          <span className="text-slate-500">विद्या सेतु शासकीय मान्यता प्राप्त टी.सी. मॉड्यूल</span>
+          <span className="text-slate-500">प्रज्ञा मित्र शासकीय मान्यता प्राप्त टी.सी. मॉड्यूल</span>
           <button
             onClick={onClose}
             className="px-4 py-1.5 font-bold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100"

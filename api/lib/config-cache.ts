@@ -2,13 +2,16 @@
  * Zero-DB-Cost Edge Configuration Provider for Pragnya Mitra
  * 
  * Minimizes Cloudflare D1 query costs by reading frequently-accessed
- * school settings, branding, session, and feature flags directly from
- * Worker Environment Variables (Level 1) or Edge KV Cache (Level 2).
- * D1 (Level 3) is only queried as an authoritative fallback.
+ * school settings, branding, contact info, session, and feature flags directly
+ * from Worker Environment Variables (Level 1) or Edge KV Cache (Level 2).
+ * D1 (Level 3) is only queried as an authoritative fallback and writes.
  */
 
 export interface SchoolBrandingConfig {
+  schoolId: string;
   schoolName: string;
+  contactPhone: string;
+  contactEmail: string;
   affiliationNumber: string;
   boardName: string;
   schoolCode: string;
@@ -60,19 +63,26 @@ export async function getCachedConfig<T = string>(
 
 /**
  * Retrieves school profile and branding with Zero-DB-Cost prioritization.
+ * Directly reads School Name, School ID, Phone, Email, Session from ENV first.
  */
 export async function getCachedSchoolBranding(c: any, schoolId: string = 'school-01'): Promise<SchoolBrandingConfig> {
-  // Check if Worker Env already provides the school branding (Configured per dedicated worker)
+  const envSchoolId = (c.env && (c.env.SCHOOL_ID || c.env.SCHOOL_SLUG)) || schoolId;
   const envSchoolName = c.env && c.env.SCHOOL_NAME;
+  const envContactPhone = c.env && (c.env.CONTACT_PHONE || c.env.SCHOOL_PHONE || c.env.MOBILE_NUMBER);
+  const envContactEmail = c.env && (c.env.CONTACT_EMAIL || c.env.SCHOOL_EMAIL);
   const envBoardName = c.env && c.env.BOARD_NAME;
   const envSession = c.env && c.env.ACADEMIC_SESSION;
   const envAffiliation = c.env && c.env.AFFILIATION_NUMBER;
   const envSchoolCode = c.env && c.env.SCHOOL_CODE;
   const envLogoUrl = c.env && c.env.SCHOOL_LOGO_URL;
 
+  // Level 1: Worker Environment Variables (Instant edge read, 0 DB cost)
   if (envSchoolName) {
     return {
+      schoolId: envSchoolId,
       schoolName: envSchoolName,
+      contactPhone: envContactPhone || '',
+      contactEmail: envContactEmail || '',
       affiliationNumber: envAffiliation || '',
       boardName: envBoardName || 'CBSE',
       schoolCode: envSchoolCode || '',
@@ -98,7 +108,10 @@ export async function getCachedSchoolBranding(c: any, schoolId: string = 'school
       const row = await c.env.DB.prepare('SELECT * FROM school_profile WHERE id = ?').bind(schoolId).first();
       if (row) {
         const config: SchoolBrandingConfig = {
+          schoolId: row.id || schoolId,
           schoolName: row.school_name || 'प्रज्ञा मित्र पब्लिक स्कूल',
+          contactPhone: row.phone || '',
+          contactEmail: row.email || '',
           affiliationNumber: row.affiliation_number || '',
           boardName: row.board_name || 'CBSE',
           schoolCode: row.school_code || '',
@@ -123,7 +136,10 @@ export async function getCachedSchoolBranding(c: any, schoolId: string = 'school
 
   // Ultimate fallback default
   return {
+    schoolId,
     schoolName: 'प्रज्ञा मित्र (Pragnya Mitra)',
+    contactPhone: '',
+    contactEmail: '',
     affiliationNumber: '',
     boardName: 'CBSE',
     schoolCode: '',
