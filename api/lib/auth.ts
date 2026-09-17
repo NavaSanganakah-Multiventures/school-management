@@ -82,12 +82,33 @@ export async function verifyToken(c: any, token: any) {
 export async function getAuthUser(c: any) {
   const auth = c.req.header('Authorization') || '';
   if (auth.indexOf('Bearer ') !== 0) return null;
-  return verifyToken(c, auth.slice(7));
+  const user = await verifyToken(c, auth.slice(7));
+  if (!user) return null;
+
+  // Dedicated worker specific isolation
+  if (c.env && c.env.SCHOOL_ID && user.role !== 'SuperAdmin' && user.schoolId !== c.env.SCHOOL_ID) {
+    return null; // Reject token if it doesn't belong to this dedicated school
+  }
+
+  return user;
 }
 
 export function getRequestSchoolId(c: any, authUser: any) {
+  // If we are on a dedicated worker, enforce its SCHOOL_ID
+  if (c.env && c.env.SCHOOL_ID) {
+    return c.env.SCHOOL_ID;
+  }
+
+  // On shared worker, X-School-Id is trusted ONLY for SuperAdmin
   const headerSchool = c.req.header('X-School-Id');
-  if (headerSchool) return headerSchool;
-  if (authUser && authUser.schoolId) return authUser.schoolId;
-  return 'school-01';
+  if (headerSchool && authUser && authUser.role === 'SuperAdmin') {
+    return headerSchool;
+  }
+
+  if (authUser && authUser.schoolId) {
+    return authUser.schoolId;
+  }
+
+  // Fallback removed as per isolation requirements.
+  return null;
 }

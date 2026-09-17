@@ -21,10 +21,27 @@ import subjectsApp from './subjects';
 import leaveApp from './leave-applications';
 import pluginsApp from './plugins';
 import aiApp from './ai';
+import configApp from './config';
 
 const app = new Hono<{ Bindings: any }>().basePath('/api');
 
 app.use('*', cors());
+
+// Proxy control-plane routes to the shared platform worker if this is a dedicated worker
+app.use('*', async (c, next) => {
+  if (c.env && c.env.SCHOOL_ID) {
+    const path = new URL(c.req.url).pathname;
+    if (path.startsWith('/api/billing') || path.startsWith('/api/plugins') || path.startsWith('/api/admin')) {
+      const platformUrl = new URL(c.req.url);
+      platformUrl.hostname = 'pragnya.nasven.com';
+      platformUrl.protocol = 'https:';
+      const proxyRequest = new Request(platformUrl.toString(), c.req.raw);
+      // Ensure the correct platform domain is used for the fetch
+      return fetch(proxyRequest);
+    }
+  }
+  await next();
+});
 
 app.get('/health', (c) => {
   return c.json({
@@ -58,5 +75,6 @@ app.route('/subjects', subjectsApp);
 app.route('/leave-applications', leaveApp);
 app.route('/plugins', pluginsApp);
 app.route('/ai', aiApp);
+app.route('/config', configApp);
 
 export default app;
