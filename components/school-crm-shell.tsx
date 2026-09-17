@@ -45,6 +45,7 @@ import { PluginMarketplaceScreen } from './screens/plugin-marketplace-screen';
 import { AddScholarModal } from './modals/add-scholar-modal';
 import { FcmBroadcastModal } from './modals/fcm-broadcast-modal';
 import { registerFcmWebToken, onForegroundFcmMessage, getWebPushDiagnostic } from '../lib/firebase-web-push';
+import { AIAssistantWidget } from './ai-assistant-widget';
 
 type UserRole = 'Director' | 'Principal' | 'Staff' | 'SuperAdmin';
 
@@ -123,6 +124,7 @@ export function SchoolCrmShell() {
   const [webPushStatus, setWebPushStatus] = useState<string | null>(null);
   const [assignedClasses, setAssignedClasses] = useState<string[]>([]);
   const [isClassTeacher, setIsClassTeacher] = useState(false);
+  const [activePlugins, setActivePlugins] = useState<string[]>([]);
   const lastRegisteredUserIdRef = useRef<string | null>(null);
 
   // Sync client-side authentication and URL params after initial mount (avoids React hydration mismatch #418)
@@ -143,6 +145,16 @@ export function SchoolCrmShell() {
         if (data.success && Array.isArray(data.assignedClasses)) {
           setAssignedClasses(data.assignedClasses);
           setIsClassTeacher(data.assignedClasses.length > 0);
+        }
+      })
+      .catch(() => {});
+
+    // Fetch active plugins
+    fetch('/api/plugins/active')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.activePlugins)) {
+          setActivePlugins(data.activePlugins);
         }
       })
       .catch(() => {});
@@ -577,6 +589,8 @@ export function SchoolCrmShell() {
           </div>
         </div>
       )}
+
+      {activePlugins.includes('plugin-ai-assistant') && <AIAssistantWidget />}
     </div>
   );
 }

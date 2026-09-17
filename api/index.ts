@@ -20,6 +20,7 @@ import activityLogsApp from './activity-logs';
 import subjectsApp from './subjects';
 import leaveApp from './leave-applications';
 import pluginsApp from './plugins';
+import aiApp from './ai';
 
 const app = new Hono<{ Bindings: any }>().basePath('/api');
 
@@ -56,5 +57,6 @@ app.route('/activity-logs', activityLogsApp);
 app.route('/subjects', subjectsApp);
 app.route('/leave-applications', leaveApp);
 app.route('/plugins', pluginsApp);
+app.route('/ai', aiApp);
 
 export default app;

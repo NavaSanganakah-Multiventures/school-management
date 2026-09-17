@@ -98,4 +98,23 @@ pluginsApp.post('/unsubscribe', async (c) => {
     }
   });
 
+// 4. GET /api/plugins/active -> Get active plugins for the current user's school (Allowed for all roles)
+pluginsApp.get('/active', async (c) => {
+  try {
+    const user = await authCheck(c);
+    if (!user || !user.schoolId) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+    const { results } = await c.env.DB.prepare(
+      `SELECT plugin_id FROM school_plugins WHERE school_id = ? AND status = 'active'`
+    ).bind(user.schoolId).all();
+
+    return c.json({
+      success: true,
+      activePlugins: results.map((r: any) => r.plugin_id)
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
 export default pluginsApp;
