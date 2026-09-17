@@ -471,7 +471,7 @@ studentsApp.post('/:id/issue-tc', async (c) => {
   if (!row) return c.json({ success: false, message: 'छात्र नहीं मिला।' }, 404);
 
   const today = body.issueDate || new Date().toISOString().split('T')[0];
-  const tcNum = body.tcNumber || `TC/${new Date().getFullYear()}/${Math.floor(100 + Math.random() * 900)}`;
+  const tcNum = body.tcNumber || `TC/${new Date().getFullYear()}/${crypto.randomUUID().split('-')[0].toUpperCase()}`;
   const reason = body.reason || 'अभिभावक के अनुरोध पर टीसी जारी की गई।';
 
   await db.prepare('UPDATE students SET status = ?, tc_issue_date = ?, remarks = ?, updated_at = ? WHERE id = ? AND school_id = ?')
@@ -483,7 +483,7 @@ studentsApp.post('/:id/issue-tc', async (c) => {
 
   // Record TC issuance in Academic History
   try {
-    const histId = 'sah-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+    const histId = 'sah-' + crypto.randomUUID();
     await db.prepare(
       'INSERT INTO student_academic_history (id, school_id, student_id, scholar_number, event_type, event_date, academic_session, class_name, section, tc_number, tc_issue_date, reason, recorded_by_user_id, recorded_by_name, recorded_by_role, remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).bind(

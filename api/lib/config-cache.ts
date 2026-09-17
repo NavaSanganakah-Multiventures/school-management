@@ -137,7 +137,7 @@ export async function getCachedSchoolBranding(c: any, schoolId: string = 'school
   // Ultimate fallback default
   return {
     schoolId,
-    schoolName: 'प्रज्ञा मित्र (Pragnya Mitra)',
+    schoolName: '[School Name Not Configured]',
     contactPhone: '',
     contactEmail: '',
     affiliationNumber: '',

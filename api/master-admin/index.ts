@@ -80,7 +80,7 @@ masterAdminApp.post('/provision-school', async (c) => {
   const contactPhone = String(body.contactPhone || directorPhone).trim();
   const contactEmail = String(body.contactEmail || directorEmail).trim().toLowerCase();
 
-  let d1Uuid = `d1-mock-${Date.now()}`;
+  let d1Uuid = generateUniqueId('d1-mock');
   const cfConfig = getCloudflareConfig(c);
 
   // 1. If Cloudflare API credentials are configured, provision real D1 & R2
@@ -448,7 +448,7 @@ masterAdminApp.post('/dispatch-school-workflow', async (c) => {
 
   const ghConfig = getGitHubConfig(c);
   if (!ghConfig) {
-    return c.json({ success: false, message: 'GitHub API क्रेडेंशियल उपलब्ध नहीं हैं।' }, 500);
+    return c.json({ success: false, message: 'GitHub API क्रेडेंशियल उपलब्ध नहीं हैं।' }, 400);
   }
 
   const res = await dispatchWorkflowInSchoolRepo(ghConfig, {
