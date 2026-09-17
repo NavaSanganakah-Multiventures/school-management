@@ -1,9 +1,12 @@
 {
-  "name": "ai-studio-applet",
-  "version": "0.1.0",
+  "name": "pragnya-mitra",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:local": "wrangler dev --local --port 8787",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "prebuild": "node scripts/generate-firebase-sw.js",
     "build": "next build",
     "start": "next start",

@@ -7,9 +7,19 @@ interface AddScholarModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (newStudent: any) => void;
+  assignedClasses?: string[];
+  isClassTeacher?: boolean;
 }
 
-export function AddScholarModal({ isOpen, onClose, onSuccess }: AddScholarModalProps) {
+export function AddScholarModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  assignedClasses = [],
+  isClassTeacher = false,
+}: AddScholarModalProps) {
+  const defaultClass = isClassTeacher && assignedClasses.length > 0 ? assignedClasses[0] : 'Class 10';
+
   const [formData, setFormData] = useState({
     scholarNumber: '',
     rollNumber: '',
@@ -17,7 +27,7 @@ export function AddScholarModal({ isOpen, onClose, onSuccess }: AddScholarModalP
     fatherName: '',
     fatherOccupation: '',
     motherName: '',
-    className: 'Class 10',
+    className: defaultClass,
     section: 'A',
     dob: '2011-05-15',
     gender: 'Male',
@@ -82,6 +92,10 @@ export function AddScholarModal({ isOpen, onClose, onSuccess }: AddScholarModalP
     'Class 12 (Science)', 'Class 12 (Commerce)', 'Class 12 (Arts)'
   ];
 
+  const availableClasses = isClassTeacher && assignedClasses.length > 0
+    ? assignedClasses
+    : classesList;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
       <div className="w-full max-w-3xl rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
@@ -93,7 +107,11 @@ export function AddScholarModal({ isOpen, onClose, onSuccess }: AddScholarModalP
             </div>
             <div>
               <h2 className="text-lg font-bold">नया स्कॉलर छात्र प्रवेश (Scholar Admission)</h2>
-              <p className="text-xs text-slate-300">भारतीय स्कूल मानक दाखिला-खारिज (SR) रजिस्टर फॉर्म</p>
+              <p className="text-xs text-slate-300">
+                {isClassTeacher
+                  ? `कक्षा अध्यापक मोड • अधिकृत कक्षा: ${assignedClasses.join(', ')}`
+                  : 'भारतीय स्कूल मानक दाखिला-खारिज (SR) रजिस्टर फॉर्म'}
+              </p>
             </div>
           </div>
           <button
@@ -104,8 +122,16 @@ export function AddScholarModal({ isOpen, onClose, onSuccess }: AddScholarModalP
           </button>
         </div>
 
+        {/* Notice about Returning Students (Re-Admission) */}
+        <div className="mx-6 mt-3 p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-start gap-2 shrink-0">
+          <FileText className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="leading-relaxed">
+            <strong>महत्वपूर्ण निर्देश (पुनः प्रवेश):</strong> यदि कोई विद्यार्थी पूर्व में इस विद्यालय में पढ़कर टी.सी. ले गया था (जैसे 1 वर्ष अन्य स्कूल में पढ़कर लौटा है), तो नया स्कॉलर बनाने के बजाय <strong>स्कॉलर रजिस्टर</strong> में उस विद्यार्थी पर <strong>"पुनः प्रवेश (Re-Admission)"</strong> बटन का उपयोग करें, ताकि उसका मूल इतिहास व क्रमांक सुरक्षित रहे।
+          </div>
+        </div>
+
         {error && (
-          <div className="mx-6 mt-4 p-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-medium shrink-0">
+          <div className="mx-6 mt-2 p-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-medium shrink-0">
             {error}
           </div>
         )}
@@ -136,7 +162,7 @@ export function AddScholarModal({ isOpen, onClose, onSuccess }: AddScholarModalP
                   onChange={(e) => setFormData({ ...formData, className: e.target.value })}
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-blue-600 focus:outline-hidden"
                 >
-                  {classesList.map((c) => (
+                  {availableClasses.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>

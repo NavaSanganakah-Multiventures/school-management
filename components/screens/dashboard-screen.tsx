@@ -13,6 +13,8 @@ import {
   PlusCircle,
   Bell,
   ArrowRight,
+  History,
+  Clock,
 } from 'lucide-react';
 
 interface DashboardScreenProps {
@@ -61,19 +63,22 @@ export function DashboardScreen({
   });
 
   const [recentNotices, setRecentNotices] = useState<any[]>([]);
+  const [recentActivities, setRecentActivities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
     const loadDashboardData = async () => {
       try {
-        const [statsRes, noticesRes] = await Promise.all([
+        const [statsRes, noticesRes, actRes] = await Promise.all([
           fetch('/api/dashboard-stats'),
           fetch('/api/notices?limit=3'),
+          fetch('/api/activity-logs?limit=4'),
         ]);
 
         const statsData = await statsRes.json();
         const noticesData = await noticesRes.json();
+        const actData = await actRes.json().catch(() => ({}));
 
         if (isMounted) {
           if (statsData.success) {
@@ -81,6 +86,9 @@ export function DashboardScreen({
           }
           if (noticesData.success && Array.isArray(noticesData.notices)) {
             setRecentNotices(noticesData.notices.slice(0, 3));
+          }
+          if (actData.success && Array.isArray(actData.logs)) {
+            setRecentActivities(actData.logs.slice(0, 4));
           }
         }
       } catch (err) {
@@ -176,7 +184,7 @@ export function DashboardScreen({
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
-              {schoolProfile?.schoolName || 'विद्या सेतु सीनियर सेकेंडरी स्कूल'}
+              {schoolProfile?.schoolName || 'प्रज्ञा मित्र सीनियर सेकेंडरी स्कूल'}
             </h1>
             <p className="text-xs text-slate-300 mt-1">
               नमस्ते, <strong className="text-white font-semibold">{currentUser?.fullName}</strong> ({currentUser?.designation}) • प्रशासनिक पोर्टल
@@ -425,6 +433,46 @@ export function DashboardScreen({
                 स्कॉलर रजिस्टर, उपस्थिति, परीक्षा परिणाम एवं अलर्ट प्रणाली पूर्णतया कार्यरत है।
               </p>
             </div>
+          </div>
+
+          {/* Recent Activity Audit Stream Widget */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                <History className="h-4 w-4 text-indigo-600" />
+                हालिया कार्यकलाप एवं ऑडिट
+              </h3>
+              <button
+                onClick={() => onNavigate('activity-logs')}
+                className="text-xs text-indigo-600 font-bold hover:underline cursor-pointer"
+              >
+                सभी देखें →
+              </button>
+            </div>
+
+            {recentActivities.length === 0 ? (
+              <p className="text-xs text-slate-500 py-3 text-center">आज कोई नई गतिविधि दर्ज नहीं हुई है।</p>
+            ) : (
+              <div className="space-y-2.5">
+                {recentActivities.map((act) => (
+                  <div
+                    key={act.id}
+                    onClick={() => onNavigate('activity-logs')}
+                    className="p-3 bg-slate-50 hover:bg-slate-100/80 border border-slate-200/70 rounded-xl transition-colors cursor-pointer text-xs space-y-1"
+                  >
+                    <div className="flex items-center justify-between font-bold text-slate-800">
+                      <span className="truncate pr-2">{act.userName}</span>
+                      <span className="text-[10px] text-slate-400 font-normal shrink-0">
+                        {act.createdAt ? new Date(act.createdAt).toLocaleTimeString('hi-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
+                      </span>
+                    </div>
+                    <p className="text-slate-600 text-[11px] line-clamp-1">
+                      {act.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

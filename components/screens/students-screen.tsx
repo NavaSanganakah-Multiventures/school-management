@@ -1,16 +1,18 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Filter, Phone, UserCheck, Award, Eye, FileText, AlertCircle, Building2, UserX } from 'lucide-react';
+import { Search, Plus, Filter, Phone, UserCheck, Award, Eye, FileText, AlertCircle, Building2, UserX, Sparkles, History } from 'lucide-react';
 import { AddScholarModal } from '../modals/add-scholar-modal';
 import { ViewScholarModal } from '../modals/view-scholar-modal';
 import { IssueTcModal } from '../modals/issue-tc-modal';
+import { ReAdmissionModal } from '../modals/re-admission-modal';
 
 interface StudentsScreenProps {
   userRole: 'Director' | 'Principal' | 'Staff';
+  currentUser?: any;
 }
 
-export function StudentsScreen({ userRole }: StudentsScreenProps) {
+export function StudentsScreen({ userRole, currentUser }: StudentsScreenProps) {
   const [students, setStudents] = useState<any[]>([]);
   const [selectedClass, setSelectedClass] = useState('All');
   const [selectedStatus, setSelectedStatus] = useState('All');
@@ -18,9 +20,30 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [activeScholar, setActiveScholar] = useState<any | null>(null);
   const [tcStudent, setTcStudent] = useState<any | null>(null);
+  const [reAdmitStudent, setReAdmitStudent] = useState<any | null>(null);
+  const [assignedClasses, setAssignedClasses] = useState<string[]>([]);
+  const [isClassTeacher, setIsClassTeacher] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const canManageStudents = userRole === 'Director' || userRole === 'Principal';
+  // Check class teacher assignment
+  useEffect(() => {
+    fetch('/api/classes/my-classes')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.assignedClasses)) {
+          setAssignedClasses(data.assignedClasses);
+          setIsClassTeacher(data.assignedClasses.length > 0);
+          // If staff and assigned to a class, auto-filter to their assigned class by default
+          if (userRole === 'Staff' && data.assignedClasses.length > 0) {
+            setSelectedClass(data.assignedClasses[0]);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [userRole]);
+
+  const isAdmin = userRole === 'Director' || userRole === 'Principal';
+  const canManageStudents = isAdmin || isClassTeacher;
 
   const classesList = [
     'All',
@@ -29,24 +52,23 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
     'Class 11 (Science)', 'Class 11 (Commerce)', 'Class 12 (Science)', 'Class 12 (Commerce)'
   ];
 
-  useEffect(() => {
-    let active = true;
+  const fetchStudents = () => {
     const url = `/api/students?class=${selectedClass}&status=${selectedStatus}&q=${encodeURIComponent(searchQuery)}`;
     fetch(url)
       .then((res) => res.json())
       .then((data) => {
-        if (active && data.success) {
+        if (data.success) {
           setStudents(data.students);
         }
       })
       .catch(() => {})
       .finally(() => {
-        if (active) setLoading(false);
+        setLoading(false);
       });
+  };
 
-    return () => {
-      active = false;
-    };
+  useEffect(() => {
+    fetchStudents();
   }, [selectedClass, selectedStatus, searchQuery]);
 
   const handleDelete = async (id: string, name: string) => {
@@ -62,6 +84,13 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
     }
   };
 
+  const handleStudentUpdated = (updated: any) => {
+    setStudents((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+    if (activeScholar && activeScholar.id === updated.id) {
+      setActiveScholar(updated);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header & Actions */}
@@ -72,9 +101,15 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
               कुल: {students.length} छात्र
             </span>
+            {isClassTeacher && userRole === 'Staff' && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                <Sparkles className="h-3 w-3" />
+                <span>अधिकृत कक्षा अध्यापक: {assignedClasses.join(', ')}</span>
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            भारतीय विद्यालय मानक दाखिला-खारिज (SR) रजिस्टर — स्कॉलर क्रमांक, माता-पिता संपर्क, आधार व टी.सी. प्रबंधन।
+            भारतीय विद्यालय मानक दाखिला-खारिज (SR) रजिस्टर — स्कॉलर क्रमांक, माता-पिता संपर्क, टी.सी. व पुनः प्रवेश (Re-Admission) प्रबंधन।
           </p>
         </div>
 
@@ -88,7 +123,7 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
           </button>
         ) : (
           <div className="text-xs px-3 py-2 bg-slate-100 rounded-xl text-slate-600 font-medium">
-            स्टाफ मोड: केवल अवलोकन अनुमति
+            स्टाफ मोड: केवल अवलोकन अनुमति (आप किसी कक्षा के अधिकृत क्लास टीचर नहीं हैं)
           </div>
         )}
       </div>
@@ -100,79 +135,77 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
           <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
           <input
             type="text"
-            placeholder="स्कॉलर नं., नाम, पिता का नाम या फोन..."
+            placeholder="नाम, SR नंबर, फोन, आधार या रोल नं..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-xs focus:border-blue-600 focus:outline-hidden"
+            className="w-full pl-10 pr-4 py-2 text-xs font-medium rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-slate-50"
           />
         </div>
 
         {/* Class Filter */}
-        <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
-          <Filter className="h-4 w-4 text-slate-400 shrink-0 ml-1" />
-          <span className="text-xs font-semibold text-slate-600 shrink-0">कक्षा:</span>
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <Filter className="h-4 w-4 text-slate-400 shrink-0" />
           <select
             value={selectedClass}
             onChange={(e) => setSelectedClass(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-blue-600 focus:outline-hidden bg-white cursor-pointer"
+            className="w-full md:w-48 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-slate-50 text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           >
             {classesList.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>
+                {c === 'All' ? 'सभी कक्षाएं (All Classes)' : c}
+              </option>
             ))}
           </select>
         </div>
 
-        {/* Status Filter */}
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          <span className="text-xs font-semibold text-slate-600 shrink-0">स्थिति:</span>
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-blue-600 focus:outline-hidden bg-white cursor-pointer"
-          >
-            <option value="All">सभी</option>
-            <option value="Active">सक्रिय</option>
-            <option value="TC_Issued">टी.सी. निर्गत</option>
-          </select>
+        {/* Status Filter Tabs */}
+        <div className="flex items-center gap-1.5 w-full md:w-auto md:ml-auto overflow-x-auto pb-1 md:pb-0">
+          {[
+            { id: 'All', label: 'सभी' },
+            { id: 'Active', label: 'सक्रिय छात्र' },
+            { id: 'TC_Issued', label: 'टी.सी. निर्गत (पुनः प्रवेश हेतु)' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setSelectedStatus(tab.id)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${
+                selectedStatus === tab.id
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Students Table */}
+      {/* Table Section */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         {loading ? (
-          <div className="py-16 text-center text-sm text-slate-500">डेटा लोड हो रहा है...</div>
+          <div className="p-12 text-center text-xs text-slate-500">विद्यार्थी सूची लोड हो रही है...</div>
         ) : students.length === 0 ? (
-          <div className="py-16 text-center">
-            <FileText className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-            <p className="text-sm font-bold text-slate-700">कोई स्कॉलर छात्र नहीं मिला</p>
-            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-              दिए गए फ़िल्टर या खोज के अनुसार कोई रिकॉर्ड उपलब्ध नहीं है। नया प्रवेश दर्ज करने के लिए ऊपर दिए बटन का उपयोग करें।
-            </p>
-            {canManageStudents && (
-              <button
-                onClick={() => setIsAddModalOpen(true)}
-                className="mt-4 px-4 py-2 text-xs font-bold text-blue-600 bg-blue-50 rounded-xl hover:bg-blue-100"
-              >
-                + पहला छात्र जोड़ें
-              </button>
-            )}
+          <div className="p-12 text-center">
+            <UserCheck className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+            <h3 className="text-sm font-bold text-slate-800">कोई छात्र रिकॉर्ड नहीं मिला</h3>
+            <p className="text-xs text-slate-500 mt-1">फ़िल्टर बदलकर देखें या नया स्कॉलर प्रवेश दर्ज करें।</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-600">
-              <thead className="bg-slate-50 text-slate-700 uppercase font-bold border-b border-slate-200">
-                <tr>
-                  <th className="px-4 py-3.5">स्कॉलर क्रमांक (SR No.)</th>
-                  <th className="px-4 py-3.5">विद्यार्थी का नाम</th>
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                  <th className="px-4 py-3.5">स्कॉलर क्रमांक (SR)</th>
+                  <th className="px-4 py-3.5">विद्यार्थी नाम</th>
                   <th className="px-4 py-3.5">कक्षा व वर्ग</th>
                   <th className="px-4 py-3.5">पिता का नाम</th>
-                  <th className="px-4 py-3.5">अभिभावक संपर्क</th>
+                  <th className="px-4 py-3.5">अभिभावक फोन</th>
                   <th className="px-4 py-3.5">प्रवेश दिनांक</th>
                   <th className="px-4 py-3.5">स्थिति</th>
-                  <th className="px-4 py-3.5 text-right">कार्य</th>
+                  <th className="px-4 py-3.5 text-right">कार्यवाई (Actions)</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 text-slate-700">
                 {students.map((student) => (
                   <tr
                     key={student.id}
@@ -189,7 +222,7 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
                         </div>
                         <div>
                           <p>{student.fullName}</p>
-                          <p className="text-[11px] text-slate-400 font-normal">रोल नं: {student.rollNumber}</p>
+                          <p className="text-[11px] text-slate-400 font-normal">रोल नं: {student.rollNumber || '—'}</p>
                         </div>
                       </div>
                     </td>
@@ -212,7 +245,7 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
                           student.status === 'Active'
                             ? 'bg-emerald-100 text-emerald-800'
                             : student.status === 'TC_Issued'
-                            ? 'bg-amber-100 text-amber-800'
+                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
                             : 'bg-rose-100 text-rose-800'
                         }`}
                       >
@@ -221,9 +254,21 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
                     </td>
                     <td className="px-4 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1.5">
+                        {/* Quick Re-Admit Button if student has TC issued */}
+                        {student.status === 'TC_Issued' && canManageStudents && (
+                          <button
+                            onClick={() => setReAdmitStudent(student)}
+                            title="1 वर्ष या अंतराल बाद पुनः प्रवेश करें"
+                            className="flex items-center gap-1 px-2.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 rounded-lg text-[11px] font-bold transition cursor-pointer shadow-2xs"
+                          >
+                            <UserCheck className="h-3.5 w-3.5 text-emerald-700" />
+                            <span>पुनः प्रवेश</span>
+                          </button>
+                        )}
+
                         <button
                           onClick={() => setActiveScholar(student)}
-                          title="स्कॉलर कार्ड देखें"
+                          title="स्कॉलर कार्ड व इतिहास देखें"
                           className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
                         >
                           <Eye className="h-4 w-4" />
@@ -239,7 +284,7 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
                         >
                           <FileText className="h-4 w-4" />
                         </button>
-                        {canManageStudents && (
+                        {isAdmin && (
                           <button
                             onClick={() => handleDelete(student.id, student.fullName)}
                             title="हटाएं"
@@ -262,6 +307,8 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
       <AddScholarModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
+        assignedClasses={assignedClasses}
+        isClassTeacher={isClassTeacher && userRole === 'Staff'}
         onSuccess={(newStudent) => {
           setStudents((prev) => [newStudent, ...prev]);
         }}
@@ -271,10 +318,14 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
         student={activeScholar}
         onClose={() => setActiveScholar(null)}
         canManage={canManageStudents}
+        assignedClasses={assignedClasses}
+        userRole={userRole}
+        onStudentUpdated={handleStudentUpdated}
         onIssueTc={(studentId) => {
           setStudents((prev) =>
             prev.map((s) => (s.id === studentId ? { ...s, status: 'TC_Issued' } : s))
           );
+          fetchStudents();
         }}
       />
 
@@ -283,9 +334,20 @@ export function StudentsScreen({ userRole }: StudentsScreenProps) {
         student={tcStudent}
         onClose={() => setTcStudent(null)}
         onSuccess={(updated) => {
-          setStudents((prev) =>
-            prev.map((s) => (s.id === updated.id ? { ...s, status: 'TC_Issued' } : s))
-          );
+          handleStudentUpdated(updated);
+          fetchStudents();
+        }}
+      />
+
+      <ReAdmissionModal
+        isOpen={!!reAdmitStudent}
+        student={reAdmitStudent}
+        onClose={() => setReAdmitStudent(null)}
+        assignedClasses={assignedClasses}
+        userRole={userRole}
+        onSuccess={(updated) => {
+          handleStudentUpdated(updated);
+          fetchStudents();
         }}
       />
     </div>

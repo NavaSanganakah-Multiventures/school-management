@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { isClassTeacher } from '../lib/permissions';
+import { logActivity } from '../lib/activity-logger';
 
 const attendanceApp = new Hono<{ Bindings: any }>();
 
@@ -156,6 +157,20 @@ attendanceApp.post('/mark', async (c) => {
     'ON CONFLICT(id) DO UPDATE SET status=excluded.status, remarks=excluded.remarks, marked_by=excluded.marked_by'
   ).bind(id, studentId, targetDate, status, body.remarks || '', markedBy, schoolId).run();
 
+  await logActivity(db, {
+    schoolId,
+    userId: authUser.sub,
+    userName: markedBy,
+    userRole: authUser.role,
+    actionType: 'ATTENDANCE_MARK',
+    actionTitle: 'छात्र उपस्थिति दर्ज',
+    description: `कक्षा ${student.class_name} के छात्र (ID: ${studentId}) को दिनांक ${targetDate} हेतु "${status}" दर्ज किया गया।`,
+    entityType: 'attendance',
+    entityId: id,
+    className: student.class_name,
+    metadata: { studentId, status, date: targetDate },
+  });
+
   return c.json({ success: true, message: 'उपस्थिति दर्ज कर दी गई।', markedBy });
 });
 
@@ -202,6 +217,19 @@ attendanceApp.post('/mark-all-present', async (c) => {
       'ON CONFLICT(id) DO UPDATE SET status=excluded.status, marked_by=excluded.marked_by'
     ).bind(id, s.id, targetDate, 'Present', '', markedBy, schoolId).run();
   }
+
+  await logActivity(db, {
+    schoolId,
+    userId: authUser.sub,
+    userName: markedBy,
+    userRole: authUser.role,
+    actionType: 'ATTENDANCE_MARK',
+    actionTitle: 'सामूहिक उपस्थिति (All Present) दर्ज',
+    description: `कक्षा ${className || 'समस्त आवंटित कक्षाएं'} के कुल ${students.length} छात्रों को दिनांक ${targetDate} हेतु उपस्थित दर्ज किया गया।`,
+    entityType: 'attendance',
+    className: className || undefined,
+    metadata: { className, count: students.length, date: targetDate },
+  });
 
   return c.json({ success: true, message: 'कक्षा के सभी छात्रों की उपस्थिति Present मार्क कर दी गई।', count: students.length });
 });

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { broadcastAlert } from '../notifications';
+import { logActivity, resolveActorName } from '../lib/activity-logger';
 
 const noticesApp = new Hono<{ Bindings: any }>();
 
@@ -85,6 +86,20 @@ noticesApp.post('/', async (c) => {
   const row = await db.prepare('SELECT * FROM notices WHERE id = ?').bind(id).first();
   const notice = mapNotice(row);
 
+  const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+  await logActivity(db, {
+    schoolId,
+    userId: authUser.sub,
+    userName: actorName,
+    userRole: authUser.role,
+    actionType: 'NOTICE_PUBLISH',
+    actionTitle: 'सूचना प्रकाशित की गई',
+    description: `शीर्षक: "${body.title}" (लक्षित वर्ग: ${targetAudience}, प्राथमिकता: ${priority}) सूचना पट्ट पर जारी की गई।`,
+    entityType: 'notice',
+    entityId: id,
+    metadata: { title: body.title, category: body.category, priority, targetAudience },
+  });
+
   return c.json({
     success: true,
     message: broadcast.payload && broadcast.payload.success
@@ -103,7 +118,22 @@ noticesApp.delete('/:id', async (c) => {
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   const id = c.req.param('id');
+  const existing = await db.prepare('SELECT title FROM notices WHERE id = ? AND school_id = ?').bind(id, schoolId).first();
   await db.prepare('DELETE FROM notices WHERE id = ? AND school_id = ?').bind(id, schoolId).run();
+
+  const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+  await logActivity(db, {
+    schoolId,
+    userId: authUser.sub,
+    userName: actorName,
+    userRole: authUser.role,
+    actionType: 'NOTICE_DELETE',
+    actionTitle: 'सूचना हटाई गई',
+    description: `सूचना "${existing?.title || id}" को नोटिस बोर्ड से हटाया गया।`,
+    entityType: 'notice',
+    entityId: id,
+  });
+
   return c.json({ success: true, message: 'नोटिस हटा दिया गया।' });
 });
 

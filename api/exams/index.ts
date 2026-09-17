@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
+import { logActivity, resolveActorName } from '../lib/activity-logger';
 
 const examsApp = new Hono<{ Bindings: any }>();
 
@@ -159,6 +160,22 @@ examsApp.post('/marks', async (c) => {
   }
 
   const studentName = (st.first_name || '') + (st.last_name ? ' ' + st.last_name : '');
+
+  const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+  await logActivity(db, {
+    schoolId,
+    userId: authUser.sub,
+    userName: actorName,
+    userRole: authUser.role,
+    actionType: 'MARKS_ENTRY',
+    actionTitle: 'परीक्षा अंक प्रविष्टि',
+    description: `छात्र ${studentName} (कक्षा ${st.class_name || ''}) के लिए परीक्षा (ID: ${examId}) के विषय अंक दर्ज/अद्यतित किए गए।`,
+    entityType: 'exam',
+    entityId: examId,
+    className: st.class_name || undefined,
+    metadata: { studentId, studentName, examId, subjectCount: marks.length },
+  });
+
   return c.json({
     success: true,
     message: `${studentName} के लिए अंक सफलतापूर्वक प्रविष्ट/अद्यतित किए गए।`,

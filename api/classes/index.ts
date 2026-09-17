@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { canManageClassTeachers } from '../lib/permissions';
+import { logActivity, resolveActorName } from '../lib/activity-logger';
 
 const classesApp = new Hono<{ Bindings: any }>();
 
@@ -121,6 +122,20 @@ classesApp.post('/assign-teacher', async (c) => {
     await db.prepare('UPDATE classes SET class_teacher_id = ? WHERE name = ?').bind(teacherUserId, className).run();
   } catch (e) {}
 
+  const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+  await logActivity(db, {
+    schoolId,
+    userId: authUser.sub,
+    userName: actorName,
+    userRole: authUser.role,
+    actionType: 'CLASS_TEACHER_ASSIGN',
+    actionTitle: 'कक्षा अध्यापक नियुक्ति',
+    description: `कक्षा ${className} के लिए ${teacher.full_name} को कक्षा अध्यापक नियुक्त किया गया।`,
+    entityType: 'class',
+    className,
+    metadata: { teacherUserId, teacherName: teacher.full_name, className },
+  });
+
   return c.json({
     success: true,
     message: className + ' का कक्षा अध्यापक ' + teacher.full_name + ' नियुक्त किया गया।',
@@ -147,6 +162,19 @@ classesApp.post('/remove-teacher', async (c) => {
   try {
     await db.prepare('UPDATE classes SET class_teacher_id = NULL WHERE name = ?').bind(className).run();
   } catch (e) {}
+
+  const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+  await logActivity(db, {
+    schoolId,
+    userId: authUser.sub,
+    userName: actorName,
+    userRole: authUser.role,
+    actionType: 'CLASS_TEACHER_REMOVE',
+    actionTitle: 'कक्षा अध्यापक पदमुक्ति',
+    description: `कक्षा ${className} से कक्षा अध्यापक का प्रभार हटाया गया।`,
+    entityType: 'class',
+    className,
+  });
 
   return c.json({ success: true, message: className + ' से कक्षा अध्यापक हटा दिया गया।' });
 });

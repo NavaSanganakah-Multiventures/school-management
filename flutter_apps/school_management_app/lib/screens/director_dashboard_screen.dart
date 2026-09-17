@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../widgets/activity_log_sheet.dart';
 import 'login_screen.dart';
 import 'principal_dashboard_screen.dart';
 import 'teacher_attendance_screen.dart';
@@ -59,6 +60,11 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
         backgroundColor: const Color(0xFF78350F), // Amber-900
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.history_edu),
+            tooltip: 'विद्यालय ऑडिट ट्रेल',
+            onPressed: () => ActivityLogSheet.show(context, user: widget.user),
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
@@ -165,6 +171,18 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 10),
+                    ElevatedButton.icon(
+                      onPressed: () => ActivityLogSheet.show(context, user: widget.user),
+                      icon: const Icon(Icons.history_edu, size: 16),
+                      label: const Text('विद्यालय ऑडिट ट्रेल (स्टाफ गतिविधियां देखें)', style: TextStyle(fontSize: 12)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF78350F),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
                     ),
                     const SizedBox(height: 20),
 
