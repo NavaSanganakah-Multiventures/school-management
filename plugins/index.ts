@@ -8,15 +8,20 @@ export interface FrontendPlugin {
   navItems?: {
     id: string;
     label: string;
-    icon: any;
+    icon: React.ElementType;
     allowedRoles?: ('Director' | 'Principal' | 'Staff' | 'SuperAdmin')[];
+    superAdminOnly?: boolean;
+    requiredModule?: string;
     badge?: string;
   }[];
   routes?: {
     id: string; // Should match one of the navItem ids if it's a dedicated screen
     component: React.ComponentType<any>;
   }[];
-  widgets?: React.ComponentType<any>[]; // Global floating widgets
+  widgets?: {
+    id: string; // Unique identifier for the widget to be used as React key
+    component: React.ComponentType<any>;
+  }[];
 }
 
 export const PLUGINS_REGISTRY: FrontendPlugin[] = [
@@ -29,7 +34,7 @@ export const PLUGINS_REGISTRY: FrontendPlugin[] = [
       { id: 'ai', component: AIAssistantScreen }
     ],
     widgets: [
-      AIAssistantWidget
+      { id: 'ai-assistant-widget', component: AIAssistantWidget }
     ]
   },
   // Future plugins can be added here

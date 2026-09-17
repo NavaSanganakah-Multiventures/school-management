@@ -418,7 +418,9 @@ export function SchoolCrmShell() {
   const activeFrontendPlugins = PLUGINS_REGISTRY.filter(p => activePlugins.includes(p.id));
   
   const dynamicNavItems = activeFrontendPlugins.flatMap(p => p.navItems || []).filter(item => {
+    if (item.superAdminOnly) return userRole === 'SuperAdmin';
     if (!item.allowedRoles || item.allowedRoles.indexOf(userRole) === -1) return false;
+    if (item.requiredModule && planModules.indexOf(item.requiredModule) === -1) return false;
     return true;
   });
 
@@ -611,9 +613,10 @@ export function SchoolCrmShell() {
       )}
 
       {/* Dynamic Plugin Widgets */}
-      {activeFrontendPlugins.flatMap(p => p.widgets || []).map((Widget, i) => (
-        <Widget key={i} />
-      ))}
+      {activeFrontendPlugins.flatMap(p => p.widgets || []).map((widget) => {
+        const Widget = widget.component;
+        return <Widget key={widget.id} />;
+      })}
     </div>
   );
 }
