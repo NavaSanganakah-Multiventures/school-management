@@ -8,18 +8,23 @@ export function PluginMarketplaceScreen() {
   const [mySubscriptions, setMySubscriptions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fetchPlugins = async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
       const res = await fetch('/api/plugins/marketplace');
       const data = await res.json();
       if (data.success) {
         setPlugins(data.plugins || []);
         setMySubscriptions(data.mySubscriptions || []);
+      } else {
+        setErrorMsg(data.error || 'Failed to load plugins.');
       }
     } catch (error) {
       console.error('Error fetching plugins:', error);
+      setErrorMsg('Network error. Please try again later.');
     } finally {
       setLoading(false);
     }
@@ -31,17 +36,22 @@ export function PluginMarketplaceScreen() {
 
   const handleSubscribe = async (pluginId: string) => {
     setActionLoading(pluginId);
+    setErrorMsg(null);
     try {
       const res = await fetch('/api/plugins/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pluginId })
       });
-      if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
         await fetchPlugins();
+      } else {
+        setErrorMsg(data.error || 'Subscription failed.');
       }
     } catch (error) {
       console.error(error);
+      setErrorMsg('Network error. Subscription failed.');
     } finally {
       setActionLoading(null);
     }
@@ -49,17 +59,22 @@ export function PluginMarketplaceScreen() {
 
   const handleUnsubscribe = async (pluginId: string) => {
     setActionLoading(pluginId);
+    setErrorMsg(null);
     try {
       const res = await fetch('/api/plugins/unsubscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pluginId })
       });
-      if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
         await fetchPlugins();
+      } else {
+        setErrorMsg(data.error || 'Failed to remove plugin.');
       }
     } catch (error) {
       console.error(error);
+      setErrorMsg('Network error. Failed to remove plugin.');
     } finally {
       setActionLoading(null);
     }
@@ -76,6 +91,13 @@ export function PluginMarketplaceScreen() {
 
   return (
     <div className="space-y-6 pb-12">
+      {errorMsg && (
+        <div className="bg-rose-50 text-rose-600 border border-rose-200 p-4 rounded-xl flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+          <p className="text-sm font-medium">{errorMsg}</p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-3xl bg-gradient-to-r from-slate-900 to-indigo-950 p-6 text-white shadow-lg">
         <div className="flex items-center gap-4">

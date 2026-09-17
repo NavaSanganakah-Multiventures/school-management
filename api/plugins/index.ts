@@ -16,6 +16,9 @@ pluginsApp.get('/marketplace', async (c) => {
   try {
     const user = await authCheck(c);
     if (!user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+    if (user.role !== 'Director' && user.role !== 'SuperAdmin') {
+      return c.json({ success: false, error: 'Forbidden. Only Directors can access plugins.' }, 403);
+    }
 
     // Get all active plugins (global + private for this school)
     const { results: plugins } = await c.env.DB.prepare(
@@ -46,6 +49,9 @@ pluginsApp.post('/subscribe', async (c) => {
   try {
     const user = await authCheck(c);
     if (!user || !user.schoolId) return c.json({ success: false, error: 'Unauthorized' }, 401);
+    if (user.role !== 'Director' && user.role !== 'SuperAdmin') {
+      return c.json({ success: false, error: 'Forbidden. Only Directors can subscribe.' }, 403);
+    }
 
     const { pluginId } = await c.req.json();
     if (!pluginId) return c.json({ success: false, error: 'Plugin ID required' }, 400);
@@ -74,6 +80,9 @@ pluginsApp.post('/unsubscribe', async (c) => {
     try {
       const user = await authCheck(c);
       if (!user || !user.schoolId) return c.json({ success: false, error: 'Unauthorized' }, 401);
+      if (user.role !== 'Director' && user.role !== 'SuperAdmin') {
+        return c.json({ success: false, error: 'Forbidden. Only Directors can unsubscribe.' }, 403);
+      }
   
       const { pluginId } = await c.req.json();
       if (!pluginId) return c.json({ success: false, error: 'Plugin ID required' }, 400);
