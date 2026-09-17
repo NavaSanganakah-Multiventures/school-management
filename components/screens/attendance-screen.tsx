@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Check, Sparkles, CalendarCheck, AlertTriangle, ShieldCheck, CheckCircle2, Lock, Loader2 } from 'lucide-react';
+import { Check, Sparkles, CalendarCheck, AlertTriangle, ShieldCheck, CheckCircle2, Lock, Loader2, CalendarDays } from 'lucide-react';
+import { LeaveManagementPanel } from './leave-management-panel';
 
 interface AttendanceScreenProps {
   userRole: 'Director' | 'Principal' | 'Staff';
@@ -10,6 +11,7 @@ interface AttendanceScreenProps {
 }
 
 export function AttendanceScreen({ userRole, currentUserId, onOpenFcmModal }: AttendanceScreenProps) {
+  const [activeTab, setActiveTab] = useState<'attendance' | 'leaves'>('attendance');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedClass, setSelectedClass] = useState<string>('');
   const [availableClasses, setAvailableClasses] = useState<string[]>([]);
@@ -159,16 +161,40 @@ export function AttendanceScreen({ userRole, currentUserId, onOpenFcmModal }: At
       {/* Page Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-bold text-slate-900">दैनिक छात्र उपस्थिति पंजिका (Daily Attendance)</h2>
-          <p className="text-xs text-slate-500">कक्षा-वार हाजिरी रजिस्टर, अनुपस्थिति ट्रैकर व त्वरित अभिभावक अलर्ट</p>
+          <h2 className="text-lg font-bold text-slate-900">उपस्थिति व अवकाश प्रबंधन (Attendance & Leaves)</h2>
+          <p className="text-xs text-slate-500">कक्षा-वार हाजिरी रजिस्टर और छुट्टी प्रबंधन</p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-800 shadow-2xs font-medium"
+        <div className="flex bg-slate-100 p-1 rounded-xl">
+          <button
+            onClick={() => setActiveTab('attendance')}
+            className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
+              activeTab === 'attendance' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            दैनिक उपस्थिति
+          </button>
+          <button
+            onClick={() => setActiveTab('leaves')}
+            className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
+              activeTab === 'leaves' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            छुट्टी प्रबंधन
+          </button>
+        </div>
+      </div>
+
+      {activeTab === 'leaves' ? (
+        <LeaveManagementPanel userRole={userRole} currentUserId={currentUserId} />
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-800 shadow-2xs font-medium"
           />
           <button
             onClick={markAllPresent}
@@ -180,7 +206,6 @@ export function AttendanceScreen({ userRole, currentUserId, onOpenFcmModal }: At
             <span>सभी को उपस्थित करें</span>
           </button>
         </div>
-      </div>
 
       {/* Role & Permission Status Banner */}
       {isAdmin ? (
@@ -382,6 +407,8 @@ export function AttendanceScreen({ userRole, currentUserId, onOpenFcmModal }: At
           <span>अभिभावक अलर्ट भेजें</span>
         </button>
       </div>
+        </>
+      )}
     </div>
   );
 }
