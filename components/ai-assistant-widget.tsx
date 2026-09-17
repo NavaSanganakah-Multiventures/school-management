@@ -59,7 +59,7 @@ export function AIAssistantWidget() {
       
       if (data.success) {
         setMessages(prev => [...prev, { role: 'ai', content: data.message }]);
-        fetchSettings(); // Refresh credits if used
+        await fetchSettings(); // Refresh credits if used
       } else {
         setMessages(prev => [...prev, { role: 'ai', content: `❌ Error: ${data.message}` }]);
       }
