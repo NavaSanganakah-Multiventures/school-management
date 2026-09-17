@@ -9,17 +9,7 @@ import noticesApp from './notices';
 import notificationsApp from './notifications';
 import dashboardStatsApp from './dashboard-stats';
 import { principalApp } from './principal';
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import authApp from './auth';
-import studentsApp from './students';
-import attendanceApp from './attendance';
-import feesApp from './fees';
-import examsApp from './exams';
-import noticesApp from './notices';
-import notificationsApp from './notifications';
-import dashboardStatsApp from './dashboard-stats';
-import { principalApp } from './principal';
+
 import { staffApp } from './staff';
 import { schoolProfileApp } from './school-profile';
 import billingApp from './billing';
