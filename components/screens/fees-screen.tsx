@@ -5,8 +5,10 @@ import { IndianRupee, CheckCircle2, Clock, AlertCircle, Plus, Printer } from 'lu
 import { PayFeeModal } from '../modals/pay-fee-modal';
 import { CreateFeeModal } from '../modals/create-fee-modal';
 import { FeeReceiptModal } from '../modals/fee-receipt-modal';
+import { FeeManagementPanel } from './fee-management-panel';
 
 export function FeesScreen() {
+  const [activeMainTab, setActiveMainTab] = useState<'invoices' | 'setup'>('invoices');
   const [invoices, setInvoices] = useState<any[]>([]);
   const [summary, setSummary] = useState({ totalReceivable: 0, totalCollected: 0, totalPending: 0 });
   const [filter, setFilter] = useState('All');
@@ -40,7 +42,30 @@ export function FeesScreen() {
 
   return (
     <div className="space-y-4 pb-12">
-      {/* Fees Summary Cards */}
+      <div className="flex bg-slate-100 p-1 rounded-xl w-max mb-2">
+        <button
+          onClick={() => setActiveMainTab('invoices')}
+          className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
+            activeMainTab === 'invoices' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          फीस चालान (Invoices)
+        </button>
+        <button
+          onClick={() => setActiveMainTab('setup')}
+          className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
+            activeMainTab === 'setup' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          फीस सेटअप (Structure)
+        </button>
+      </div>
+
+      {activeMainTab === 'setup' ? (
+        <FeeManagementPanel />
+      ) : (
+        <>
+          {/* Fees Summary Cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
           <span className="text-xs text-blue-700 font-medium">कुल देय फीस</span>
@@ -193,6 +218,8 @@ export function FeesScreen() {
         invoice={receiptInvoice}
         onClose={() => setReceiptInvoice(null)}
       />
+        </>
+      )}
     </div>
   );
 }

@@ -431,7 +431,7 @@ export function ViewScholarModal({
 
         {/* Footer */}
         <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-xs text-slate-500">प्रज्ञा मित्र स्कूल प्रबंधन प्रणाली • स्कॉलर रजिस्टर</span>
+          <span className="text-xs text-slate-500">विद्या सेतु स्कूल प्रबंधन प्रणाली • स्कॉलर रजिस्टर</span>
           <div className="flex items-center gap-2">
             {isTcIssued && (
               <button

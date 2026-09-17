@@ -82,7 +82,7 @@ export function LoginScreen({ onLoginSuccess, onRegister }: LoginScreenProps) {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 mb-3 shadow-inner">
             <School className="w-8 h-8 text-amber-300" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight">प्रज्ञा मित्र स्कूल प्रबंधन</h1>
+          <h1 className="text-xl font-bold tracking-tight">विद्या सेतु स्कूल प्रबंधन</h1>
           <p className="text-xs text-blue-200 mt-1">अधिकृत लॉगिन — भूमिका क्रेडेंशियल्स से स्वतः पहचानी जाती है</p>
           <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-medium border border-emerald-400/30">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -186,7 +186,7 @@ export function LoginScreen({ onLoginSuccess, onRegister }: LoginScreenProps) {
       </div>
 
       <div className="mt-6 text-center text-xs text-slate-400">
-        <p>प्रज्ञा मित्र विद्यालय प्रबंधन प्रणाली • सत्र 2026-27</p>
+        <p>विद्या सेतु विद्यालय प्रबंधन प्रणाली • सत्र 2026-27</p>
         <p className="text-[10px] text-slate-500 mt-0.5">अधिकृत एवं सुरक्षित पोर्टल</p>
       </div>
     </div>

@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
-import { getCachedSchoolBranding, invalidateSchoolBrandingCache } from '../lib/config-cache';
 
 export const schoolProfileApp = new Hono<{ Bindings: any }>();
 
@@ -27,34 +26,12 @@ function rowToProfile(row: any) {
   };
 }
 
-// GET /api/school-profile - Zero-DB-Cost Edge Priority
+// GET /api/school-profile
 schoolProfileApp.get('/', async (c) => {
-  const authUser = await getAuthUser(c);
-  const schoolId = getRequestSchoolId(c, authUser);
-
-  // 1. Check Zero-DB-Cost Edge Cache / Worker ENV first
-  const edgeBranding = await getCachedSchoolBranding(c, schoolId);
-  if (edgeBranding.source === 'worker_env') {
-    return c.json({
-      success: true,
-      profile: {
-        id: edgeBranding.schoolId,
-        schoolName: edgeBranding.schoolName,
-        phone: edgeBranding.contactPhone,
-        email: edgeBranding.contactEmail,
-        affiliationNumber: edgeBranding.affiliationNumber,
-        boardName: edgeBranding.boardName,
-        schoolCode: edgeBranding.schoolCode,
-        academicSession: edgeBranding.academicSession,
-        logoUrl: edgeBranding.logoUrl,
-        updatedAt: new Date().toISOString().split('T')[0],
-        source: 'worker_env_edge_cache',
-      },
-    });
-  }
-
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  const schoolId = getRequestSchoolId(c, authUser);
   const row = await db.prepare('SELECT * FROM school_profile WHERE id = ?').bind(schoolId).first();
   if (!row) return c.json({ success: false, message: 'स्कूल प्रोफ़ाइल नहीं मिली।' }, 404);
   return c.json({ success: true, profile: rowToProfile(row) });
@@ -96,8 +73,6 @@ schoolProfileApp.put('/', async (c) => {
       now,
       schoolId
     ).run();
-
-  await invalidateSchoolBrandingCache(c, schoolId);
 
   const updated = await db.prepare('SELECT * FROM school_profile WHERE id = ?').bind(schoolId).first();
   return c.json({ success: true, message: 'स्कूल प्रोफ़ाइल व सेटिंग्स सफलतापूर्वक अद्यतित की गईं।', profile: rowToProfile(updated) });

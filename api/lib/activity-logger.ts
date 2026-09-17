@@ -20,7 +20,7 @@ export async function logActivity(db: any, params: LogActivityParams): Promise<v
   if (!db || !params || !params.schoolId) return;
 
   try {
-    const id = 'act-' + crypto.randomUUID();
+    const id = 'act-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8);
     const metaStr = params.metadata ? JSON.stringify(params.metadata) : null;
     const now = new Date().toISOString();
 

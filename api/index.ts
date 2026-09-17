@@ -9,6 +9,7 @@ import noticesApp from './notices';
 import notificationsApp from './notifications';
 import dashboardStatsApp from './dashboard-stats';
 import { principalApp } from './principal';
+
 import { staffApp } from './staff';
 import { schoolProfileApp } from './school-profile';
 import billingApp from './billing';
@@ -16,7 +17,9 @@ import adminApp from './admin';
 import fcmProxyApp from './fcm-proxy';
 import classesApp from './classes';
 import activityLogsApp from './activity-logs';
-import masterAdminApp from './master-admin';
+import subjectsApp from './subjects';
+import leaveApp from './leave-applications';
+import pluginsApp from './plugins';
 
 const app = new Hono<{ Bindings: any }>().basePath('/api');
 
@@ -26,11 +29,11 @@ app.get('/health', (c) => {
   return c.json({
     status: 'online',
     timestamp: new Date().toISOString(),
-    system: 'Pragnya Mitra School Management System & ERP API',
-    engine: 'Hono.js Engine on Cloudflare Workers / workerd',
+    system: 'VidyaSetu School Management System & CRM API',
+    engine: 'Hono.js Engine',
     rolesSupported: ['SuperAdmin', 'Director', 'Principal', 'Staff'],
     paymentGateway: 'Razorpay',
-    database: 'Cloudflare D1 (Multi-Worker Isolated Architecture)',
+    database: 'Cloudflare D1 (real data)',
   });
 });
 
@@ -50,6 +53,8 @@ app.route('/admin', adminApp);
 app.route('/classes', classesApp);
 app.route('/fcm-proxy', fcmProxyApp);
 app.route('/activity-logs', activityLogsApp);
-app.route('/master', masterAdminApp);
+app.route('/subjects', subjectsApp);
+app.route('/leave-applications', leaveApp);
+app.route('/plugins', pluginsApp);
 
 export default app;

@@ -256,4 +256,37 @@ examsApp.get('/report-card/:studentId', async (c) => {
   return c.json({ success: true, reportCard });
 });
 
+// GET /api/exams/terms - List exam terms
+examsApp.get('/terms', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  const schoolId = getRequestSchoolId(c, authUser);
+
+  const terms = await db.prepare('SELECT * FROM exam_terms WHERE school_id = ? ORDER BY created_at ASC').bind(schoolId).all();
+  return c.json({ success: true, examTerms: terms.results || [] });
+});
+
+// POST /api/exams/terms - Add an exam term
+examsApp.post('/terms', async (c) => {
+  const db = getDB(c);
+  const authUser = await getAuthUser(c);
+  if (!authUser || (authUser.role !== 'Director' && authUser.role !== 'Principal')) {
+    return c.json({ success: false, message: 'अनधिकृत पहुँच।' }, 403);
+  }
+  const schoolId = getRequestSchoolId(c, authUser);
+  const body = await c.req.json().catch(() => ({}));
+
+  if (!body.termName) {
+    return c.json({ success: false, message: 'टर्म का नाम (Term Name) आवश्यक है।' }, 400);
+  }
+
+  const id = `term-${crypto.randomUUID()}`;
+  await db.prepare('INSERT INTO exam_terms (id, school_id, term_name, weightage_percent) VALUES (?, ?, ?, ?)')
+    .bind(id, schoolId, body.termName.trim(), parseFloat(body.weightagePercent) || 100).run();
+
+  return c.json({ success: true, message: 'परीक्षा टर्म सफलतापूर्वक जोड़ा गया।', id });
+});
+
 export default examsApp;

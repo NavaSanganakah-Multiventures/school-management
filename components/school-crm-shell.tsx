@@ -21,8 +21,7 @@ import {
   AlertTriangle,
   Building2,
   History,
-  Server,
-  Globe,
+  Store,
 } from 'lucide-react';
 
 import { DashboardScreen } from './screens/dashboard-screen';
@@ -41,8 +40,7 @@ import { ResetPasswordScreen } from './screens/reset-password-screen';
 import { AdminConsoleScreen } from './screens/admin-console-screen';
 import { ClassesScreen } from './screens/classes-screen';
 import { ActivityLogsScreen } from './screens/activity-logs-screen';
-import { MasterControlScreen } from './screens/master-control-screen';
-import { DirectorCentralPortalScreen } from './screens/director-central-portal-screen';
+import { PluginMarketplaceScreen } from './screens/plugin-marketplace-screen';
 
 import { AddScholarModal } from './modals/add-scholar-modal';
 import { FcmBroadcastModal } from './modals/fcm-broadcast-modal';
@@ -151,7 +149,7 @@ export function SchoolCrmShell() {
   }, [currentUser]);
 
   const [schoolProfile, setSchoolProfile] = useState<any>({
-    schoolName: 'प्रज्ञा मित्र स्कूल प्रबंधन',
+    schoolName: 'विद्या सेतु स्कूल प्रबंधन',
     affiliationNumber: '',
     boardName: '',
     academicSession: '2026-2027',
@@ -332,7 +330,7 @@ export function SchoolCrmShell() {
     localStorage.setItem('vidyasetu_user', JSON.stringify(normalized));
     localStorage.setItem('vidyasetu_token', token);
     setCurrentUser(normalized);
-    setActiveTab(normalized.role === 'SuperAdmin' ? 'master' : 'dashboard');
+    setActiveTab(normalized.role === 'SuperAdmin' ? 'admin' : 'dashboard');
   };
 
   // Prevent hydration mismatch between SSR/static build HTML and client DOM
@@ -343,7 +341,7 @@ export function SchoolCrmShell() {
           <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
             <School className="h-5 w-5 text-white animate-pulse" />
           </div>
-          <span className="text-lg font-bold tracking-tight">प्रज्ञा मित्र स्कूल प्रबंधन</span>
+          <span className="text-lg font-bold tracking-tight">विद्या सेतु स्कूल प्रबंधन</span>
         </div>
         <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
           <span className="h-2 w-2 rounded-full bg-blue-500 animate-ping" />
@@ -375,8 +373,6 @@ export function SchoolCrmShell() {
   const screenRole: 'Director' | 'Principal' | 'Staff' = userRole === 'SuperAdmin' ? 'Director' : userRole;
 
   const navItems: NavItem[] = [
-    { id: 'master', label: 'मास्टर कंट्रोल प्लेन (Multi-Worker)', icon: Server, superAdminOnly: true },
-    { id: 'director-portal', label: 'प्रज्ञा मित्र सेंट्रल हब (HQ)', icon: Globe, allowedRoles: ['Director', 'SuperAdmin'], badge: 'HQ' },
     { id: 'admin', label: 'सुपर एडमिन कंसोल', icon: ShieldCheck, superAdminOnly: true },
     { id: 'dashboard', label: 'डैशबोर्ड', icon: LayoutDashboard, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'students', label: 'स्कॉलर रजिस्टर', icon: Users, allowedRoles: ['Director', 'Principal', 'Staff'] },
@@ -394,6 +390,7 @@ export function SchoolCrmShell() {
     { id: 'notices', label: 'सूचना पट्ट एवं पुश अलर्ट', icon: Bell, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'principal', label: 'प्रधानाचार्य प्रबंधन', icon: UserCheck, allowedRoles: ['Director'], requiredModule: 'principal', badge: 'प्रो' },
     { id: 'settings', label: 'स्कूल प्रोफ़ाइल व सेटिंग्स', icon: Settings, allowedRoles: ['Director'] },
+    { id: 'plugins', label: 'प्लगइन मार्केटप्लेस', icon: Store, allowedRoles: ['Director', 'SuperAdmin'], badge: 'नया' },
     { id: 'billing', label: 'प्लान व बिलिंग', icon: CreditCard, allowedRoles: ['Director'], badge: 'अपग्रेड' },
   ];
 
@@ -416,7 +413,7 @@ export function SchoolCrmShell() {
               <School className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-base font-black tracking-tight text-slate-900 line-clamp-1">{schoolProfile.schoolName || 'प्रज्ञा मित्र स्कूल प्रबंधन'}</h1>
+              <h1 className="text-base font-black tracking-tight text-slate-900 line-clamp-1">{schoolProfile.schoolName || 'विद्या सेतु स्कूल प्रबंधन'}</h1>
               <p className="text-[11px] text-slate-500 hidden sm:block">सत्र: {schoolProfile.academicSession || '2026-2027'} • भूमिका: {roleEmoji(userRole)}</p>
             </div>
           </div>
@@ -509,7 +506,7 @@ export function SchoolCrmShell() {
           </div>
 
           <div className="p-4 border-t border-slate-100 text-slate-500 text-[11px] space-y-1 bg-slate-50/50">
-            <p className="font-bold text-slate-700">प्रज्ञा मित्र स्कूल प्रबंधन</p>
+            <p className="font-bold text-slate-700">विद्या सेतु स्कूल प्रबंधन</p>
             <p className="text-[10px] text-slate-500">सुरक्षित एवं अधिकृत पोर्टल</p>
           </div>
         </aside>
@@ -528,13 +525,6 @@ export function SchoolCrmShell() {
             </div>
           )}
 
-          {activeTab === 'master' && <MasterControlScreen />}
-          {activeTab === 'director-portal' && (
-            <DirectorCentralPortalScreen
-              initialSchoolId={currentUser.schoolId || 'sch_dps_delhi_01'}
-              onBack={() => setActiveTab('dashboard')}
-            />
-          )}
           {activeTab === 'admin' && <AdminConsoleScreen />}
           {activeTab === 'dashboard' && (
             <DashboardScreen onNavigate={(tab) => setActiveTab(tab)} onOpenAddStudent={() => setIsAddScholarOpen(true)} onOpenFcmModal={() => setIsBroadcastOpen(true)} userRole={screenRole} currentUser={currentUser} schoolProfile={schoolProfile} />
@@ -547,9 +537,10 @@ export function SchoolCrmShell() {
           {activeTab === 'classes' && <ClassesScreen userRole={screenRole} />}
           {activeTab === 'fees' && <FeesScreen />}
           {activeTab === 'exams' && <ExamsScreen />}
-          {activeTab === 'notices' && <NoticesScreen onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
-          {activeTab === 'settings' && <SchoolSettingsScreen userRole={userRole} />}
-          {activeTab === 'billing' && <BillingPlansScreen userRole={userRole} onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
+          { activeTab === 'notices' && <NoticesScreen onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
+          { activeTab === 'settings' && <SchoolSettingsScreen userRole={userRole} /> }
+          { activeTab === 'plugins' && <PluginMarketplaceScreen /> }
+          { activeTab === 'billing' && <BillingPlansScreen userRole={userRole} onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
         </main>
       </div>
 
