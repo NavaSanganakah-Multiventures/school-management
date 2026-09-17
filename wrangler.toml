@@ -28,17 +28,11 @@ name = "SEND_EMAIL"
 
 [vars]
 ENVIRONMENT = "production"
-# Zero-DB-Cost Edge Environment (Fastest 0ms reads directly from Worker env)
-SCHOOL_ID = "school-01"
-SCHOOL_NAME = "प्रज्ञा मित्र स्कूल प्रबंधन (Pragnya Mitra)"
-CONTACT_PHONE = "+91 9876543210"
-CONTACT_EMAIL = "director@pragnyamitra.com"
-BOARD_NAME = "CBSE"
-ACADEMIC_SESSION = "2026-2027"
-LOGO_URL = "/icon.svg"
-APP_BASE_URL = "https://pragnyamitra.com"
+# FCM project id is derived from FCM_SERVICE_ACCOUNT_JSON.project_id (see api/lib/fcm.ts).
+SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Public School)"
+APP_BASE_URL = "https://pragnya.navasanganakah.com"
 WEB_PUSH_VAPID_PUBLIC_KEY = "BJlcKjZBfC5YzmoIxZ1ndHRJAiemr7Rdi4LBuceK6GI7N6g9aV3ctHpKCtZ8RbaPugnfvfJQNBiRTi63CGipHP4"
-WEB_PUSH_VAPID_SUBJECT = "mailto:director@pragnyamitra.com"
+WEB_PUSH_VAPID_SUBJECT = "mailto:pragnya@navasanganakah.com"
 
 # -------------------------------------------------------------
 # Preview Environment
@@ -61,13 +55,7 @@ id = "9158f79162824ee1b52e75fe51af71f8"
 
 [env.preview.vars]
 ENVIRONMENT = "preview"
-SCHOOL_ID = "school-01"
-SCHOOL_NAME = "प्रज्ञा मित्र स्कूल प्रबंधन (Pragnya Mitra Preview)"
-CONTACT_PHONE = "+91 9876543210"
-CONTACT_EMAIL = "director@pragnyamitra.com"
-BOARD_NAME = "CBSE"
-ACADEMIC_SESSION = "2026-2027"
-LOGO_URL = "/icon.svg"
 WEB_PUSH_VAPID_PUBLIC_KEY = "BJlcKjZBfC5YzmoIxZ1ndHRJAiemr7Rdi4LBuceK6GI7N6g9aV3ctHpKCtZ8RbaPugnfvfJQNBiRTi63CGipHP4"
-WEB_PUSH_VAPID_SUBJECT = "mailto:director@pragnyamitra.com"
-
+WEB_PUSH_VAPID_SUBJECT = "mailto:pragnya@navasanganakah.com"
+# FCM project id is derived from FCM_SERVICE_ACCOUNT_JSON.project_id (see api/lib/fcm.ts).
+SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Preview)"
