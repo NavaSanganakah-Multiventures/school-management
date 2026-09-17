@@ -16,11 +16,11 @@ export interface FrontendPlugin {
   }[];
   routes?: {
     id: string; // Should match one of the navItem ids if it's a dedicated screen
-    component: React.ComponentType<any>;
+    component: React.ComponentType;
   }[];
   widgets?: {
     id: string; // Unique identifier for the widget to be used as React key
-    component: React.ComponentType<any>;
+    component: React.ComponentType;
   }[];
 }
 
