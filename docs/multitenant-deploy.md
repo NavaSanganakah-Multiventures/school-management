@@ -1,12 +1,19 @@
-# VidyaSetu School Management — Multi-Tenant Deployment Architecture
-## एक ही Repository, दो-स्तरीय Delivery (Cloudflare Workers): Shared + Dedicated
+# VidyaSetu School Management — Multi-Tenant Delivery Architecture
+## एक ही Repository, एक ही Codebase · Cloudflare Workers for Platforms · Shared + Dedicated (Enterprise)
 
-यह document VidyaSetu school-management system की पूरी working architecture और deployment प्रक्रिया समझाता है। इसका उद्देश्य एक ही codebase से दो तरह से schools को सेवा देना है:
+यह document VidyaSetu school-management system की पूरी working architecture और deployment प्रक्रिया समझाता है। लक्ष्य: **एक ही codebase** से schools को दो तरह से serve करना, ताकि खर्च कम रहे, isolation पूरा रहे और custom/special features **plugin के रास्ते** से managed हों।
 
-1. **Shared model** — सस्ता व सरल (Trial/Starter/Pro schools एक ही worker पर)।
-2. **Dedicated model** — Enterprise (हर school का अपना worker + database + storage)।
+### मुख्य निर्णय (locked decisions)
 
-**दोनों tiers Cloudflare Workers पर ही चलते हैं** — platform के लिए एक worker और हर dedicated school के लिए एक अलग worker। सब एक ही repository और एक ही code से deploy होते हैं।
+- **एक repository**: `NavaSanganakah-Multiventures/school-management`। कोई school-specific fork नहीं।
+- **एक core codebase + plugin architecture**। अगर कोई school कोई special/custom feature माँगता है, तो उसका **managed plugin** बनाया जाएगा — core fork नहीं।
+- Delivery **दो tiers** में:
+  1. **Shared** — Trial / Starter / Pro schools एक ही worker पर।
+  2. **Dedicated** — Enterprise school का अपना worker + अपना D1/R2/KV + अपने secrets।
+- **Workers for Platforms (dispatch namespace)** से provisioning और `*.pragnya.nasven.com` routing।
+- **Control plane (main worker)** और **Data plane (school worker)** अलग roles के साथ।
+- **LMS dashboard = plugin/add-on** (advanced service)। Core में पहले student + teacher management।
+- **Email quota** per school (business domain email) plan के हिसाब से।
 
 ---
 
@@ -15,9 +22,19 @@
 - एक repository, एक codebase (core + plugins)।
 - core code और plugins सभी schools के लिए common रहते हैं।
 - code में किया गया कोई भी बदलाव सभी schools (shared और dedicated दोनों) में अपने-आप पहुँचता है।
-- डेटा isolation का स्तर school के plan से तय होता है।
+- data isolation का स्तर school के plan से तय होता है — सस्ते plan shared रहते हैं, Enterprise पूरी तरह separate।
 
-## 2. दो Delivery Models
+## 2. Workers for Platforms (dispatch namespace) — क्यों?
+
+Cloudflare Workers में **per-worker कोई fee नहीं** होती; हम अपने एक account में जितने चाहें worker रख सकते हैं। Workers for Platforms इसे एक SaaS provider के लिए और clean बनाता है:
+
+- **Dispatch namespace** पर `*.pragnya.nasven.com` route होता है।
+- Request का hostname देखकर उसे सही school के worker पर भेजा जाता है।
+- Main (control plane) worker से **Cloudflare API के ज़रिए on-the-fly** नया school worker बनाया जा सकता है — flow: *registration → approval/payment → worker तैयार*।
+- हर school worker के अपने bindings (D1/R2/KV) और अपने secrets होते हैं — full isolation।
+- **Cost**: workers के लिए कोई अलग per-worker charge नहीं; bill request/usage (D1/KV/R2) के हिसाब से आता है। exact pricing Cloudflare के Workers for Platforms docs से verify करें।
+
+## 3. दो Delivery Models
 
 | विशेषता | Shared | Dedicated |
 |---|---|---|
@@ -32,261 +49,269 @@
 | Control plane | यहीं (platform) | platform से proxy |
 | लागत | कम | अधिक (isolation की कीमत) |
 
-## 3. Plan ↔ Model Mapping
+## 4. Plan ↔ Model Mapping
 
-- **Enterprise** plan → dedicatedWorker: true → school को dedicated worker और dedicated resources मिलते हैं।
-- **Trial / Starter / Pro** → dedicatedWorker: false → school shared worker पर चलता है।
+- **Enterprise** plan → `dedicatedWorker: true` → school को dedicated worker और dedicated resources मिलते हैं।
+- **Trial / Starter / Pro** → `dedicatedWorker: false` → school shared worker पर चलता है।
 - Super Admin जब किसी school को Enterprise plan approve करता है, तब वह school dedicated mode में चला जाता है।
 
-यह flag तीन जगह एक साथ रखना होगा (single source of truth डेटाबेस है):
-1. api/db.ts के SUBSCRIPTION_PLANS array में enterprise के featureFlags में dedicatedWorker: true।
-2. api/lib/plan-access.ts के PLAN_ACCESS fallback में dedicatedWorker: true।
-3. D1 की subscription_plans table के feature_flags JSON column में dedicatedWorker: true (एक नई migration से)।
+यह flag तीन जगह एक साथ रखना होगा (single source of truth database है):
+1. `api/db.ts` के `SUBSCRIPTION_PLANS` array में enterprise के `featureFlags` में `dedicatedWorker: true`।
+2. `api/lib/plan-access.ts` के `PLAN_ACCESS` fallback में `dedicatedWorker: true`।
+3. D1 की `subscription_plans` table के `feature_flags` JSON column में `dedicatedWorker: true` (एक नई migration से)।
 
-## 4. School Registry (schools.json)
+## 5. Control Plane + Data Plane (roles)
 
-यह file पूरे deployment की source of truth है। इसमें shared worker की जानकारी और हर school का mode व resources होते हैं।
+- **Main worker** (`pragnya.nasven.com`) — platform/control plane:
+  - Roles: **SuperAdmin** और **School Director**।
+  - यहीं registration, approval, billing/payment, plan management, provisioning, global plugin catalog होता है।
+  - School Director यहीं अपने school का account/plan/billing manage करता है।
+- **School worker** (`<slug>.pragnya.nasven.com`) — data plane (school operations):
+  - Roles: **Director, Principal, Teacher, Staff, Student**।
+  - **SuperAdmin का कोई role school worker में नहीं होता** — सारा school-scoped management Director/Principal करते हैं।
+  - operational data: students, teachers, attendance, fees, exams, notices, etc.
 
+## 6. School Registry (schools.json)
+
+यह file पूरे deployment की source of truth है। इसमें shared worker की जानकारी और हर school का mode, resources और email quota होता है।
+
+```json
+{
+  "platform": {
+    "name": "school-management",
+    "domain": "pragnya.nasven.com",
+    "dispatchNamespace": "school-management-dispatch"
+  },
+  "schools": [
     {
-      "sharedWorker": {
-        "name": "school-management",
-        "domain": "pragnya.nasven.com"
-      },
-      "schools": [
-        {
-          "slug": "vidyasetu",
-          "schoolId": "school-tenant-id-1",
-          "mode": "shared"
-        },
-        {
-          "slug": "greenwood",
-          "schoolId": "school-tenant-id-2",
-          "mode": "dedicated",
-          "domain": "greenwood.pragnya.nasven.com",
-          "d1DatabaseId": "d1-xxxx-xxxx",
-          "r2BucketName": "school-management-greenwood-media",
-          "kvNamespaceId": "kv-yyyy-yyyy"
-        }
-      ]
+      "slug": "vidyasetu",
+      "schoolId": "school-tenant-id-1",
+      "mode": "shared"
+    },
+    {
+      "slug": "greenwood",
+      "schoolId": "school-tenant-id-2",
+      "mode": "dedicated",
+      "domain": "greenwood.pragnya.nasven.com",
+      "d1DatabaseId": "d1-xxxx-xxxx",
+      "r2BucketName": "school-management-greenwood-media",
+      "kvNamespaceId": "kv-yyyy-yyyy",
+      "emailQuota": 5000
     }
+  ]
+}
+```
 
-- mode: "shared" → school shared worker पर चलता है, कोई extra infrastructure नहीं।
-- mode: "dedicated" → school का अपना worker, D1, R2, KV और domain।
+- `mode: "shared"` → school shared worker पर चलता है, कोई extra infrastructure नहीं।
+- `mode: "dedicated"` → school का अपना worker, D1, R2, KV, domain और secrets।
 
-## 5. Platform (Control Plane) vs School (Operational) Data
+## 7. Platform (Control Plane) vs School (Operational) Data
 
-सबसे important architectural सिद्धांत: **platform-level tables सिर्फ़ shared/platform worker के D1 में रहती हैं**। dedicated worker का D1 सिर्फ़ उस school का operational data रखता है।
+सबसे important architectural सिद्धांत: **platform-level tables सिर्फ़ main/platform worker के D1 में रहती हैं**। dedicated worker का D1 सिर्फ़ उस school का operational data रखता है।
 
-**Platform (shared worker के D1) में रहता है:**
-- platform_admins
-- school_tenants
-- school_subscriptions
-- billing_invoices
-- plugins (global catalog)
-- school_plugins (कौन सा school कौन सा plugin use करता है)
-- subscription_plans
+**Platform (main worker के D1) में रहता है:**
+- `platform_admins`
+- `school_tenants`
+- `school_subscriptions`
+- `billing_invoices`
+- `plugins` (global catalog)
+- `school_plugins` (कौन सा school कौन सा plugin use करता है)
+- `subscription_plans`
 
 **Dedicated worker के D1 में रहता है (सिर्फ़ operational data):**
-- school_profile
-- system_users (उस school के Director/Principal/Staff)
-- students, staff, classes, class_teachers
-- attendance, fees, exams, notices
-- subjects, leave_applications, activity_logs
-- notifications / fcm tokens
+- `school_profile`
+- `system_users` (उस school के Director/Principal/Staff/Teacher/Student)
+- `students`, `staff`, `classes`, `class_teachers`
+- `attendance`, `fees`, `exams`, `notices`
+- `subjects`, `leave_applications`, `activity_logs`
+- `notifications` / `fcm_tokens`
 
 **इसका फ़ायदा:**
 - Billing, plans, plugins और Super Admin console की एक ही source of truth रहती है (platform worker)।
 - Dedicated worker हल्का और पूरी तरह school-scoped रहता है।
-- Dedicated school का billing/plugin/admin data कभी भी दो जगह split नहीं होता।
+- Dedicated school का billing/plugin/admin data कभी दो जगह split नहीं होता।
 
-## 6. System कैसे काम करता है
+## 8. System कैसे काम करता है (request flows)
 
-### 6.1 Request Flow (Shared School)
+### 8.1 Request Flow (Shared School)
 
-1. User ब्राउज़र में **pragnya.nasven.com** खोलता है।
-2. Request shared worker (**school-management**) पर जाता है।
-3. Login के बाद user का school_id signed token (JWT) से मिलता है।
-4. सारे API calls में school_id filter लगता है (shared D1 में multi-tenant data)।
-5. सिर्फ उसी school का data दिखता और बदलता है।
+1. User browser में **pragnya.nasven.com** खोलता है।
+2. Request main worker (**school-management**) पर जाता है।
+3. Login के बाद user का `school_id` signed token (JWT) से मिलता है।
+4. सारे API calls में `school_id` filter लगता है (shared D1 में multi-tenant data)।
+5. सिर्फ़ उसी school का data दिखता और बदलता है।
 
-### 6.2 Request Flow (Dedicated School)
+### 8.2 Request Flow (Dedicated School)
 
-1. User ब्राउज़र में **(slug).pragnya.nasven.com** खोलता है।
-2. Request उस school के अपने worker (**school-management-(slug)**) पर जाता है।
-3. Worker का env.SCHOOL_ID और env.SCHOOL_SLUG fixed होता है।
+1. User browser में **(slug).pragnya.nasven.com** खोलता है।
+2. Request dispatch namespace से उस school के अपने worker पर पहुँचता है।
+3. Worker का `env.SCHOOL_ID` और `env.SCHOOL_SLUG` fixed होता है।
 4. सारा operational data उस school के अपने D1/R2/KV में रहता है।
 5. दूसरे school का data physically उस worker/DB में होता ही नहीं।
 6. Billing / Plans / Plugins / Admin जैसे platform routes **platform worker को proxy** करते हैं।
 
-### 6.3 Plugin Loading
+### 8.3 Plugin Loading
 
-- Plugin catalog और school_plugins subscription platform D1 में रहते हैं।
-- Dedicated worker का /api/plugins/* route platform API से पढ़कर response देता है (proxy)।
-- Frontend shell PLUGINS_REGISTRY से plugin के navItems, routes और widgets dynamically inject करता है।
+- Plugin catalog और `school_plugins` subscription platform D1 में रहते हैं।
+- Dedicated worker का `/api/plugins/*` route platform API से पढ़कर response देता है (proxy)।
+- Frontend shell `PLUGINS_REGISTRY` से plugin के navItems, routes और widgets dynamically inject करता है।
 - core shell में कोई hardcoded if-statement नहीं होता।
 
-## 7. Security & School Isolation
+## 9. Plugin Architecture + LMS as add-on
+
+- Plugins पूरी तरह core से decoupled (WordPress-style) हैं।
+- Backend: `api/plugins/index.ts` + DB tables (`plugins`, `school_plugins`) — ये platform worker पर रहते हैं।
+- Frontend: `plugins/index.ts` का `PLUGINS_REGISTRY`।
+- नया plugin बनाने के लिए:
+  1. `plugins/(plugin-name)/` folder बनाएँ (screen/widget)।
+  2. `db_migrations` में migration से plugin register करें।
+  3. `api/(plugin-name)/` बनाकर `api/index.ts` में route register करें।
+  4. `plugins/index.ts` में `PLUGINS_REGISTRY` में entry जोड़ें।
+- एक deploy के बाद plugin सभी schools (shared और dedicated दोनों) में उपलब्ध हो जाता है।
+
+**LMS Dashboard = plugin (advanced service / add-on):**
+- Core में सिर्फ़ student management + teacher management (और ज़रूरी school operations)।
+- LMS dashboard `plugin-lms` के रूप में रहेगा — plan/add-on के हिसाब से `school_plugins` से activate होगा।
+- जिस school ने LMS नहीं लिया, उसके UI/worker पर LMS का load नहीं पड़ेगा।
+
+## 10. Email quota (business domain)
+
+- हर school को अपने business domain से email भेजने की सुविधा मिलेगी।
+- Plan के हिसाब से **monthly email quota** track होगा (जैसे Trial: limited, Starter: 500, Pro: 2000, Enterprise: custom)।
+- Email provider integration से भेजा जाएगा; quota `school_subscriptions` में store होगा।
+- Dedicated school के अपने email domain + अपने sender credentials होंगे।
+
+## 11. Performance — D1 पर load कम + queries fast
+
+सिर्फ़ "अलग DB" होना ही fast queries की गारंटी नहीं है। साथ में यह करना है:
+
+- D1 में सही **indexes** और **`school_id` composite keys** हर shared table पर।
+- हर query में `school_id` scoping — ताकि index hit हो और cross-tenant scan न हो।
+- Hot/frequently-read data **KV cache** में रखना।
+- Media/files **R2** में (D1 में नहीं)।
+- Heavy read endpoints cached (सिर्फ़ school-scoped cache keys)।
+- Dedicated school = अपना D1, इसलिए एक school का load दूसरे school की query पर असर नहीं डालता।
+
+## 12. Security & School Isolation
 
 Dedicated mode में isolation की पूरी गारंटी के लिए ये rules apply होंगे:
 
-- Worker का env.SCHOOL_ID ही हमेशा school माना जाएगा; request header से कोई दूसरा school override नहीं होगा।
-- verifyToken के बाद authUser.schoolId !== env.SCHOOL_ID हो तो request reject (401/403)।
-- हर dedicated worker का अपना AUTH_SECRET होगा, ताकि shared worker का token dedicated worker पर valid न हो।
-- X-School-Id header सिर्फ़ SuperAdmin के लिए accept होगा। बाकी users का schoolId सिर्फ़ JWT से लिया जाएगा।
-- getRequestSchoolId() का fallback "school-01" dedicated mode में हट जाएगा।
-- Super Admin login सिर्फ़ platform worker पर होगा; dedicated worker पर platform_admins check empty रहेगा।
+- Worker का `env.SCHOOL_ID` ही हमेशा school माना जाएगा; request header से कोई दूसरा school override नहीं होगा।
+- `verifyToken` के बाद `authUser.schoolId !== env.SCHOOL_ID` हो तो request reject (401/403)।
+- हर dedicated worker का अपना `AUTH_SECRET` होगा, ताकि shared worker का token dedicated worker पर valid न हो।
+- `X-School-Id` header सिर्फ़ SuperAdmin के लिए accept होगा; बाकी users का schoolId सिर्फ़ JWT से लिया जाएगा।
+- `getRequestSchoolId()` का fallback `"school-01"` dedicated mode में हट जाएगा।
+- Super Admin login सिर्फ़ platform worker पर होगा; dedicated worker पर `platform_admins` check empty रहेगा।
 
-## 8. Single Build + Runtime Config
+## 13. Single Build + Runtime Config
 
 सभी schools के लिए **एक ही frontend build** रखने के लिए school-specific client config build-time पर bake नहीं होगी:
 
-- Firebase / FCM web config अभी NEXT_PUBLIC_FIREBASE_WEB_CONFIG_JSON से build-time पर बनती है — इसे runtime पर /api/config जैसे endpoint से लाया जाएगा।
-- Razorpay key id पहले से ही runtime पर /api/billing/razorpay/config से आती है (सही है)।
-- इससे एक ही bundle (out/) shared और सभी dedicated schools दोनों के लिए काम करेगा।
-- FCM service account जैसे private secrets हमेशा Worker side (env) में रहेंगे, client पर कभी नहीं आएँगे।
+- Firebase / FCM web config build-time `NEXT_PUBLIC_FIREBASE_WEB_CONFIG_JSON` से हटाकर runtime `/api/config` endpoint से लाया जाएगा।
+- Razorpay key id पहले से ही runtime `/api/billing/razorpay/config` से आती है (सही है)।
+- इससे एक ही bundle (`out/`) shared और सभी dedicated schools दोनों के लिए काम करेगा।
+- FCM service account जैसे private secrets हमेशा Worker side (`env`) में रहेंगे, client पर कभी नहीं आएँगे।
 
-## 9. Deployment Pipeline (CI/CD)
+## 14. Provisioning (Workers for Platforms)
 
-GitHub Actions (**.github/workflows/deploy.yml**) — main branch पर push होते ही:
-
-**Step 1 — Provision (सिर्फ़ dedicated schools)**
-- schools.json पढ़ता है।
-- जिन dedicated schools के resource IDs गायब हैं, उनके लिए wrangler से D1 / R2 / KV बनाता है।
-- मिले IDs वापस schools.json में commit होते हैं।
-- scripts/generate-school-configs.mjs हर dedicated school का wrangler-(slug).toml बनाता है।
-
-**Step 2 — Build (एक बार)**
-- npm install + npm run build।
-- shared और dedicated दोनों के लिए same bundle।
-
-**Step 3 — Platform / Shared Deploy**
-- wrangler deploy (shared worker school-management)।
-- D1 migrations apply।
-- platform के common secrets set होते हैं।
-- Super Admin bootstrap सिर्फ़ platform worker पर (https://pragnya.nasven.com/api/admin/bootstrap) चलता है।
-
-**Step 4 — Dedicated Matrix Deploy**
-- हर dedicated school के लिए:
-  - wrangler d1 migrations apply DB --remote -c wrangler-(slug).toml
-  - wrangler deploy -c wrangler-(slug).toml
-  - उस school के अपने secrets set (RAZORPAY, FCM, AUTH_SECRET आदि)
-- हर school अपने (slug).pragnya.nasven.com पर update होता है।
-
-## 10. Auto-Provisioning (नया Dedicated School)
-
-नया dedicated school बनाने की प्रक्रिया (दो चरणों में):
-
-**चरण A — अभी (commit-based):**
-1. Super Admin school को Enterprise plan approve करता है।
-2. schools.json में mode: "dedicated" entry add की जाती है।
-3. main branch पर push होते ही CI का Provision step D1/R2/KV अपने-आप बनाता है।
-4. worker deploy + migrations + secrets अपने-आप होते हैं।
-5. school (slug).pragnya.nasven.com पर live हो जाता है।
-
-**चरण B — बाद में (Super Admin UI से one-click):**
-- platform worker को एक GITHUB_TOKEN secret दिया जाएगा।
-- Super Admin console से "Provision" button platform worker को GitHub workflow dispatch करने देगा।
-- इससे schools.json manually edit किए बिना ही provisioning हो जाएगी।
-
-## 11. Secrets Management
-
-- **Shared / platform worker**: platform के common secrets (AUTH_SECRET, RAZORPAY, FCM, WEB_PUSH आदि) GitHub secrets से आते हैं।
-- **Dedicated worker**: हर school के अपने secrets, GitHub secrets में SECRET_SLUG नाम से रखे जाते हैं (जैसे RAZORPAY_KEY_ID_GREENWOOD, AUTH_SECRET_GREENWOOD)।
-- ज़रूरत पड़ने पर dedicated school को कुछ specific secrets अलग से भी दिए जा सकते हैं।
-
-## 12. Domains & Routing
-
-- Base domain: **nasven.com**
-- Shared: **pragnya.nasven.com**
-- Dedicated: **(slug).pragnya.nasven.com**
-- dedicated worker के wrangler config में custom_domain (slug).pragnya.nasven.com set होता है।
-- pragnya.nasven.com और *.pragnya.nasven.com Cloudflare zone पर होने चाहिए।
-- Cloudflare API token में Workers + Custom Domains/Routes की permission चाहिए।
-
-**Migration note:** अभी repo में पुराने domains reference हैं — wrangler.toml का APP_BASE_URL (pragnya.navasanganakah.com) और deploy.yml का bootstrap URL (school-management.nssite.workers.dev)। इन्हें हटाकर सिर्फ़ nasven.com tree रखना है।
-
-## 13. Plugin Architecture
-
-- Plugins पूरी तरह core से decoupled (WordPress-style) हैं।
-- Backend: api/plugins/index.ts + DB tables (plugins, school_plugins) — ये platform worker पर रहती हैं।
-- Frontend: plugins/index.ts का PLUGINS_REGISTRY।
-- नया plugin बनाने के लिए:
-  1. plugins/(plugin-name)/ folder बनाएँ (screen/widget)।
-  2. db_migrations में migration से plugin register करें।
-  3. api/(plugin-name)/ बनाकर api/index.ts में route register करें।
-  4. plugins/index.ts में PLUGINS_REGISTRY में entry जोड़ें।
-- एक deploy के बाद plugin सभी schools (shared और dedicated दोनों) में उपलब्ध हो जाता है।
-
-## 14. नया School जोड़ने की प्रक्रिया
-
-**Shared School:**
+### 14.1 नया Shared School
 1. School register/approve होता है।
-2. school_tenants में row बनती है।
-3. तुरंत shared worker (pragnya.nasven.com) पर उपलब्ध।
+2. `school_tenants` में row बनती है।
+3. तुरंत shared worker (`pragnya.nasven.com`) पर उपलब्ध।
 4. कोई deploy आवश्यक नहीं।
 
-**Dedicated School:**
-1. Enterprise plan subscribe/approve।
-2. schools.json में dedicated entry।
-3. CI auto-provision → worker + D1 + R2 + KV + domain + secrets।
+### 14.2 नया Dedicated School (Enterprise)
+1. Enterprise plan subscribe/approve (या payment complete)।
+2. Main (control plane) worker **Cloudflare API से** provision करता है:
+   - D1 database + R2 bucket + KV namespace बनाना।
+   - school worker (dispatch namespace में tag/binding) बनाना।
+   - `AUTH_SECRET`, Razorpay keys, email credentials जैसे secrets set करना।
+   - `(slug).pragnya.nasven.com` custom domain/route बनाना।
+3. schema migrations apply।
 4. school अपने subdomain पर live।
 
-## 15. Downgrade नीति (Enterprise → Shared)
+CI/CD (GitHub Actions) में main branch पर push होते ही:
+- build एक बार होता है (shared + dedicated दोनों के लिए same bundle)।
+- platform/shared worker deploy होता है।
+- dedicated schools के लिए provision step चलता है (schools.json पढ़कर)।
+
+## 15. Secrets Management
+
+- **Shared / platform worker**: platform के common secrets (`AUTH_SECRET`, `RAZORPAY`, `FCM`, `WEB_PUSH` आदि) GitHub secrets से आते हैं।
+- **Dedicated worker**: हर school के अपने secrets, GitHub secrets में `SECRET_SLUG` नाम से रखे जाते हैं (जैसे `RAZORPAY_KEY_ID_GREENWOOD`, `AUTH_SECRET_GREENWOOD`)।
+- ज़रूरत पड़ने पर dedicated school को कुछ specific secrets अलग से भी दिए जा सकते हैं।
+
+## 16. Domains & Routing
+
+- Base domain: **nasven.com**
+- Shared/platform: **pragnya.nasven.com**
+- Dedicated: **(slug).pragnya.nasven.com**
+- `pragnya.nasven.com` और `*.pragnya.nasven.com` Cloudflare zone पर होने चाहिए।
+- `*.pragnya.nasven.com` route **dispatch namespace** पर जाता है, जो hostname से सही school worker चुनता है।
+- Cloudflare API token में Workers + Custom Domains/Routes की permission चाहिए।
+
+**Migration note:** repo में पुराने domains reference हैं — `wrangler.toml` का `APP_BASE_URL` (`pragnya.navasanganakah.com`) और `deploy.yml` का bootstrap URL (`school-management.nssite.workers.dev`)। इन्हें हटाकर सिर्फ़ nasven.com tree रखना है।
+
+## 17. Downgrade नीति (Enterprise → Shared)
 
 अगर कोई school Enterprise plan छोड़ता है:
 
 1. school का operational data dedicated D1 से shared D1 में add/merge किया जाता है।
-2. merge के समय ID collision से बचने के लिए mapping रखी जाती है (school-/usr-/sub-/binv- prefixed IDs)।
-3. school को shared worker पर लाया जाता है और school_tenants की plan_id / mode update होती है।
-4. Enterprise-level features हट जाते हैं (multiSchool, customDomain, dedicatedWorker)।
+2. merge के समय ID collision से बचने के लिए mapping रखी जाती है (`school-`/`usr-`/`sub-`/`binv-` prefixed IDs)।
+3. school को shared worker पर लाया जाता है और `school_tenants` की `plan_id` / `mode` update होती है।
+4. Enterprise-level features हट जाते हैं (`multiSchool`, `customDomain`, `dedicatedWorker`)।
 5. dedicated worker/D1/R2/KV बाद में delete या freeze किए जा सकते हैं।
-6. यह merge scripts/downgrade-school.mjs से run होगा (बाद में बनेगा)।
+6. यह merge `scripts/downgrade-school.mjs` से run होगा।
 
-## 16. Repository File Structure
+## 18. Repository File Structure
 
-- schools.json — school registry (source of truth)
-- scripts/provision-school.mjs — नए dedicated school के resources auto-create
-- scripts/generate-school-configs.mjs — registry से wrangler-(slug).toml generate
-- scripts/downgrade-school.mjs — dedicated से shared data merge (बाद में)
-- .github/workflows/deploy.yml — CI/CD pipeline
-- wrangler.toml — platform/shared worker config
-- wrangler-(slug).toml — dedicated worker config (generated)
-- api/ — Hono API (core backend)
-- app/ + components/ — Next.js frontend
-- plugins/ — plugin system (frontend)
-- db_migrations/ — D1 migrations
-- docs/multitenant-deploy.md — यह document
+- `schools.json` — school registry (source of truth)
+- `scripts/provision-school.mjs` — नए dedicated school के resources auto-create (Workers for Platforms API)
+- `scripts/generate-school-configs.mjs` — registry से per-school config generate
+- `scripts/downgrade-school.mjs` — dedicated से shared data merge
+- `.github/workflows/deploy.yml` — CI/CD pipeline
+- `wrangler.toml` — platform/shared worker config
+- `api/` — Hono API (core backend)
+- `app/` + `components/` — Next.js frontend
+- `plugins/` — plugin system (frontend) + `api/plugins/` (backend)
+- `db_migrations/` — D1 migrations
+- `docs/multitenant-deploy.md` — यह document
 
-## 17. Cloudflare Resources Overview
+## 19. Cloudflare Resources Overview
 
 **Platform / Shared:**
-- Worker: school-management
-- D1: school-management (shared)
-- R2: school-management-production (shared)
-- KV: CONFIG_KV (shared)
+- Worker: `school-management`
+- Dispatch namespace: `school-management-dispatch`
+- D1: `school-management` (shared)
+- R2: `school-management-production` (shared)
+- KV: `CONFIG_KV` (shared)
 
 **Dedicated (हर school के लिए):**
-- Worker: school-management-(slug)
-- D1: school-management-(slug)-db
-- R2: school-management-(slug)-media
-- KV: school-management-(slug)-config
+- Worker (dispatch namespace में tag): `school-management-(slug)`
+- D1: `school-management-(slug)-db`
+- R2: `school-management-(slug)-media`
+- KV: `school-management-(slug)-config`
 
-## 18. Current State / Cleanup
+## 20. Current State / Cleanup
 
-दो-स्तरीय system में जाते समय ये cleanup करना है:
+दो-स्तरीय system में जाते समय यह cleanup करना है:
 
-- APP_BASE_URL और bootstrap URL को nasven.com tree पर standardize करना।
-- workers.dev (nssite.workers.dev) bootstrap हटाकर custom domain pragnya.nasven.com use करना।
-- X-School-Id header का scope सिर्फ़ SuperAdmin तक सीमित करना।
+- `APP_BASE_URL` और bootstrap URL को nasven.com tree पर standardize करना।
+- `workers.dev` (`nssite.workers.dev`) bootstrap हटाकर custom domain `pragnya.nasven.com` use करना।
+- `X-School-Id` header का scope सिर्फ़ SuperAdmin तक सीमित करना।
 - Firebase web config को build-time से हटाकर runtime config पर लाना।
-- dedicated worker के /billing, /plugins, /admin routes platform proxy पर लाना।
+- dedicated worker के `/billing`, `/plugins`, `/admin` routes platform proxy पर लाना।
 
-## 19. Roadmap / आगे के चरण
+## 21. Roadmap / आगे के चरण
 
-1. schools.json + scripts (provision/generate-configs) बनाना।
-2. .github/workflows/deploy.yml को two-tier matrix में update करना।
-3. Enterprise plan में dedicatedWorker flag जोड़ना (code + migration)।
-4. Worker में SCHOOL_ID/SCHOOL_SLUG context और school-isolation enforcement।
-5. Firebase web config runtime endpoint (/api/config)।
-6. Downgrade के लिए data migration script बनाना।
-7. (वैकल्पिक) Super Admin UI से one-click provisioning (GITHUB_TOKEN के साथ)।
+1. इस document को Workers for Platforms + control/data plane + LMS-as-plugin architecture पर update करना (यह step)।
+2. `schools.json` + provisioning scripts को Workers for Platforms API के हिसाब से बनाना।
+3. `.github/workflows/deploy.yml` को dispatch namespace + provision step में update करना।
+4. Enterprise plan में `dedicatedWorker` flag जोड़ना (code + migration)।
+5. Worker में `SCHOOL_ID`/`SCHOOL_SLUG` context और school-isolation enforcement।
+6. Roles split: main worker (SuperAdmin + Director) vs school worker (Director/Principal/Teacher/Staff/Student)।
+7. Firebase web config runtime endpoint (`/api/config`)।
+8. LMS dashboard plugin (`plugin-lms`) बनाना — core से बाहर, add-on के रूप में।
+9. Email quota tracking + business-domain email integration।
+10. Downgrade के लिए data migration script।
+11. (वैकल्पिक) Super Admin UI से one-click provisioning।
