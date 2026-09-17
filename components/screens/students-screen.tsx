@@ -224,7 +224,9 @@ export function StudentsScreen({ userRole, currentUser }: StudentsScreenProps) {
                           <p className="flex items-center gap-1">
                             {student.fullName}
                             {student.missingDetails && (
-                              <AlertCircle className="h-3.5 w-3.5 text-rose-500 shrink-0" title={`Missing Details: ${student.missingDetails}`} />
+                              <span title={`Missing Details: ${student.missingDetails}`}>
+                                <AlertCircle className="h-3.5 w-3.5 text-rose-500 shrink-0" />
+                              </span>
                             )}
                           </p>
                           <p className="text-[11px] text-slate-400 font-normal">
