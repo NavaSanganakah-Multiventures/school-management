@@ -9,6 +9,17 @@ import noticesApp from './notices';
 import notificationsApp from './notifications';
 import dashboardStatsApp from './dashboard-stats';
 import { principalApp } from './principal';
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import authApp from './auth';
+import studentsApp from './students';
+import attendanceApp from './attendance';
+import feesApp from './fees';
+import examsApp from './exams';
+import noticesApp from './notices';
+import notificationsApp from './notifications';
+import dashboardStatsApp from './dashboard-stats';
+import { principalApp } from './principal';
 import { staffApp } from './staff';
 import { schoolProfileApp } from './school-profile';
 import billingApp from './billing';
@@ -16,6 +27,8 @@ import adminApp from './admin';
 import fcmProxyApp from './fcm-proxy';
 import classesApp from './classes';
 import activityLogsApp from './activity-logs';
+import subjectsApp from './subjects';
+import leaveApp from './leave-applications';
 
 const app = new Hono<{ Bindings: any }>().basePath('/api');
 
@@ -49,5 +62,7 @@ app.route('/admin', adminApp);
 app.route('/classes', classesApp);
 app.route('/fcm-proxy', fcmProxyApp);
 app.route('/activity-logs', activityLogsApp);
+app.route('/subjects', subjectsApp);
+app.route('/leave-applications', leaveApp);
 
 export default app;

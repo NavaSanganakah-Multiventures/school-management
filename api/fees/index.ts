@@ -188,4 +188,79 @@ feesApp.post('/create-bulk', async (c) => {
   }, 201);
 });
 
+// GET /api/fees/heads - List fee heads
+feesApp.get('/heads', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  const schoolId = getRequestSchoolId(c, authUser);
+
+  const heads = await db.prepare('SELECT * FROM fee_heads WHERE school_id = ? ORDER BY head_name').bind(schoolId).all();
+  return c.json({ success: true, feeHeads: heads.results || [] });
+});
+
+// POST /api/fees/heads - Add a new fee head
+feesApp.post('/heads', async (c) => {
+  const db = getDB(c);
+  const authUser = await getAuthUser(c);
+  if (!authUser || (authUser.role !== 'Director' && authUser.role !== 'Principal')) {
+    return c.json({ success: false, message: 'अनधिकृत पहुँच।' }, 403);
+  }
+  const schoolId = getRequestSchoolId(c, authUser);
+  const body = await c.req.json().catch(() => ({}));
+
+  if (!body.headName) return c.json({ success: false, message: 'फीस का नाम (Head Name) आवश्यक है।' }, 400);
+
+  const id = `fh-${crypto.randomUUID()}`;
+  await db.prepare('INSERT INTO fee_heads (id, school_id, head_name, description) VALUES (?, ?, ?, ?)')
+    .bind(id, schoolId, body.headName.trim(), body.description?.trim() || null).run();
+
+  return c.json({ success: true, message: 'फीस हेड सफलतापूर्वक जोड़ा गया।', id });
+});
+
+// GET /api/fees/structure - List class fee structure
+feesApp.get('/structure', async (c) => {
+  const db = getDB(c);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  const schoolId = getRequestSchoolId(c, authUser);
+
+  const structure = await db.prepare(
+    `SELECT cfs.*, fh.head_name 
+     FROM class_fee_structure cfs 
+     JOIN fee_heads fh ON cfs.fee_head_id = fh.id 
+     WHERE cfs.school_id = ? 
+     ORDER BY cfs.class_name, fh.head_name`
+  ).bind(schoolId).all();
+
+  return c.json({ success: true, feeStructure: structure.results || [] });
+});
+
+// POST /api/fees/structure - Assign fee to a class
+feesApp.post('/structure', async (c) => {
+  const db = getDB(c);
+  const authUser = await getAuthUser(c);
+  if (!authUser || (authUser.role !== 'Director' && authUser.role !== 'Principal')) {
+    return c.json({ success: false, message: 'अनधिकृत पहुँच।' }, 403);
+  }
+  const schoolId = getRequestSchoolId(c, authUser);
+  const body = await c.req.json().catch(() => ({}));
+
+  if (!body.className || !body.feeHeadId || !body.amount) {
+    return c.json({ success: false, message: 'कक्षा, फीस हेड और राशि (Amount) आवश्यक हैं।' }, 400);
+  }
+
+  const id = `cfs-${crypto.randomUUID()}`;
+  await db.prepare(
+    `INSERT INTO class_fee_structure (id, school_id, class_name, fee_head_id, amount, billing_cycle) 
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(
+    id, schoolId, body.className, body.feeHeadId, 
+    parseFloat(body.amount), body.billingCycle || 'Monthly'
+  ).run();
+
+  return c.json({ success: true, message: 'कक्षा के लिए फीस स्ट्रक्चर सफलतापूर्वक सेट किया गया।' });
+});
+
 export default feesApp;
