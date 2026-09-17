@@ -42,12 +42,12 @@ import { AdminConsoleScreen } from './screens/admin-console-screen';
 import { ClassesScreen } from './screens/classes-screen';
 import { ActivityLogsScreen } from './screens/activity-logs-screen';
 import { PluginMarketplaceScreen } from './screens/plugin-marketplace-screen';
-import { AIAssistantScreen } from './screens/ai-assistant-screen';
+
+import { PLUGINS_REGISTRY } from '../plugins';
 
 import { AddScholarModal } from './modals/add-scholar-modal';
 import { FcmBroadcastModal } from './modals/fcm-broadcast-modal';
 import { registerFcmWebToken, onForegroundFcmMessage, getWebPushDiagnostic } from '../lib/firebase-web-push';
-import { AIAssistantWidget } from './ai-assistant-widget';
 
 type UserRole = 'Director' | 'Principal' | 'Staff' | 'SuperAdmin';
 
@@ -392,7 +392,6 @@ export function SchoolCrmShell() {
     { id: 'students', label: 'स्कॉलर रजिस्टर', icon: Users, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'staff', label: 'स्टाफ एवं शिक्षक निर्देशिका', icon: GraduationCap, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'attendance', label: 'दैनिक छात्र उपस्थिति', icon: CalendarCheck, allowedRoles: ['Director', 'Principal', 'Staff'] },
-    { id: 'ai', label: 'विद्या AI असिस्टेंट', icon: Sparkles, allowedRoles: ['Director', 'Principal', 'Staff', 'SuperAdmin'], badge: 'AI' },
     {
       id: 'activity-logs',
       label: userRole === 'Staff' ? 'मेरी कार्यकलाप हिस्ट्री' : userRole === 'Principal' ? 'स्टाफ कार्यकलाप व ऑडिट' : 'स्कूल कार्यकलाप ऑडिट',
@@ -413,9 +412,17 @@ export function SchoolCrmShell() {
     if (item.superAdminOnly) return userRole === 'SuperAdmin';
     if (!item.allowedRoles || item.allowedRoles.indexOf(userRole) === -1) return false;
     if (item.requiredModule && planModules.indexOf(item.requiredModule) === -1) return false;
-    if (item.id === 'ai' && !activePlugins.includes('plugin-ai-assistant')) return false;
     return true;
   });
+
+  const activeFrontendPlugins = PLUGINS_REGISTRY.filter(p => activePlugins.includes(p.id));
+  
+  const dynamicNavItems = activeFrontendPlugins.flatMap(p => p.navItems || []).filter(item => {
+    if (!item.allowedRoles || item.allowedRoles.indexOf(userRole) === -1) return false;
+    return true;
+  });
+
+  const allNavItems = [...filteredNavItems, ...dynamicNavItems];
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans antialiased text-slate-900">
@@ -503,7 +510,7 @@ export function SchoolCrmShell() {
 
             <nav className="space-y-1">
               <div className="px-2 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">प्रशासनिक मॉड्यूल</div>
-              {filteredNavItems.map((item) => {
+              {allNavItems.map((item) => {
                 const isActive = activeTab === item.id;
                 const Icon = item.icon;
                 return (
@@ -557,7 +564,15 @@ export function SchoolCrmShell() {
           { activeTab === 'settings' && <SchoolSettingsScreen userRole={userRole} /> }
           { activeTab === 'plugins' && <PluginMarketplaceScreen /> }
           { activeTab === 'billing' && <BillingPlansScreen userRole={userRole} onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
-          { activeTab === 'ai' && <AIAssistantScreen /> }
+          
+          {/* Dynamic Plugin Routes */}
+          {activeFrontendPlugins.flatMap(p => p.routes || []).map(route => {
+            if (activeTab === route.id) {
+              const Component = route.component;
+              return <Component key={route.id} />;
+            }
+            return null;
+          })}
         </main>
       </div>
 
@@ -595,7 +610,10 @@ export function SchoolCrmShell() {
         </div>
       )}
 
-      {activePlugins.includes('plugin-ai-assistant') && <AIAssistantWidget />}
+      {/* Dynamic Plugin Widgets */}
+      {activeFrontendPlugins.flatMap(p => p.widgets || []).map((Widget, i) => (
+        <Widget key={i} />
+      ))}
     </div>
   );
 }
