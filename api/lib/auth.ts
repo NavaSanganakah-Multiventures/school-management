@@ -52,7 +52,25 @@ export async function verifyPassword(password: any, stored: any) {
 }
 
 function getSecret(c: any) {
-  return (c && c.env && c.env.AUTH_SECRET) || 'vidyasetu-dev-secret-change-me';
+  const env = c && c.env;
+  const secret = env && env.AUTH_SECRET;
+
+  if (!secret) {
+    const environment = (env && env.ENVIRONMENT) || 'development';
+    // Fail closed in any deployed environment: a missing secret must never silently
+    // downgrade session signing to a well-known development key.
+    if (environment === 'production' || environment === 'preview') {
+      throw new Error('AUTH_SECRET env secret is not set. Configure a strong AUTH_SECRET (>= 32 characters) before deploying.');
+    }
+    // Local development fallback only.
+    return 'vidyasetu-dev-secret-change-me';
+  }
+
+  if (typeof secret !== 'string' || secret.length < 32) {
+    throw new Error('AUTH_SECRET is too weak: it must be at least 32 characters long.');
+  }
+
+  return secret;
 }
 
 export async function signToken(c: any, payload: any) {

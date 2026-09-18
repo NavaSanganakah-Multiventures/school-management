@@ -94,7 +94,7 @@ export function LeaveManagementPanel({ userRole, currentUserId }: LeaveManagemen
                 <p className="text-xs font-medium text-slate-700 mb-1">अवधि (Duration):</p>
                 <p className="text-sm font-semibold text-slate-900">{new Date(leave.start_date).toLocaleDateString()} - {new Date(leave.end_date).toLocaleDateString()}</p>
                 <p className="text-xs font-medium text-slate-700 mt-2 mb-1">कारण (Reason):</p>
-                <p className="text-sm text-slate-800 italic">"{leave.reason}"</p>
+                <p className="text-sm text-slate-800 italic">&quot;{leave.reason}&quot;</p>
               </div>
               
               {leave.status === 'Pending' && (
