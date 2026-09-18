@@ -56,18 +56,23 @@ lmsApp.get('/courses', async (c) => {
 
   const className = c.req.query('className');
   const subject = c.req.query('subject');
+  const board = c.req.query('board');
 
   try {
     let query = 'SELECT * FROM lms_courses WHERE school_id = ?';
     const params: any[] = [schoolId];
 
-    if (className) {
+    if (className && className !== 'All') {
       query += ' AND class_name = ?';
       params.push(className);
     }
-    if (subject) {
+    if (subject && subject !== 'All') {
       query += ' AND subject = ?';
       params.push(subject);
+    }
+    if (board && board !== 'All') {
+      query += ' AND (board = ? OR board = "All")';
+      params.push(board);
     }
 
     query += ' ORDER BY created_at DESC';
@@ -91,18 +96,19 @@ lmsApp.post('/courses', async (c) => {
   const schoolId = getRequestSchoolId(c, authUser);
 
   const body = await c.req.json().catch(() => ({}));
-  const { title, className, subject, description, thumbnailUrl } = body;
+  const { title, className, subject, description, thumbnailUrl, board } = body;
 
   if (!title || !className || !subject) {
     return c.json({ success: false, message: 'कोर्स का शीर्षक, कक्षा और विषय अनिवार्य हैं।' }, 400);
   }
 
   const courseId = `crs-${crypto.randomUUID()}`;
+  const courseBoard = board ? String(board).trim() : 'CBSE';
 
   try {
     await db.prepare(`
-      INSERT INTO lms_courses (id, school_id, class_name, subject, title, description, teacher_id, teacher_name, thumbnail_url)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO lms_courses (id, school_id, class_name, subject, title, description, teacher_id, teacher_name, thumbnail_url, board)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       courseId,
       schoolId,
@@ -112,7 +118,8 @@ lmsApp.post('/courses', async (c) => {
       description?.trim() || '',
       authUser.sub || '',
       authUser.fullName || authUser.role,
-      thumbnailUrl?.trim() || null
+      thumbnailUrl?.trim() || null,
+      courseBoard
     ).run();
 
     await logActivity(db, {
@@ -122,7 +129,7 @@ lmsApp.post('/courses', async (c) => {
       userRole: authUser.role,
       actionType: 'CREATE_LMS_COURSE',
       actionTitle: 'नया LMS कोर्स बनाया गया',
-      description: `कोर्स '${title}' (कक्षा: ${className}, विषय: ${subject}) जोड़ा गया।`,
+      description: `कोर्स '${title}' (बोर्ड: ${courseBoard}, कक्षा: ${className}, विषय: ${subject}) जोड़ा गया।`,
       entityType: 'LMSCourse',
       entityId: courseId,
     });
@@ -223,18 +230,27 @@ lmsApp.post('/courses/:id/assignments', async (c) => {
   const courseId = c.req.param('id');
 
   const body = await c.req.json().catch(() => ({}));
-  const { title, instructions, dueDate, maxMarks, attachmentUrl } = body;
+  const {
+    title, instructions, dueDate, maxMarks, attachmentUrl,
+    targetType, targetSection, assignedStudentIds, assignedStudentNames
+  } = body;
 
   if (!title || !dueDate) {
     return c.json({ success: false, message: 'असाइनमेंट शीर्षक एवं अंतिम तिथि अनिवार्य हैं।' }, 400);
   }
 
   const assignmentId = `asg-${crypto.randomUUID()}`;
+  const parsedTargetType = targetType || 'all';
+  const parsedStudentIds = assignedStudentIds ? (typeof assignedStudentIds === 'string' ? assignedStudentIds : JSON.stringify(assignedStudentIds)) : null;
+  const parsedStudentNames = assignedStudentNames ? (typeof assignedStudentNames === 'string' ? assignedStudentNames : JSON.stringify(assignedStudentNames)) : null;
 
   try {
     await db.prepare(`
-      INSERT INTO lms_assignments (id, school_id, course_id, title, instructions, due_date, max_marks, attachment_url)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO lms_assignments (
+        id, school_id, course_id, title, instructions, due_date, max_marks, attachment_url,
+        target_type, target_section, assigned_student_ids, assigned_student_names
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       assignmentId,
       schoolId,
@@ -243,7 +259,11 @@ lmsApp.post('/courses/:id/assignments', async (c) => {
       instructions?.trim() || '',
       dueDate,
       Number(maxMarks || 100),
-      attachmentUrl?.trim() || null
+      attachmentUrl?.trim() || null,
+      parsedTargetType,
+      targetSection?.trim() || null,
+      parsedStudentIds,
+      parsedStudentNames
     ).run();
 
     return c.json({ success: true, message: 'असाइनमेंट सफलतापूर्वक बनाया गया।', assignmentId });
@@ -263,11 +283,15 @@ lmsApp.get('/assignments/:id/submissions', async (c) => {
   const assignmentId = c.req.param('id');
 
   try {
-    const { results } = await db.prepare(
+    const assignment = await db.prepare(
+      'SELECT * FROM lms_assignments WHERE id = ? AND school_id = ?'
+    ).bind(assignmentId, schoolId).first();
+
+    const { results: submissions } = await db.prepare(
       'SELECT * FROM lms_submissions WHERE assignment_id = ? AND school_id = ? ORDER BY submitted_at DESC'
     ).bind(assignmentId, schoolId).all();
 
-    return c.json({ success: true, submissions: results || [] });
+    return c.json({ success: true, assignment, submissions: submissions || [] });
   } catch (err: any) {
     return c.json({ success: false, message: err.message }, 500);
   }

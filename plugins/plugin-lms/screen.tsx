@@ -17,7 +17,13 @@ import {
   ChevronRight,
   ExternalLink,
   UploadCloud,
-  Send
+  Send,
+  Users,
+  UserCheck,
+  CheckSquare,
+  Square,
+  Building2,
+  Tag
 } from 'lucide-react';
 
 interface Course {
@@ -28,6 +34,7 @@ interface Course {
   description: string;
   teacher_name: string;
   created_at: string;
+  board?: string;
 }
 
 interface Lesson {
@@ -50,6 +57,18 @@ interface Assignment {
   max_marks: number;
   attachment_url: string;
   created_at: string;
+  target_type?: 'all' | 'section' | 'students';
+  target_section?: string;
+  assigned_student_ids?: string;
+  assigned_student_names?: string;
+}
+
+interface StudentOption {
+  id: string;
+  rollNumber: string;
+  fullName: string;
+  section: string;
+  className: string;
 }
 
 interface Submission {
@@ -76,6 +95,10 @@ export function PluginLmsScreen() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterClass, setFilterClass] = useState('All');
 
+  const BOARDS = ['All', 'CBSE', 'ICSE', 'MP Board', 'UP Board', 'State Board'];
+  const [filterBoard, setFilterBoard] = useState('All');
+  const [newBoard, setNewBoard] = useState('CBSE');
+
   // Form states
   const [newTitle, setNewTitle] = useState('');
   const [newClass, setNewClass] = useState('कक्षा 10');
@@ -90,12 +113,18 @@ export function PluginLmsScreen() {
   const [lessonUrl, setLessonUrl] = useState('');
   const [lessonDuration, setLessonDuration] = useState('20');
 
-  // Assignment form
+  // Assignment form & Targeted Allocation
   const [isAddAssignmentOpen, setIsAddAssignmentOpen] = useState(false);
   const [asgTitle, setAsgTitle] = useState('');
   const [asgInstructions, setAsgInstructions] = useState('');
   const [asgDueDate, setAsgDueDate] = useState('');
   const [asgMaxMarks, setAsgMaxMarks] = useState('100');
+  const [asgTargetType, setAsgTargetType] = useState<'all' | 'section' | 'students'>('all');
+  const [asgTargetSection, setAsgTargetSection] = useState('A');
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [classStudents, setClassStudents] = useState<StudentOption[]>([]);
+  const [studentSearchTerm, setStudentSearchTerm] = useState('');
+  const [loadingStudents, setLoadingStudents] = useState(false);
 
   // Grading form
   const [gradingSubId, setGradingSubId] = useState<string | null>(null);
@@ -113,7 +142,10 @@ export function PluginLmsScreen() {
   const fetchCourses = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/lms/courses');
+      const params = new URLSearchParams();
+      if (filterClass !== 'All') params.append('className', filterClass);
+      if (filterBoard !== 'All') params.append('board', filterBoard);
+      const res = await fetch(`/api/lms/courses?${params.toString()}`);
       const data = await res.json();
       if (data.success && Array.isArray(data.courses)) {
         setCourses(data.courses);
@@ -123,6 +155,24 @@ export function PluginLmsScreen() {
       }
     } catch (e) {}
     setLoading(false);
+  };
+
+  const fetchStudentsForCourse = async (className: string) => {
+    setLoadingStudents(true);
+    try {
+      const res = await fetch(`/api/students?class=${encodeURIComponent(className)}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.students)) {
+        setClassStudents(data.students.map((s: any) => ({
+          id: s.id,
+          rollNumber: s.rollNumber || s.roll_number || '-',
+          fullName: s.fullName || `${s.firstName || ''} ${s.lastName || ''}`.trim() || 'छात्र',
+          section: s.section || 'A',
+          className: s.className || s.class_name || className
+        })));
+      }
+    } catch (e) {}
+    setLoadingStudents(false);
   };
 
   const loadCourseDetails = async (course: Course) => {
@@ -151,7 +201,13 @@ export function PluginLmsScreen() {
   useEffect(() => {
     fetchStats();
     fetchCourses();
-  }, []);
+  }, [filterClass, filterBoard]);
+
+  useEffect(() => {
+    if (isAddAssignmentOpen && selectedCourse) {
+      fetchStudentsForCourse(selectedCourse.class_name);
+    }
+  }, [isAddAssignmentOpen, selectedCourse]);
 
   const handleCreateCourse = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -165,7 +221,8 @@ export function PluginLmsScreen() {
           title: newTitle,
           className: newClass,
           subject: newSubject,
-          description: newDesc
+          description: newDesc,
+          board: newBoard
         })
       });
       const data = await res.json();
@@ -216,6 +273,10 @@ export function PluginLmsScreen() {
     e.preventDefault();
     if (!selectedCourse || !asgTitle.trim() || !asgDueDate) return;
 
+    const assignedNames = classStudents
+      .filter(s => selectedStudentIds.includes(s.id))
+      .map(s => s.fullName);
+
     try {
       const res = await fetch(`/api/lms/courses/${selectedCourse.id}/assignments`, {
         method: 'POST',
@@ -224,7 +285,11 @@ export function PluginLmsScreen() {
           title: asgTitle,
           instructions: asgInstructions,
           dueDate: asgDueDate,
-          maxMarks: Number(asgMaxMarks)
+          maxMarks: Number(asgMaxMarks),
+          targetType: asgTargetType,
+          targetSection: asgTargetType === 'section' ? asgTargetSection : null,
+          assignedStudentIds: asgTargetType === 'students' ? selectedStudentIds : null,
+          assignedStudentNames: asgTargetType === 'students' ? assignedNames : null
         })
       });
       const data = await res.json();
@@ -232,6 +297,8 @@ export function PluginLmsScreen() {
         setAsgTitle('');
         setAsgInstructions('');
         setAsgDueDate('');
+        setAsgTargetType('all');
+        setSelectedStudentIds([]);
         setIsAddAssignmentOpen(false);
         await loadCourseDetails(selectedCourse);
         await fetchStats();
@@ -260,10 +327,48 @@ export function PluginLmsScreen() {
     } catch (e) {}
   };
 
+  const getBoardBadgeClass = (board?: string) => {
+    switch (board) {
+      case 'CBSE':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'ICSE':
+        return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'MP Board':
+        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      case 'UP Board':
+        return 'bg-amber-100 text-amber-800 border-amber-200';
+      case 'State Board':
+        return 'bg-cyan-100 text-cyan-800 border-cyan-200';
+      default:
+        return 'bg-indigo-100 text-indigo-800 border-indigo-200';
+    }
+  };
+
+  const getAssignedNamesList = (asg: Assignment): string[] => {
+    if (!asg.assigned_student_names) return [];
+    try {
+      const parsed = JSON.parse(asg.assigned_student_names);
+      return Array.isArray(parsed) ? parsed : [String(asg.assigned_student_names)];
+    } catch (e) {
+      return String(asg.assigned_student_names).split(',').map(s => s.trim()).filter(Boolean);
+    }
+  };
+
+  const getAssignedIdsList = (asg: Assignment): string[] => {
+    if (!asg.assigned_student_ids) return [];
+    try {
+      const parsed = JSON.parse(asg.assigned_student_ids);
+      return Array.isArray(parsed) ? parsed : [String(asg.assigned_student_ids)];
+    } catch (e) {
+      return String(asg.assigned_student_ids).split(',').map(s => s.trim()).filter(Boolean);
+    }
+  };
+
   const filteredCourses = courses.filter(c => {
     const matchesSearch = c.title.toLowerCase().includes(searchTerm.toLowerCase()) || c.subject.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesClass = filterClass === 'All' || c.class_name === filterClass;
-    return matchesSearch && matchesClass;
+    const matchesBoard = filterBoard === 'All' || (c.board || 'CBSE') === filterBoard;
+    return matchesSearch && matchesClass && matchesBoard;
   });
 
   return (
@@ -373,6 +478,24 @@ export function PluginLmsScreen() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Courses Sidebar */}
           <div className="lg:col-span-4 space-y-3">
+            {/* Board Filter Tabs */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+              {BOARDS.map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  onClick={() => setFilterBoard(b)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold shrink-0 transition cursor-pointer ${
+                    filterBoard === b
+                      ? 'bg-indigo-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {b === 'All' ? 'सभी बोर्ड' : b}
+                </button>
+              ))}
+            </div>
+
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -414,9 +537,14 @@ export function PluginLmsScreen() {
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-800">
-                        {c.class_name} • {c.subject}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${getBoardBadgeClass(c.board)}`}>
+                          {c.board || 'CBSE'}
+                        </span>
+                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                          {c.class_name} • {c.subject}
+                        </span>
+                      </div>
                       <ChevronRight className="h-4 w-4 text-slate-400 shrink-0 mt-0.5" />
                     </div>
                     <h3 className="text-sm font-bold text-slate-900 mt-2 line-clamp-1">{c.title}</h3>
@@ -437,8 +565,13 @@ export function PluginLmsScreen() {
               <>
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
                   <div>
-                    <div className="text-xs font-bold text-blue-600 uppercase tracking-wider">
-                      {selectedCourse.class_name} • {selectedCourse.subject}
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${getBoardBadgeClass(selectedCourse.board)}`}>
+                        {selectedCourse.board || 'CBSE'}
+                      </span>
+                      <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">
+                        {selectedCourse.class_name} • {selectedCourse.subject}
+                      </span>
                     </div>
                     <h2 className="text-xl font-black text-slate-900 mt-1">{selectedCourse.title}</h2>
                     <p className="text-xs text-slate-600 mt-1">{selectedCourse.description}</p>
@@ -601,26 +734,44 @@ export function PluginLmsScreen() {
             {selectedCourse ? (
               <div className="space-y-2">
                 {courseAssignments.length === 0 ? (
-                  <div className="p-8 text-center text-slate-400 text-xs">इस कोर्स में कोई असाइनमेंट नहीं है।</div>
+                  <div className="p-8 text-center text-slate-400 text-xs">इस कोर्स में कोई असाइनमेंट नहीं है। नया असाइनमेंट बनाएं।</div>
                 ) : (
-                  courseAssignments.map((asg) => (
-                    <div
-                      key={asg.id}
-                      onClick={() => loadSubmissions(asg)}
-                      className={`p-3.5 rounded-2xl border cursor-pointer transition ${
-                        selectedAssignment?.id === asg.id
-                          ? 'bg-indigo-50/70 border-indigo-500 shadow-2xs'
-                          : 'bg-slate-50 border-slate-200/70 hover:bg-slate-100'
-                      }`}
-                    >
-                      <div className="text-xs font-bold text-slate-900">{asg.title}</div>
-                      <div className="text-[11px] text-slate-500 mt-1 line-clamp-2">{asg.instructions}</div>
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 mt-2 font-medium">
-                        <span>अंतिम तिथि: {asg.due_date}</span>
-                        <span>पूर्णांक: {asg.max_marks}</span>
+                  courseAssignments.map((asg) => {
+                    const assignedNames = getAssignedNamesList(asg);
+                    return (
+                      <div
+                        key={asg.id}
+                        onClick={() => loadSubmissions(asg)}
+                        className={`p-3.5 rounded-2xl border cursor-pointer transition ${
+                          selectedAssignment?.id === asg.id
+                            ? 'bg-indigo-50/70 border-indigo-500 shadow-2xs'
+                            : 'bg-slate-50 border-slate-200/70 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="text-xs font-bold text-slate-900">{asg.title}</div>
+                          {asg.target_type === 'students' ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-bold shrink-0">
+                              👤 {assignedNames.length} चुनिंदा छात्र
+                            </span>
+                          ) : asg.target_type === 'section' ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold shrink-0">
+                              🏷️ सेक्शन {asg.target_section}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 font-semibold shrink-0">
+                              👥 पूरी कक्षा
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-1 line-clamp-2">{asg.instructions || 'कोई निर्देश नहीं दिए गए।'}</div>
+                        <div className="flex items-center justify-between text-[10px] text-slate-400 mt-2 font-medium">
+                          <span>अंतिम तिथि: {asg.due_date}</span>
+                          <span>पूर्णांक: {asg.max_marks}</span>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             ) : (
@@ -630,79 +781,400 @@ export function PluginLmsScreen() {
 
           {/* Submissions View */}
           <div className="lg:col-span-7 bg-white rounded-3xl p-6 border border-slate-200/80 shadow-2xs space-y-4">
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Award className="h-5 w-5 text-emerald-600" />
-              <span>छात्र सबमिशन ({assignmentSubmissions.length})</span>
-            </h3>
-
             {selectedAssignment ? (
-              <div className="space-y-3">
-                {assignmentSubmissions.length === 0 ? (
-                  <div className="p-8 text-center text-slate-400 text-xs">अभी तक कोई सबमिशन प्राप्त नहीं हुआ है।</div>
-                ) : (
-                  assignmentSubmissions.map((sub) => (
-                    <div key={sub.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-900">{sub.student_name}</span>
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            sub.status === 'graded' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                          }`}
-                        >
-                          {sub.status === 'graded' ? `जांचा गया (${sub.marks_obtained || 0} अंक)` : 'जांच हेतु लंबित'}
+              <>
+                <div className="border-b border-slate-100 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-slate-900">{selectedAssignment.title}</h3>
+                      {selectedAssignment.target_type === 'students' ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-bold">
+                          👤 {getAssignedNamesList(selectedAssignment).length} चुनिंदा छात्र
                         </span>
-                      </div>
-                      <p className="text-xs text-slate-600">{sub.submission_text || 'कोई लिखित उत्तर नहीं।'}</p>
-
-                      {sub.teacher_feedback && (
-                        <div className="p-2.5 rounded-xl bg-emerald-50/80 text-emerald-900 text-xs border border-emerald-200 font-medium">
-                          शिक्षक फीडबैक: {sub.teacher_feedback}
-                        </div>
-                      )}
-
-                      {sub.status !== 'graded' && (
-                        <div className="pt-2">
-                          {gradingSubId === sub.id ? (
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="number"
-                                placeholder="अंक"
-                                value={gradeMarks}
-                                onChange={(e) => setGradeMarks(e.target.value)}
-                                className="w-20 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold"
-                              />
-                              <input
-                                type="text"
-                                placeholder="फीडबैक / टिप्पणी"
-                                value={gradeFeedback}
-                                onChange={(e) => setGradeFeedback(e.target.value)}
-                                className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium"
-                              />
-                              <button
-                                onClick={() => handleGradeSubmission(sub.id)}
-                                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg cursor-pointer"
-                              >
-                                दर्ज करें
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setGradingSubId(sub.id)}
-                              className="text-xs text-blue-600 font-bold hover:underline cursor-pointer"
-                            >
-                              अंक व फीडबैक दें →
-                            </button>
-                          )}
-                        </div>
+                      ) : selectedAssignment.target_type === 'section' ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">
+                          🏷️ सेक्शन {selectedAssignment.target_section}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold">
+                          👥 पूरी कक्षा
+                        </span>
                       )}
                     </div>
-                  ))
-                )}
-              </div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      अंतिम तिथि: {selectedAssignment.due_date} • पूर्णांक: {selectedAssignment.max_marks}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+                      जमा: {assignmentSubmissions.length}
+                    </span>
+                    {selectedAssignment.target_type === 'students' && (
+                      <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 font-bold border border-amber-200">
+                        लंबित:{' '}
+                        {Math.max(
+                          0,
+                          getAssignedNamesList(selectedAssignment).length - assignmentSubmissions.length
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Submitted List */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-slate-700 flex items-center gap-1.5 uppercase tracking-wider">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                      <span>प्राप्त सबमिशन ({assignmentSubmissions.length})</span>
+                    </h4>
+
+                    {assignmentSubmissions.length === 0 ? (
+                      <div className="p-6 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-slate-400 text-xs">
+                        अभी तक किसी छात्र ने असाइनमेंट जमा नहीं किया है।
+                      </div>
+                    ) : (
+                      assignmentSubmissions.map((sub) => (
+                        <div key={sub.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-900">{sub.student_name}</span>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                sub.status === 'graded' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {sub.status === 'graded' ? `जांचा गया (${sub.marks_obtained || 0} अंक)` : 'जांच हेतु लंबित'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600">{sub.submission_text || 'कोई लिखित उत्तर नहीं।'}</p>
+
+                          {sub.teacher_feedback && (
+                            <div className="p-2.5 rounded-xl bg-emerald-50/80 text-emerald-900 text-xs border border-emerald-200 font-medium">
+                              शिक्षक फीडबैक: {sub.teacher_feedback}
+                            </div>
+                          )}
+
+                          {sub.status !== 'graded' && (
+                            <div className="pt-2">
+                              {gradingSubId === sub.id ? (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="number"
+                                    placeholder="अंक"
+                                    value={gradeMarks}
+                                    onChange={(e) => setGradeMarks(e.target.value)}
+                                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold"
+                                  />
+                                  <input
+                                    type="text"
+                                    placeholder="फीडबैक / टिप्पणी"
+                                    value={gradeFeedback}
+                                    onChange={(e) => setGradeFeedback(e.target.value)}
+                                    className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium"
+                                  />
+                                  <button
+                                    onClick={() => handleGradeSubmission(sub.id)}
+                                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg cursor-pointer"
+                                  >
+                                    दर्ज करें
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setGradingSubId(sub.id)}
+                                  className="text-xs text-blue-600 font-bold hover:underline cursor-pointer"
+                                >
+                                  अंक व फीडबैक दें →
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Pending Assigned Students (Targeted tracking) */}
+                  {selectedAssignment.target_type === 'students' && (
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <h4 className="text-xs font-bold text-slate-700 flex items-center gap-1.5 uppercase tracking-wider">
+                        <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
+                        <span>लंबित छात्र (Pending Submissions)</span>
+                      </h4>
+
+                      {(() => {
+                        const assigned = getAssignedNamesList(selectedAssignment);
+                        const submitted = assignmentSubmissions.map((s) => s.student_name.toLowerCase());
+                        const pending = assigned.filter((name) => !submitted.includes(name.toLowerCase()));
+
+                        if (pending.length === 0) {
+                          return (
+                            <div className="p-3 bg-emerald-50 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2">
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                              <span>सभी आवंटित छात्रों ने अपना असाइनमेंट जमा कर दिया है! 🎉</span>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {pending.map((stName, idx) => (
+                              <div
+                                key={idx}
+                                className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 flex items-center justify-between text-xs"
+                              >
+                                <span className="font-bold text-slate-800">{stName}</span>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900">
+                                  ⏳ लंबित (Pending)
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+              </>
             ) : (
-              <div className="p-8 text-center text-slate-400 text-xs">सबमिशन देखने के लिए कोई असाइनमेंट चुनें।</div>
+              <div className="p-12 text-center text-slate-400 text-xs">
+                असाइनमेंट विवरण एवं छात्र सबमिशन देखने के लिए बाईं सूची से कोई असाइनमेंट चुनें।
+              </div>
             )}
           </div>
+
+          {/* Modal: Add Assignment with Targeted User Allocation */}
+          {isAddAssignmentOpen && selectedCourse && (
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">नया असाइनमेंट बनाएं</h3>
+                    <p className="text-xs text-slate-500">
+                      {selectedCourse.title} • {selectedCourse.class_name}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddAssignmentOpen(false)}
+                    className="text-slate-400 hover:text-slate-600 text-lg font-bold cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <form onSubmit={handleAddAssignment} className="space-y-4">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700">असाइनमेंट शीर्षक *</label>
+                    <input
+                      type="text"
+                      required
+                      value={asgTitle}
+                      onChange={(e) => setAsgTitle(e.target.value)}
+                      placeholder="उदा. अध्याय 2: बहुपद अभ्यास प्रश्न"
+                      className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 font-medium"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700">निर्देश / विवरण</label>
+                    <textarea
+                      rows={2}
+                      value={asgInstructions}
+                      onChange={(e) => setAsgInstructions(e.target.value)}
+                      placeholder="छात्रों के लिए निर्देश..."
+                      className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700">अंतिम तिथि (Due Date) *</label>
+                      <input
+                        type="date"
+                        required
+                        value={asgDueDate}
+                        onChange={(e) => setAsgDueDate(e.target.value)}
+                        className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700">पूर्णांक (Max Marks)</label>
+                      <input
+                        type="number"
+                        value={asgMaxMarks}
+                        onChange={(e) => setAsgMaxMarks(e.target.value)}
+                        className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Targeted User / Student Allocation */}
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                      <Users className="h-4 w-4 text-blue-600" />
+                      <span>असाइनमेंट किसे सौंपना है? (Target Audience)</span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAsgTargetType('all')}
+                        className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition cursor-pointer ${
+                          asgTargetType === 'all'
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span>👥 पूरी कक्षा</span>
+                        <span className="text-[10px] font-normal opacity-80">सभी छात्र</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setAsgTargetType('section')}
+                        className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition cursor-pointer ${
+                          asgTargetType === 'section'
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span>🏷️ सेक्शन</span>
+                        <span className="text-[10px] font-normal opacity-80">विशिष्ट वर्ग</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setAsgTargetType('students')}
+                        className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition cursor-pointer ${
+                          asgTargetType === 'students'
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span>👤 चुनिंदा छात्र</span>
+                        <span className="text-[10px] font-normal opacity-80">विशेष यूज़र्स</span>
+                      </button>
+                    </div>
+
+                    {asgTargetType === 'section' && (
+                      <div className="pt-1">
+                        <label className="text-[11px] font-semibold text-slate-600">सेक्शन चुनें (Section)</label>
+                        <select
+                          value={asgTargetSection}
+                          onChange={(e) => setAsgTargetSection(e.target.value)}
+                          className="w-full mt-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold"
+                        >
+                          <option value="A">Section A</option>
+                          <option value="B">Section B</option>
+                          <option value="C">Section C</option>
+                          <option value="D">Section D</option>
+                        </select>
+                      </div>
+                    )}
+
+                    {asgTargetType === 'students' && (
+                      <div className="pt-1 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-semibold text-slate-600">
+                            छात्र चुनें ({selectedStudentIds.length} चयनित)
+                          </span>
+                          <div className="flex items-center gap-2 text-[10px] font-bold">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedStudentIds(classStudents.map((s) => s.id))}
+                              className="text-blue-600 hover:underline cursor-pointer"
+                            >
+                              सभी चुनें
+                            </button>
+                            <span>•</span>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedStudentIds([])}
+                              className="text-slate-500 hover:underline cursor-pointer"
+                            >
+                              हटाएं
+                            </button>
+                          </div>
+                        </div>
+
+                        <input
+                          type="text"
+                          placeholder="छात्र का नाम या रोल नंबर खोजें..."
+                          value={studentSearchTerm}
+                          onChange={(e) => setStudentSearchTerm(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                        />
+
+                        <div className="max-h-40 overflow-y-auto border border-slate-200 bg-white rounded-xl divide-y divide-slate-100">
+                          {loadingStudents ? (
+                            <div className="p-4 text-center text-xs text-slate-400">छात्र लोड हो रहे हैं...</div>
+                          ) : classStudents.length === 0 ? (
+                            <div className="p-4 text-center text-xs text-slate-400">इस कक्षा में कोई छात्र नहीं मिला।</div>
+                          ) : (
+                            classStudents
+                              .filter(
+                                (s) =>
+                                  s.fullName.toLowerCase().includes(studentSearchTerm.toLowerCase()) ||
+                                  s.rollNumber.includes(studentSearchTerm)
+                              )
+                              .map((st) => {
+                                const isSelected = selectedStudentIds.includes(st.id);
+                                return (
+                                  <div
+                                    key={st.id}
+                                    onClick={() => {
+                                      if (isSelected) {
+                                        setSelectedStudentIds(selectedStudentIds.filter((id) => id !== st.id));
+                                      } else {
+                                        setSelectedStudentIds([...selectedStudentIds, st.id]);
+                                      }
+                                    }}
+                                    className={`p-2 px-3 flex items-center justify-between text-xs cursor-pointer transition ${
+                                      isSelected ? 'bg-blue-50/80 font-bold text-blue-900' : 'hover:bg-slate-50 text-slate-700'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      {isSelected ? (
+                                        <CheckSquare className="h-4 w-4 text-blue-600 shrink-0" />
+                                      ) : (
+                                        <Square className="h-4 w-4 text-slate-300 shrink-0" />
+                                      )}
+                                      <span>{st.fullName}</span>
+                                      <span className="text-[10px] text-slate-400">({st.rollNumber})</span>
+                                    </div>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-semibold">
+                                      Sec {st.section}
+                                    </span>
+                                  </div>
+                                );
+                              })
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddAssignmentOpen(false)}
+                      className="px-4 py-2 border border-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
+                    >
+                      रद्द करें
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl cursor-pointer"
+                    >
+                      असाइनमेंट बनाएं
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -732,7 +1204,23 @@ export function PluginLmsScreen() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs font-bold text-slate-700">शिक्षा बोर्ड *</label>
+                <select
+                  value={newBoard}
+                  onChange={(e) => setNewBoard(e.target.value)}
+                  className="w-full mt-1.5 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium"
+                >
+                  <option value="CBSE">CBSE Board</option>
+                  <option value="ICSE">ICSE / ISC Board</option>
+                  <option value="MP Board">MP Board (मध्य प्रदेश)</option>
+                  <option value="UP Board">UP Board (उत्तर प्रदेश)</option>
+                  <option value="State Board">State Board (अन्य राज्य)</option>
+                  <option value="All">All Boards (सामान्य)</option>
+                </select>
+              </div>
+
               <div>
                 <label className="text-xs font-bold text-slate-700">कक्षा *</label>
                 <select
@@ -758,7 +1246,7 @@ export function PluginLmsScreen() {
                   value={newSubject}
                   onChange={(e) => setNewSubject(e.target.value)}
                   placeholder="उदा. गणित / विज्ञान"
-                  className="w-full mt-1.5 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium"
+                  className="w-full mt-1.5 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium"
                 />
               </div>
             </div>
