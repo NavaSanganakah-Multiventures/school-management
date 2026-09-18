@@ -1,7 +1,8 @@
 {
   "sharedWorker": {
     "name": "school-management",
-    "domain": "pragnya.nasven.com"
+    "domain": "pragnya.nasven.com",
+    "dispatchNamespace": "school-management-dispatch"
   },
   "schools": [
     {
