@@ -10,7 +10,7 @@
  */
 
 import fs from 'fs';
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 
 const REGISTRY_FILE = 'schools.json';
 const OPERATIONAL_TABLES = [
@@ -33,24 +33,45 @@ const OPERATIONAL_TABLES = [
   'lms_submissions'
 ];
 
-function run(cmd) {
-  console.log(`> ${cmd}`);
-  return execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+function runD1(dbName, sqlCommand, jsonOutput = false) {
+  const isWindows = process.platform === 'win32';
+  const executable = isWindows ? 'npx.cmd' : 'npx';
+  const args = ['wrangler', 'd1', 'execute', dbName, `--command=${sqlCommand}`];
+  if (jsonOutput) {
+    args.push('--json');
+  }
+
+  const result = spawnSync(executable, args, {
+    encoding: 'utf-8',
+    shell: false,
+  });
+
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(result.stderr || `Command failed with code ${result.status}`);
+  }
+  return result.stdout;
 }
 
 async function downgradeSchool(slug) {
-  if (!slug) {
+  if (!slug || typeof slug !== 'string' || !/^[a-z0-9-]+$/.test(slug)) {
     console.error('Usage: node scripts/downgrade-school.mjs <school-slug>');
+    console.error('Error: slug must only contain lowercase alphanumeric characters and hyphens.');
     process.exit(1);
   }
 
-  if (!fs.existsSync(REGISTRY_FILE)) {
-    console.error(`Registry file ${REGISTRY_FILE} not found.`);
+  let registry;
+  try {
+    const raw = fs.readFileSync(REGISTRY_FILE, 'utf-8');
+    registry = JSON.parse(raw);
+  } catch (err) {
+    console.error(`Error reading registry file ${REGISTRY_FILE}:`, err.message);
     process.exit(1);
   }
 
-  const registry = JSON.parse(fs.readFileSync(REGISTRY_FILE, 'utf-8'));
-  const school = registry.schools.find((s) => s.slug === slug);
+  const school = registry.schools?.find((s) => s.slug === slug);
 
   if (!school) {
     console.error(`School with slug "${slug}" not found in ${REGISTRY_FILE}.`);
@@ -76,13 +97,11 @@ async function downgradeSchool(slug) {
     console.log(`Migrating table: ${table}...`);
     try {
       // Query rows from dedicated DB
-      const queryCmd = `npx wrangler d1 execute ${dedicatedDbName} --command="SELECT * FROM ${table} WHERE school_id = '${schoolId}'" --json`;
       let out;
       try {
-        out = run(queryCmd);
+        out = runD1(dedicatedDbName, `SELECT * FROM ${table} WHERE school_id = '${schoolId}'`, true);
       } catch (e) {
-        // Table might not exist or empty
-        console.log(`  ℹ️ Table ${table} does not exist or has no records in dedicated DB.`);
+        console.log(`  ℹ️ Table ${table} does not exist or is empty in dedicated DB.`);
         continue;
       }
 
@@ -102,7 +121,7 @@ async function downgradeSchool(slug) {
 
         const insertCmd = `INSERT OR REPLACE INTO ${table} (${columns.join(', ')}) VALUES (${values.join(', ')});`;
         try {
-          run(`npx wrangler d1 execute ${sharedDbName} --command="${insertCmd}"`);
+          runD1(sharedDbName, insertCmd, false);
         } catch (e) {
           console.warn(`  ⚠️ Failed to insert row into ${table}: ${e.message}`);
         }
@@ -117,9 +136,13 @@ async function downgradeSchool(slug) {
   // Update registry mode
   school.mode = 'shared';
   school.downgradedAt = new Date().toISOString();
-  fs.writeFileSync(REGISTRY_FILE, JSON.stringify(registry, null, 2));
-
-  console.log(`\n✅ Downgrade complete. School "${slug}" is now set to shared mode in ${REGISTRY_FILE}.`);
+  try {
+    fs.writeFileSync(REGISTRY_FILE, JSON.stringify(registry, null, 2), 'utf-8');
+    console.log(`\n✅ Downgrade complete. School "${slug}" is now set to shared mode in ${REGISTRY_FILE}.`);
+  } catch (err) {
+    console.error(`Error saving updated registry:`, err.message);
+    process.exit(1);
+  }
 }
 
 const targetSlug = process.argv[2];
