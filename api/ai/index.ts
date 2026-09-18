@@ -244,6 +244,246 @@ Always respond in Hindi. Be polite and concise.`;
   }
 });
 
+aiApp.post('/report-analysis', async (c) => {
+  try {
+    const db = getDB(c);
+    if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+    const authUser = await getAuthUser(c);
+    if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+    if (authUser.role !== 'Director' && authUser.role !== 'Principal' && authUser.role !== 'Staff') {
+      return c.json({ success: false, message: 'अनधिकृत पहुँच।' }, 403);
+    }
+    const schoolId = getRequestSchoolId(c, authUser);
+    const body = await c.req.json().catch(() => ({}));
+    const examId = body.examId || null;
+    const className = body.className || null;
+    const subject = body.subject || null;
+
+    // Paid plugin gate: AI Report Analyzer must be active for this school.
+    const pluginCheck = await db.prepare(
+      "SELECT status FROM school_plugins WHERE school_id = ? AND plugin_id = 'plugin-ai-reports'"
+    ).bind(schoolId).first();
+    if (!pluginCheck || pluginCheck.status !== 'active') {
+      return c.json({ success: false, message: 'AI Report Analyzer प्लगइन एक्टिव नहीं है।' }, 403);
+    }
+
+    // Resolve exam: explicit examId first, otherwise latest active exam, otherwise any exam.
+    let exam = null;
+    if (examId) {
+      exam = await db.prepare('SELECT * FROM exams WHERE school_id = ? AND id = ?').bind(schoolId, examId).first();
+    }
+    if (!exam) {
+      exam = await db.prepare('SELECT * FROM exams WHERE school_id = ? AND is_active = 1 ORDER BY start_date DESC LIMIT 1').bind(schoolId).first();
+    }
+    if (!exam) {
+      exam = await db.prepare('SELECT * FROM exams WHERE school_id = ? ORDER BY start_date DESC LIMIT 1').bind(schoolId).first();
+    }
+
+    // Always school-scoped marks query (multi-tenancy invariant).
+    let marksQuery = 'SELECT em.subject, em.max_marks, em.marks_obtained, em.grade, s.id AS student_id, s.first_name, s.last_name, s.class_name, s.section FROM exam_marks em JOIN students s ON s.id = em.student_id WHERE em.school_id = ? AND s.school_id = ?';
+    const params = [schoolId, schoolId];
+    if (exam) {
+      marksQuery += ' AND em.exam_id = ?';
+      params.push(exam.id);
+    }
+    if (className) {
+      marksQuery += ' AND s.class_name = ?';
+      params.push(className);
+    }
+    if (subject) {
+      marksQuery += ' AND em.subject = ?';
+      params.push(subject);
+    }
+    marksQuery += ' ORDER BY s.class_name ASC, s.first_name ASC, em.subject ASC';
+
+    const rows = await db.prepare(marksQuery).bind(...params).all();
+    const marks = rows.results || [];
+    if (marks.length === 0) {
+      return c.json({ success: false, message: 'चयनित परीक्षा के लिए अंक प्रविष्टियाँ उपलब्ध नहीं हैं। पहले परीक्षा अंक दर्ज करें।' }, 404);
+    }
+
+    const subjectMap = new Map();
+    const studentMap = new Map();
+
+    for (const m of marks) {
+      const max = Number(m.max_marks) || 100;
+      const got = Number(m.marks_obtained) || 0;
+      const pct = max > 0 ? (got / max) * 100 : 0;
+
+      const sub = m.subject || 'अन्य';
+      if (!subjectMap.has(sub)) subjectMap.set(sub, { total: 0, maxTotal: 0, entries: 0, min: Infinity, max: -Infinity, pass: 0 });
+      const ss = subjectMap.get(sub);
+      ss.total += got;
+      ss.maxTotal += max;
+      ss.entries += 1;
+      if (pct < ss.min) ss.min = pct;
+      if (pct > ss.max) ss.max = pct;
+      if (pct >= 33) ss.pass += 1;
+
+      const sid = m.student_id;
+      if (!studentMap.has(sid)) {
+        studentMap.set(sid, {
+          name: [m.first_name, m.last_name].filter(Boolean).join(' ').trim() || 'छात्र',
+          className: m.class_name || '',
+          section: m.section || '',
+          total: 0,
+          maxTotal: 0,
+          entries: 0
+        });
+      }
+      const st = studentMap.get(sid);
+      st.total += got;
+      st.maxTotal += max;
+      st.entries += 1;
+    }
+
+    const subjectBreakdown = Array.from(subjectMap.entries()).map((entry) => {
+      const subject = entry[0];
+      const s = entry[1];
+      return {
+        subject: subject,
+        avgPercentage: +(s.maxTotal > 0 ? (s.total / s.maxTotal) * 100 : 0).toFixed(1),
+        avgMarks: +(s.entries ? s.total / s.entries : 0).toFixed(1),
+        minPercentage: s.min === Infinity ? 0 : +s.min.toFixed(1),
+        maxPercentage: s.max === -Infinity ? 0 : +s.max.toFixed(1),
+        passRate: s.entries ? +((s.pass / s.entries) * 100).toFixed(1) : 0,
+        entries: s.entries
+      };
+    }).sort((a, b) => b.avgPercentage - a.avgPercentage);
+
+    const students = Array.from(studentMap.values()).map((s) => ({
+      name: s.name,
+      className: s.className,
+      section: s.section,
+      avgPercentage: +(s.maxTotal > 0 ? (s.total / s.maxTotal) * 100 : 0).toFixed(1),
+      totalMarks: +s.total.toFixed(1),
+      maxTotal: +s.maxTotal.toFixed(1),
+      subjects: s.entries
+    }));
+
+    const overall = students.length ? +(students.reduce((a, s) => a + s.avgPercentage, 0) / students.length).toFixed(1) : 0;
+    const passCount = students.filter((s) => s.avgPercentage >= 33).length;
+    const passRate = students.length ? +((passCount / students.length) * 100).toFixed(1) : 0;
+
+    const classMap = new Map();
+    for (const s of students) {
+      const cls = s.className || 'अन्य';
+      if (!classMap.has(cls)) classMap.set(cls, { className: cls, count: 0, totalPct: 0, pass: 0 });
+      const cc = classMap.get(cls);
+      cc.count += 1;
+      cc.totalPct += s.avgPercentage;
+      if (s.avgPercentage >= 33) cc.pass += 1;
+    }
+    const classBreakdown = Array.from(classMap.values()).map((c) => ({
+      className: c.className,
+      studentCount: c.count,
+      avgPercentage: +(c.totalPct / c.count).toFixed(1),
+      passRate: +((c.pass / c.count) * 100).toFixed(1)
+    })).sort((a, b) => b.avgPercentage - a.avgPercentage);
+
+    const sorted = students.slice().sort((a, b) => b.avgPercentage - a.avgPercentage);
+    const toppers = sorted.slice(0, 5);
+    const needsAttention = students.filter((s) => s.avgPercentage < 33).sort((a, b) => a.avgPercentage - b.avgPercentage).slice(0, 10);
+
+    const examName = exam ? exam.exam_name : 'सभी परीक्षाएँ';
+    const academicYear = exam ? exam.academic_year : '';
+
+    const contextLines = [
+      'परीक्षा: ' + examName + (academicYear ? ' (' + academicYear + ')' : ''),
+      'कुल छात्र: ' + students.length,
+      'कुल विषय प्रविष्टियाँ: ' + marks.length,
+      'औसत प्रतिशत: ' + overall + '%',
+      'उत्तीर्ण दर: ' + passRate + '%',
+      '',
+      'विषयवार प्रदर्शन:'
+    ];
+    for (const s of subjectBreakdown) {
+      contextLines.push('- ' + s.subject + ': औसत ' + s.avgPercentage + '%, उत्तीर्ण दर ' + s.passRate + '% (' + s.entries + ' प्रविष्टियाँ)');
+    }
+    contextLines.push('', 'कक्षावार प्रदर्शन:');
+    for (const c of classBreakdown) {
+      contextLines.push('- ' + c.className + ': औसत ' + c.avgPercentage + '%, छात्र ' + c.studentCount + ', उत्तीर्ण दर ' + c.passRate + '%');
+    }
+    contextLines.push('', 'शीर्ष छात्र:');
+    toppers.forEach((s, i) => {
+      contextLines.push((i + 1) + '. ' + s.name + ' (' + s.className + '): ' + s.avgPercentage + '%');
+    });
+    contextLines.push('', 'सुधार की आवश्यकता वाले छात्र (33% से कम):');
+    if (needsAttention.length === 0) {
+      contextLines.push('- कोई नहीं');
+    } else {
+      for (const s of needsAttention) {
+        contextLines.push('- ' + s.name + ' (' + s.className + '): ' + s.avgPercentage + '%');
+      }
+    }
+
+    const prompt = 'नीचे दिए गए विद्यालय के परीक्षा परिणाम आँकड़ों का विश्लेषण करें और हिंदी में संक्षिप्त, कार्यान्वयन-योग्य सुझाव दें।\n\n' + contextLines.join('\n') + '\n\nकृपया निम्न बिंदु शामिल करें:\n1. समग्र प्रदर्शन का आकलन\n2. सबसे मजबूत व सबसे कमजोर विषय\n3. कक्षावार रुझान\n4. कमजोर छात्रों के लिए 2-3 ठोस सुधार सुझाव\nMarkdown बुलेट्स का उपयोग करें।';
+
+    // API key resolution: school custom key first, otherwise platform key.
+    // Note: this is a paid plugin (Rs. 499), so unlike the credit-based AI Assistant
+    // we deliberately do NOT deduct ai_credits for report analysis.
+    const school = await db.prepare('SELECT gemini_api_key FROM school_tenants WHERE id = ?').bind(schoolId).first();
+    let apiKey = (school && school.gemini_api_key) || c.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return c.json({ success: false, message: 'सिस्टम में Gemini API Key कॉन्फ़िगर नहीं है।' }, 500);
+    }
+
+    const gatewayId = c.env.CLOUDFLARE_AI_GATEWAY_ID;
+    const accountId = c.env.CLOUDFLARE_ACCOUNT_ID;
+    const baseUrl = (gatewayId && accountId) ? 'https://gateway.ai.cloudflare.com/v1/' + accountId + '/' + gatewayId + '/google-genai' : undefined;
+
+    const ai = new GoogleGenAI({
+      apiKey: apiKey,
+      ...(baseUrl ? { httpOptions: { baseUrl: baseUrl } } : {})
+    });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.6-flash',
+      contents: [{ text: prompt }],
+      config: {
+        systemInstruction: 'You are VidyaSetu AI Report Analyzer. Analyze school exam performance data and produce concise, encouraging, actionable insights for teachers and principals. Always respond in Hindi using short Markdown bullets. Never invent data beyond what is provided.',
+        temperature: 0.4
+      }
+    });
+
+    const insights = (response.text || 'क्षमा करें, AI विश्लेषण उपलब्ध नहीं हो सका।').trim();
+
+    const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+    await logActivity(db, {
+      schoolId: schoolId,
+      userId: authUser.sub,
+      userName: actorName,
+      userRole: authUser.role,
+      actionType: 'AI_REPORT_ANALYSIS',
+      actionTitle: 'AI रिपोर्ट विश्लेषण',
+      description: 'परीक्षा "' + examName + '" के परिणामों का AI विश्लेषण तैयार किया गया।',
+      entityType: 'exam',
+      entityId: exam ? exam.id : 'all',
+      className: className || undefined,
+      metadata: { studentCount: students.length, overallPercentage: overall }
+    });
+
+    return c.json({
+      success: true,
+      analysis: {
+        generatedAt: new Date().toISOString(),
+        exam: exam ? { id: exam.id, name: exam.exam_name, academicYear: exam.academic_year, term: exam.term } : null,
+        studentCount: students.length,
+        marksCount: marks.length,
+        overallPercentage: overall,
+        passRate: passRate,
+        subjectBreakdown: subjectBreakdown,
+        classBreakdown: classBreakdown,
+        toppers: toppers,
+        needsAttention: needsAttention,
+        insights: insights
+      }
+    });
+  } catch (error: any) {
+    console.error('AI Report Analysis Error:', error);
+    return c.json({ success: false, message: 'AI रिपोर्ट विश्लेषण में त्रुटि हुई।' }, 500);
+  }
+});
 aiApp.get('/settings', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'Database not available' }, 500);
