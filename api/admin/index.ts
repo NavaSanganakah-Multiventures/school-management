@@ -12,6 +12,76 @@ async function requireSuperAdmin(c: any) {
   return { ok: true, authUser };
 }
 
+// ---------------------------------------------------------------------------
+// Dedicated Worker (WfP) provisioning helpers — GitHub Contents API
+// ---------------------------------------------------------------------------
+
+function utf8ToBase64(s: string) {
+  const bytes = new TextEncoder().encode(s);
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...Array.from(bytes.subarray(i, i + CHUNK)));
+  }
+  return btoa(bin);
+}
+
+function base64ToUtf8(b64: string) {
+  const bytes = Uint8Array.from(atob(String(b64).replace(/s/g, '')), (c) => c.charCodeAt(0));
+  return new TextDecoder('utf-8').decode(bytes);
+}
+
+function sanitizeSlug(s: string) {
+  return String(s || '').toLowerCase().trim().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+function isSlugValid(slug: string) {
+  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug);
+}
+
+function ghHeaders(token: string) {
+  return {
+    Authorization: 'Bearer ' + token,
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'vidyasetu-admin',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+}
+
+async function readSchoolsRegistry(c: any, token: string, repo: string, branch: string) {
+  const url = 'https://api.github.com/repos/' + repo + '/contents/schools.json?ref=' + encodeURIComponent(branch);
+  const res = await fetch(url, {
+    headers: ghHeaders(token),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { const j = await res.json(); detail = j.message || ''; } catch (e) { /* ignore */ }
+    throw new Error('schools.json पढ़ने में असमर्थ (' + res.status + ')' + (detail ? ': ' + detail : ''));
+  }
+  const j = await res.json();
+  const registry = JSON.parse(base64ToUtf8(j.content || ''));
+  return { registry, sha: String(j.sha || '') };
+}
+
+async function commitSchoolsRegistry(c: any, token: string, repo: string, branch: string, registry: any, sha: string, message: string) {
+  const url = 'https://api.github.com/repos/' + repo + '/contents/schools.json';
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: ghHeaders(token),
+    body: JSON.stringify({
+      message,
+      content: utf8ToBase64(JSON.stringify(registry, null, 2) + '\n'),
+      sha,
+      branch,
+    }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { const j = await res.json(); detail = j.message || ''; } catch (e) { /* ignore */ }
+    throw new Error('schools.json commit विफल (' + res.status + ')' + (detail ? ': ' + detail : ''));
+  }
+}
+
 function tenantToJson(row: any) {
   const trial = row.status === 'Trial';
   return {
@@ -28,6 +98,14 @@ function tenantToJson(row: any) {
     trialEndsAt: row.trial_ends_at || '',
     deletedAt: row.deleted_at || '',
     createdAt: row.created_at,
+    provisioningStatus: row.provisioning_status || 'none',
+    dedicatedSlug: row.dedicated_slug || '',
+    dedicatedDomain: row.dedicated_domain || '',
+    d1DatabaseId: row.d1_database_id || '',
+    r2BucketName: row.r2_bucket_name || '',
+    kvNamespaceId: row.kv_namespace_id || '',
+    provisionedAt: row.provisioned_at || '',
+    provisioningError: row.provisioning_error || '',
   };
 }
 
@@ -247,6 +325,104 @@ adminApp.post('/schools/restore', async (c) => {
   await db.prepare('UPDATE school_tenants SET deleted_at=NULL, status=?, registration_status=? WHERE id=?')
     .bind('Active', 'Approved', schoolId).run();
   return c.json({ success: true, message: 'विद्यालय को वापस सक्रिय कर दिया गया।' });
+});
+
+// POST /api/admin/schools/provision - dedicated WfP worker provision करें (control plane)
+adminApp.post('/schools/provision', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
+
+  const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  if (!school) return c.json({ success: false, message: 'स्कूल नहीं मिला।' }, 404);
+
+  const slug = sanitizeSlug(body.slug || school.subdomain || school.school_name);
+  if (!isSlugValid(slug)) {
+    return c.json({ success: false, message: 'अमान्य slug। केवल छोटे अंग्रेज़ी अक्षर, अंक और हाइफ़न (a-z, 0-9, -) उपयोग करें, और अंत में हाइफ़न न रखें।' }, 400);
+  }
+
+  const domain = String(body.domain || (slug + '.pragnya.nasven.com')).trim().toLowerCase();
+  if (!/^[a-z0-9.-]+$/.test(domain)) {
+    return c.json({ success: false, message: 'अमान्य डोमेन।' }, 400);
+  }
+
+  const token = String((c.env && c.env.GITHUB_TOKEN) || '').trim();
+  if (!token) return c.json({ success: false, message: 'GITHUB_TOKEN worker secret सेट नहीं है।' }, 500);
+  const repo = String((c.env && c.env.GITHUB_REPO) || 'NavaSanganakah-Multiventures/school-management').trim();
+  const branch = String((c.env && c.env.GITHUB_BRANCH) || 'main').trim();
+
+  try {
+    const { registry, sha } = await readSchoolsRegistry(c, token, repo, branch);
+    const schools = Array.isArray(registry.schools) ? registry.schools : [];
+    const bySlug = schools.find((x: any) => x && x.slug === slug);
+    if (bySlug && bySlug.schoolId !== schoolId && bySlug.mode === 'dedicated') {
+      return c.json({ success: false, message: 'यह slug पहले से किसी अन्य डेडिकेटेड स्कूल को आवंटित है: ' + slug }, 409);
+    }
+    const entry = schools.find((x: any) => x && x.schoolId === schoolId) || bySlug;
+    if (entry) {
+      entry.slug = slug;
+      entry.schoolId = schoolId;
+      entry.mode = 'dedicated';
+      entry.name = school.school_name || entry.name || '';
+      entry.domain = domain;
+    } else {
+      schools.push({ slug, schoolId, mode: 'dedicated', name: school.school_name || '', domain });
+    }
+    registry.schools = schools;
+    await commitSchoolsRegistry(c, token, repo, branch, registry, sha, 'feat: provision dedicated worker for ' + slug);
+  } catch (e: any) {
+    await db.prepare('UPDATE school_tenants SET provisioning_status=?, provisioning_error=? WHERE id=?')
+      .bind('failed', (e && e.message ? e.message : String(e)), schoolId).run();
+    return c.json({ success: false, message: 'GitHub registry अपडेट में त्रुटि: ' + (e && e.message ? e.message : String(e)) }, 502);
+  }
+
+  const now = new Date().toISOString();
+  await db.prepare('UPDATE school_tenants SET provisioning_status=?, dedicated_slug=?, dedicated_domain=?, provisioned_at=?, provisioning_error=? WHERE id=?')
+    .bind('pending', slug, domain, now, '', schoolId).run();
+
+  return c.json({
+    success: true,
+    message: 'डेडिकेटेड वर्कर provisioning शुरू हो गया। ' + domain + ' पर deploy कुछ मिनटों में उपलब्ध होगा।',
+    slug,
+    domain,
+    next: 'schools.json commit → deploy.yml → provision-school.mjs → dedicated deploy',
+  });
+});
+
+// POST /api/admin/schools/provision/check - dedicated worker की health जाँच कर स्टेटस 'live' करें
+adminApp.post('/schools/provision/check', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
+
+  const school = await db.prepare('SELECT dedicated_domain, provisioning_status FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  if (!school || !school.dedicated_domain) {
+    return c.json({ success: false, message: 'इस स्कूल के लिए कोई डेडिकेटेड डोमेन कॉन्फ़िगर नहीं है।' }, 404);
+  }
+
+  let live = false;
+  try {
+    const res = await fetch('https://' + school.dedicated_domain + '/api/health');
+    const j = await res.json().catch(() => ({}));
+    live = !!res.ok && !!j && j.status === 'online';
+  } catch (e) { /* deploy अभी चल रहा है */ }
+
+  const status = live ? 'live' : (school.provisioning_status || 'pending');
+  if (live) {
+    await db.prepare('UPDATE school_tenants SET provisioning_status=?, provisioning_error=? WHERE id=?')
+      .bind('live', '', schoolId).run();
+  }
+  return c.json({ success: true, live, status });
 });
 
 // ---------------- Dynamic Plans CRUD ----------------
