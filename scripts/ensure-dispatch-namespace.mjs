@@ -55,6 +55,12 @@ async function main() {
   const registry = JSON.parse(fs.readFileSync(REGISTRY_FILE, 'utf-8'));
   const namespace = registry.sharedWorker?.dispatchNamespace || 'school-management-dispatch';
 
+  // Validate before it flows into the outbound Cloudflare API request. Dispatch
+  // namespace names are lowercase alphanumeric plus hyphens (no spaces/slashes).
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(namespace)) {
+    throw new Error('Invalid dispatch namespace name: ' + namespace);
+  }
+
   const list = await cf('/workers/dispatch/namespaces');
   const existing = (list.result || []).find(
     (n) => n.namespace_name === namespace || n.name === namespace,
