@@ -6,3 +6,6 @@ coverage/
 .env*
 !.env.example
 *.tsbuildinfo
+out/
+.wrangler/
+wrangler-*.toml

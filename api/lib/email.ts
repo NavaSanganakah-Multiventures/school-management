@@ -6,7 +6,7 @@ export function getRequestOrigin(c: any, env?: any): string {
   try {
     return new URL(c.req.url).origin;
   } catch (e) {
-    return 'https://school-management.nssite.workers.dev';
+    return 'https://pragnya.nasven.com';
   }
 }
 

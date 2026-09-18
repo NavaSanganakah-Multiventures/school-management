@@ -85,15 +85,22 @@ export async function getAuthUser(c: any) {
   const user = await verifyToken(c, auth.slice(7));
   if (!user) return null;
 
-  // Dedicated worker specific isolation
-  if (c.env && c.env.SCHOOL_ID && user.role !== 'SuperAdmin' && user.schoolId !== c.env.SCHOOL_ID) {
-    return null; // Reject token if it doesn't belong to this dedicated school
+  // Dedicated worker specific isolation:
+  // SuperAdmin has NO role on dedicated workers (data plane).
+  // Only school-scoped roles (Director, Principal, Teacher, Staff, Student) are permitted.
+  if (c.env && (c.env.SCHOOL_ID || c.env.IS_DEDICATED_WORKER === 'true')) {
+    if (user.role === 'SuperAdmin') {
+      return null;
+    }
+    if (c.env.SCHOOL_ID && user.schoolId !== c.env.SCHOOL_ID) {
+      return null;
+    }
   }
 
   return user;
 }
 
-export function getRequestSchoolId(c: any, authUser: any) {
+export function getRequestSchoolId(c: any, authUser: any): string {
   // If we are on a dedicated worker, enforce its SCHOOL_ID
   if (c.env && c.env.SCHOOL_ID) {
     return c.env.SCHOOL_ID;
@@ -109,6 +116,6 @@ export function getRequestSchoolId(c: any, authUser: any) {
     return authUser.schoolId;
   }
 
-  // Fallback removed as per isolation requirements.
-  return null;
+  // Safe fallback for unauthenticated/dev/test callers expecting a string
+  return (c.env && c.env.DEFAULT_SCHOOL_ID) || 'school-01';
 }

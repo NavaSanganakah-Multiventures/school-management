@@ -22,6 +22,7 @@ import leaveApp from './leave-applications';
 import pluginsApp from './plugins';
 import aiApp from './ai';
 import configApp from './config';
+import lmsApp from './lms';
 
 const app = new Hono<{ Bindings: any }>().basePath('/api');
 
@@ -29,15 +30,23 @@ app.use('*', cors());
 
 // Proxy control-plane routes to the shared platform worker if this is a dedicated worker
 app.use('*', async (c, next) => {
-  if (c.env && c.env.SCHOOL_ID) {
+  if (c.env && (c.env.SCHOOL_ID || c.env.IS_DEDICATED_WORKER === 'true')) {
     const path = new URL(c.req.url).pathname;
     if (path.startsWith('/api/billing') || path.startsWith('/api/plugins') || path.startsWith('/api/admin')) {
-      const platformUrl = new URL(c.req.url);
-      platformUrl.hostname = 'pragnya.nasven.com';
-      platformUrl.protocol = 'https:';
-      const proxyRequest = new Request(platformUrl.toString(), c.req.raw);
-      // Ensure the correct platform domain is used for the fetch
-      return fetch(proxyRequest);
+      try {
+        const platformUrl = new URL(c.req.url);
+        platformUrl.hostname = 'pragnya.nasven.com';
+        platformUrl.protocol = 'https:';
+        const proxyRequest = new Request(platformUrl.toString(), c.req.raw);
+        return await fetch(proxyRequest);
+      } catch (err: any) {
+        console.error('Error proxying to platform worker pragnya.nasven.com:', err);
+        return c.json({
+          success: false,
+          error: 'केंद्रीय प्लेटफ़ॉर्म सेवा अस्थायी रूप से अनुपलब्ध है। कृपया कुछ समय बाद पुनः प्रयास करें।',
+          details: err?.message || 'Platform proxy unreachable'
+        }, 502);
+      }
     }
   }
   await next();
@@ -76,5 +85,6 @@ app.route('/leave-applications', leaveApp);
 app.route('/plugins', pluginsApp);
 app.route('/ai', aiApp);
 app.route('/config', configApp);
+app.route('/lms', lmsApp);
 
 export default app;

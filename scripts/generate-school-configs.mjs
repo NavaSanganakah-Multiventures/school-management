@@ -13,37 +13,47 @@ function main() {
 
   for (const school of registry.schools) {
     if (school.mode === 'dedicated') {
+      if (!school.slug || !school.schoolId) {
+        console.warn(`⚠️ Skipping invalid dedicated school entry (missing slug or schoolId):`, school);
+        continue;
+      }
+
+      if (!school.d1DatabaseId) {
+        console.warn(`⚠️ School ${school.slug} is dedicated but D1 is not provisioned yet. Run "node scripts/provision-school.mjs" first.`);
+        continue;
+      }
+
       console.log(`Generating wrangler-${school.slug}.toml...`);
 
       const domain = school.domain || `${school.slug}.${sharedDomain}`;
-      const toml = `name = "school-management-${school.slug}"
+      const toml = `name = ${JSON.stringify(`school-management-${school.slug}`)}
 main = "./api/index.ts"
 compatibility_date = "2025-01-24"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-APP_BASE_URL = "https://${domain}"
-SCHOOL_ID = "${school.schoolId}"
-SCHOOL_SLUG = "${school.slug}"
+APP_BASE_URL = ${JSON.stringify(`https://${domain}`)}
+SCHOOL_ID = ${JSON.stringify(school.schoolId)}
+SCHOOL_SLUG = ${JSON.stringify(school.slug)}
 IS_DEDICATED_WORKER = "true"
 
 [[routes]]
-pattern = "${domain}/*"
+pattern = ${JSON.stringify(`${domain}/*`)}
 custom_domain = true
 
 [[d1_databases]]
 binding = "DB"
-database_name = "school-management-${school.slug}-db"
-database_id = "${school.d1DatabaseId || ''}"
+database_name = ${JSON.stringify(`school-management-${school.slug}-db`)}
+database_id = ${JSON.stringify(school.d1DatabaseId)}
 migrations_dir = "db_migrations"
 
 [[r2_buckets]]
 binding = "MEDIA_BUCKET"
-bucket_name = "${school.r2BucketName || ''}"
+bucket_name = ${JSON.stringify(school.r2BucketName || `school-management-${school.slug}-media`)}
 
 [[kv_namespaces]]
 binding = "CONFIG_KV"
-id = "${school.kvNamespaceId || ''}"
+id = ${JSON.stringify(school.kvNamespaceId || '')}
 
 [site]
 bucket = "./out"

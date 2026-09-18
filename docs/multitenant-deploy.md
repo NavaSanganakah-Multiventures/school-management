@@ -14,6 +14,7 @@
 - **Control plane (main worker)** और **Data plane (school worker)** अलग roles के साथ।
 - **LMS dashboard = plugin/add-on** (advanced service)। Core में पहले student + teacher management।
 - **Email quota** per school (business domain email) plan के हिसाब से।
+- **Developer एवं AI Agent दिशानिर्देश:** कोड में काम करने और नए प्लगइन्स बनाने के विस्तृत नियम [.agents/rules/ai-instructions.md](file:///c:/Users/DHEERENDRA/Desktop/school-management/school-management/.agents/rules/ai-instructions.md) में परिभाषित हैं।
 
 ---
 
