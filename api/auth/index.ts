@@ -28,7 +28,8 @@ authApp.post('/login', async (c) => {
     const ok = await verifyPassword(password, admin.password_hash || '');
     if (!ok) return c.json({ success: false, message: 'अमान्य पासवर्ड।' }, 401);
     await db.prepare('UPDATE platform_admins SET updated_at = ? WHERE id = ?').bind(new Date().toISOString(), admin.id).run();
-    const token = await signToken(c, { sub: admin.id, role: 'SuperAdmin', schoolId: '', exp: Math.floor(Date.now() / 1000) + 86400 });
+    const SESSION_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
+    const token = await signToken(c, { sub: admin.id, role: 'SuperAdmin', schoolId: '', exp: Math.floor(Date.now() / 1000) + SESSION_EXPIRY_SECONDS });
     return c.json({
       success: true,
       message: 'Super Admin लॉगिन सफल।',
@@ -56,7 +57,8 @@ authApp.post('/login', async (c) => {
   await db.prepare('UPDATE system_users SET last_login = ? WHERE id = ?').bind(new Date().toISOString(), user.id).run();
 
   const schoolId = user.school_id || 'school-01';
-  const token = await signToken(c, { sub: user.id, role: user.role, schoolId, exp: Math.floor(Date.now() / 1000) + 86400 });
+  const SESSION_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
+  const token = await signToken(c, { sub: user.id, role: user.role, schoolId, exp: Math.floor(Date.now() / 1000) + SESSION_EXPIRY_SECONDS });
 
   return c.json({
     success: true,

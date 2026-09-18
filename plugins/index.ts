@@ -30,7 +30,7 @@ export const PLUGINS_REGISTRY: FrontendPlugin[] = [
   {
     id: 'plugin-ai-assistant',
     navItems: [
-      { id: 'ai', label: 'विद्या AI असिस्टेंट', icon: Sparkles, allowedRoles: ['Director', 'Principal', 'Staff', 'SuperAdmin'], badge: 'AI' }
+      { id: 'ai', label: 'विद्या AI असिस्टेंट', icon: Sparkles, allowedRoles: ['Director', 'Principal', 'Staff'], badge: 'AI' }
     ],
     routes: [
       { id: 'ai', component: AIAssistantScreen }
@@ -42,7 +42,7 @@ export const PLUGINS_REGISTRY: FrontendPlugin[] = [
   {
     id: 'plugin-lms',
     navItems: [
-      { id: 'lms', label: 'डिजिटल LMS पोर्टल', icon: BookOpen, allowedRoles: ['Director', 'Principal', 'Staff', 'SuperAdmin'], badge: 'LMS' }
+      { id: 'lms', label: 'डिजिटल LMS पोर्टल', icon: BookOpen, allowedRoles: ['Director', 'Principal', 'Staff'], badge: 'LMS' }
     ],
     routes: [
       { id: 'lms', component: PluginLmsScreen }
