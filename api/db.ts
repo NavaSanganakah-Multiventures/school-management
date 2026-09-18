@@ -317,7 +317,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
       'डेडिकेटेड अकाउंट मैनेजर',
       '99.9% अपटाइम SLA',
     ],
-    featureFlags: { reportCards: true, principalHistory: true, autopay: true, domainEmail: true, multiSchool: true, prioritySupport: true, customDomainIncluded: true },
+    featureFlags: { reportCards: true, principalHistory: true, autopay: true, domainEmail: true, multiSchool: true, prioritySupport: true, customDomainIncluded: true, dedicatedWorker: true },
     active: true,
     isTrial: false,
     sortOrder: 3,

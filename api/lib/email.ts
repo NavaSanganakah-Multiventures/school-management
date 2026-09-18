@@ -6,7 +6,7 @@ export function getRequestOrigin(c: any, env?: any): string {
   try {
     return new URL(c.req.url).origin;
   } catch (e) {
-    return 'https://school-management.nssite.workers.dev';
+    return 'https://pragnya.nasven.com';
   }
 }
 
@@ -83,12 +83,36 @@ export interface NotificationEmailInput {
   subject: string;
   title?: string;
   message: string;
+  schoolId?: string; // Added for quota tracking
+  db?: any; // Added to update DB
 }
 
 export async function sendNotificationEmail(env: any, input: NotificationEmailInput): Promise<EmailSendResult> {
   const binding = env && env.SEND_EMAIL;
   if (!binding || typeof binding.send !== 'function') {
     return { sent: false, error: 'SEND_EMAIL binding उपलब्ध नहीं है।' };
+  }
+
+  const schoolId = input.schoolId || 'school-01';
+  const db = input.db;
+  let senderEmail = 'pragnya@navasanganakah.com';
+  let senderName = 'Pragnya Mitra Alerts';
+
+  if (db) {
+    try {
+      const domain = await db.prepare('SELECT domain_name, monthly_sending_quota, monthly_sent_count, is_active FROM school_custom_domains WHERE school_id = ?').bind(schoolId).first();
+      if (domain && domain.is_active) {
+        const quota = domain.monthly_sending_quota || 0;
+        const sent = domain.monthly_sent_count || 0;
+        if (sent >= quota && quota > 0) {
+          return { sent: false, error: 'मासिक ईमेल कोटा समाप्त हो गया है।' };
+        }
+        // If they have a custom domain, use it as the sender
+        if (domain.domain_name) {
+          senderEmail = `noreply@${domain.domain_name}`;
+        }
+      }
+    } catch(e) {}
   }
 
   const title = input.title || 'महत्वपूर्ण सूचना';
@@ -114,11 +138,16 @@ export async function sendNotificationEmail(env: any, input: NotificationEmailIn
   try {
     await binding.send({
       to: input.to,
-      from: { email: 'pragnya@navasanganakah.com', name: 'Pragnya Mitra Alerts' },
+      from: { email: senderEmail, name: senderName },
       subject: input.subject,
       html: html,
       text: text
     });
+
+    if (db) {
+      await db.prepare('UPDATE school_custom_domains SET monthly_sent_count = monthly_sent_count + 1 WHERE school_id = ?').bind(schoolId).run().catch(() => {});
+    }
+
     return { sent: true };
   } catch (e: any) {
     return { sent: false, error: (e && (e.message || e.code)) || 'ईमेल भेजने में त्रुटि हुई।' };

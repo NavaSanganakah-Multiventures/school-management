@@ -21,10 +21,31 @@ import subjectsApp from './subjects';
 import leaveApp from './leave-applications';
 import pluginsApp from './plugins';
 import aiApp from './ai';
+import configApp from './config';
+import lmsApp from './plugin-lms';
 
 const app = new Hono<{ Bindings: any }>().basePath('/api');
 
 app.use('*', cors());
+
+// Proxy middleware for dedicated workers
+app.use('*', async (c, next) => {
+  // If we are a dedicated worker (SCHOOL_ID is set) and we have a PLATFORM_URL
+  if (c.env && c.env.SCHOOL_ID && c.env.PLATFORM_URL) {
+    const url = new URL(c.req.url);
+    if (url.pathname.startsWith('/api/billing') || url.pathname.startsWith('/api/plugins') || url.pathname.startsWith('/api/admin')) {
+      const proxyUrl = c.env.PLATFORM_URL + url.pathname + url.search;
+      const proxyReq = new Request(proxyUrl, c.req.raw);
+      proxyReq.headers.set('X-School-Id', c.env.SCHOOL_ID);
+      try {
+        return await fetch(proxyReq);
+      } catch (e) {
+        return c.json({ error: 'Failed to proxy request to platform' }, 502);
+      }
+    }
+  }
+  await next();
+});
 
 app.get('/health', (c) => {
   return c.json({
@@ -58,5 +79,7 @@ app.route('/subjects', subjectsApp);
 app.route('/leave-applications', leaveApp);
 app.route('/plugins', pluginsApp);
 app.route('/ai', aiApp);
+app.route('/config', configApp);
+app.route('/plugin-lms', lmsApp);
 
 export default app;

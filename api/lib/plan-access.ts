@@ -18,6 +18,7 @@ export interface PlanAccess {
     multiSchool: boolean;
     prioritySupport: boolean;
     customDomainIncluded: boolean;
+    dedicatedWorker: boolean;
   };
 }
 
@@ -26,25 +27,25 @@ export const PLAN_ACCESS = {
     maxStudents: 50,
     maxStaff: 10,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'settings', 'billing'],
-    features: { reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false },
+    features: { reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false, dedicatedWorker: false },
   },
   starter: {
     maxStudents: 500,
     maxStaff: 25,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'settings', 'billing'],
-    features: { reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false },
+    features: { reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false, dedicatedWorker: false },
   },
   pro: {
     maxStudents: 1500,
     maxStaff: 100,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'principal', 'settings', 'billing'],
-    features: { reportCards: true, principalHistory: true, autopay: true, domainEmail: true, multiSchool: false, prioritySupport: true, customDomainIncluded: false },
+    features: { reportCards: true, principalHistory: true, autopay: true, domainEmail: true, multiSchool: false, prioritySupport: true, customDomainIncluded: false, dedicatedWorker: false },
   },
   enterprise: {
     maxStudents: null,
     maxStaff: null,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'principal', 'settings', 'billing'],
-    features: { reportCards: true, principalHistory: true, autopay: true, domainEmail: true, multiSchool: true, prioritySupport: true, customDomainIncluded: true },
+    features: { reportCards: true, principalHistory: true, autopay: true, domainEmail: true, multiSchool: true, prioritySupport: true, customDomainIncluded: true, dedicatedWorker: true },
   },
 };
 
@@ -63,6 +64,7 @@ export function accessFromPlan(plan: any): PlanAccess {
       multiSchool: !!flags.multiSchool,
       prioritySupport: !!flags.prioritySupport,
       customDomainIncluded: !!flags.customDomainIncluded,
+      dedicatedWorker: !!flags.dedicatedWorker,
     },
   };
 }

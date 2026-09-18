@@ -53,9 +53,8 @@ billingApp.get('/plans', async (c) => {
 });
 
 // GET /api/billing/razorpay/config - client-safe Razorpay key id
-billingApp.get('/razorpay/config', (c) => {
-  return c.json({ success: true, keyId: (c.env && c.env.RAZORPAY_KEY_ID) || '' });
-});
+import razorpayConfigApp from './razorpay/config';
+billingApp.route('/razorpay/config', razorpayConfigApp);
 
 // GET /api/billing/subscription - current school subscription
 billingApp.get('/subscription', async (c) => {
@@ -187,5 +186,8 @@ billingApp.get('/schools', async (c) => {
   const tenant = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
   return c.json({ success: true, schools: tenant ? [tenant] : [], currentSchoolId: schoolId });
 });
+
+import domainApp from './domain';
+billingApp.route('/domain', domainApp);
 
 export default billingApp;

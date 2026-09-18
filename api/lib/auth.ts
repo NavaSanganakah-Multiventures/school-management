@@ -73,6 +73,24 @@ export async function verifyToken(c: any, token: any) {
     if (!ok) return null;
     const payload = JSON.parse(new TextDecoder().decode(base64UrlToBytes(parts[1])));
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+
+    // Role split & School isolation enforcement
+    if (c.env && c.env.SCHOOL_ID) {
+      // 1. Data-plane (dedicated worker) does not allow SuperAdmin
+      if (payload.role === 'SuperAdmin') {
+        return null; // Reject SuperAdmin from data plane completely
+      }
+      // 2. Strict school isolation
+      if (payload.schoolId && payload.schoolId !== c.env.SCHOOL_ID) {
+        return null;
+      }
+    } else {
+      // Control plane (shared worker / platform worker)
+      // Platform worker is responsible for SuperAdmin and shared tenants.
+      // But we shouldn't blindly block students from the shared worker because shared tenants use the platform worker.
+      // The role splitting constraint strictly means "NO SuperAdmin on data-plane", which is handled above.
+    }
+
     return payload;
   } catch (e) {
     return null;
@@ -86,8 +104,20 @@ export async function getAuthUser(c: any) {
 }
 
 export function getRequestSchoolId(c: any, authUser: any) {
+  // If the worker has a hardcoded SCHOOL_ID (dedicated mode), enforce it.
+  if (c.env && c.env.SCHOOL_ID) {
+    return c.env.SCHOOL_ID;
+  }
+
+  // SuperAdmin can pass X-School-Id to view other schools
   const headerSchool = c.req.header('X-School-Id');
-  if (headerSchool) return headerSchool;
+  if (headerSchool && authUser && authUser.role === 'SuperAdmin') {
+    return headerSchool;
+  }
+
   if (authUser && authUser.schoolId) return authUser.schoolId;
-  return 'school-01';
+
+  // Shared worker fallback if not authenticated yet (e.g. during login)
+  // Should ideally not be needed if routes are protected.
+  return headerSchool || 'school-01';
 }

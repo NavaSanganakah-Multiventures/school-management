@@ -1,6 +1,6 @@
 'use client';
 
-import { FIREBASE_VAPID_KEY } from './firebase-client-config';
+import { getFirebaseConfig } from './firebase-client-config';
 
 /**
  * Native Web Push registration (browser PushManager + service worker).
@@ -136,7 +136,7 @@ export async function registerFcmWebToken(
     if (!subscription) {
       subscription = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(FIREBASE_VAPID_KEY),
+        applicationServerKey: urlBase64ToUint8Array((await getFirebaseConfig()).vapidKey || ''),
       });
     }
 
