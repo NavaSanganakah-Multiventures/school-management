@@ -78,7 +78,7 @@ Cloudflare Workers में **per-worker कोई fee नहीं** होत
 
 ```json
 {
-  "platform": {
+  "sharedWorker": {
     "name": "school-management",
     "domain": "pragnya.nasven.com",
     "dispatchNamespace": "school-management-dispatch"
