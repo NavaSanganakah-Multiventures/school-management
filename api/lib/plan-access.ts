@@ -44,7 +44,7 @@ export const PLAN_ACCESS = {
     maxStudents: null,
     maxStaff: null,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'principal', 'settings', 'billing'],
-    features: { reportCards: true, principalHistory: true, autopay: true, domainEmail: true, multiSchool: true, prioritySupport: true, customDomainIncluded: true },
+    features: { reportCards: true, principalHistory: true, autopay: true, domainEmail: true, multiSchool: true, prioritySupport: true, customDomainIncluded: true, dedicatedWorker: true },
   },
 };
 

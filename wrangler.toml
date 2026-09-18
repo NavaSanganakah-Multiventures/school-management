@@ -30,7 +30,7 @@ name = "SEND_EMAIL"
 ENVIRONMENT = "production"
 # FCM project id is derived from FCM_SERVICE_ACCOUNT_JSON.project_id (see api/lib/fcm.ts).
 SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Public School)"
-APP_BASE_URL = "https://pragnya.navasanganakah.com"
+APP_BASE_URL = "https://pragnya.nasven.com"
 WEB_PUSH_VAPID_PUBLIC_KEY = "BJlcKjZBfC5YzmoIxZ1ndHRJAiemr7Rdi4LBuceK6GI7N6g9aV3ctHpKCtZ8RbaPugnfvfJQNBiRTi63CGipHP4"
 WEB_PUSH_VAPID_SUBJECT = "mailto:pragnya@navasanganakah.com"
 

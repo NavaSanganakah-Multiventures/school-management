@@ -1,0 +1,13 @@
+{
+  "sharedWorker": {
+    "name": "school-management",
+    "domain": "pragnya.nasven.com"
+  },
+  "schools": [
+    {
+      "slug": "vidyasetu",
+      "schoolId": "school-tenant-id-1",
+      "mode": "shared"
+    }
+  ]
+}
