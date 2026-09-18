@@ -21,6 +21,14 @@ interface SchoolRow {
   trialEndsAt: string;
   deletedAt: string;
   createdAt: string;
+  provisioningStatus: string;
+  dedicatedSlug: string;
+  dedicatedDomain: string;
+  d1DatabaseId: string;
+  r2BucketName: string;
+  kvNamespaceId: string;
+  provisionedAt: string;
+  provisioningError: string;
 }
 
 interface PlanRow {
@@ -100,6 +108,8 @@ export function AdminConsoleScreen() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmProvisionId, setConfirmProvisionId] = useState<string | null>(null);
+  const [provisionSlug, setProvisionSlug] = useState('');
 
   // School Search & Filter
   const [schoolSearch, setSchoolSearch] = useState('');
@@ -254,6 +264,39 @@ export function AdminConsoleScreen() {
       const data = await post('/api/admin/schools/restore', { schoolId });
       if (data.success) { flashSuccess('स्कूल सफलतापूर्वक रिस्टोर हो गया।'); await loadData(); await loadDeleted(); }
       else setErrorMsg(data.message || 'रिस्टोर विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
+  // Dedicated Worker (WfP) provisioning actions
+  const startProvision = (s: SchoolRow) => {
+    setConfirmProvisionId(s.id);
+    setProvisionSlug(s.subdomain || '');
+  };
+
+  const provisionDedicated = async (schoolId: string) => {
+    const slug = provisionSlug.trim();
+    if (!slug) { setErrorMsg('डेडिकेटेड वर्कर के लिए slug आवश्यक है।'); return; }
+    setBusyId('provision-' + schoolId);
+    try {
+      const data = await post('/api/admin/schools/provision', { schoolId, slug });
+      if (data.success) {
+        setConfirmProvisionId(null);
+        flashSuccess(data.message || 'डेडिकेटेड वर्कर provisioning शुरू हो गया।');
+        await loadData();
+      } else setErrorMsg(data.message || 'प्रोविजनिंग विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
+  const checkProvision = async (schoolId: string) => {
+    setBusyId('provision-check-' + schoolId);
+    try {
+      const data = await post('/api/admin/schools/provision/check', { schoolId });
+      if (data.success) {
+        if (data.live) { flashSuccess('डेडिकेटेड वर्कर अब live है!'); await loadData(); }
+        else flashSuccess('अभी deploy चल रहा है, कृपया थोड़ी देर बाद दोबारा जाँचें।');
+      } else setErrorMsg(data.message || 'स्थिति जाँच विफल।');
     } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
     finally { setBusyId(null); }
   };
@@ -737,6 +780,17 @@ export function AdminConsoleScreen() {
                         <div className="space-y-0.5">
                           <div className="text-slate-700 font-medium">{s.subdomain ? `${s.subdomain}.nasven.com` : '—'}</div>
                           {s.customDomain && <div className="text-[10px] text-blue-600 font-semibold">{s.customDomain}</div>}
+                          {s.provisioningStatus && s.provisioningStatus !== 'none' && (
+                            <div className="mt-1 space-y-0.5">
+                              <span className={'inline-block px-1.5 py-0.5 rounded-full text-[9px] font-bold ' + (s.provisioningStatus === 'live' ? 'bg-emerald-100 text-emerald-700' : (s.provisioningStatus === 'pending' || s.provisioningStatus === 'provisioning') ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700')}>
+                                {'⚡ ' + (s.provisioningStatus === 'live' ? 'डेडिकेटेड लाइव' : (s.provisioningStatus === 'pending' || s.provisioningStatus === 'provisioning') ? 'प्रोविजनिंग...' : s.provisioningStatus)}
+                              </span>
+                              {s.dedicatedDomain && <div className="text-[9px] text-slate-400 font-mono break-all">{s.dedicatedDomain}</div>}
+                              {s.provisioningError && s.provisioningStatus === 'failed' && (
+                                <div className="text-[9px] text-rose-600">{s.provisioningError}</div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                     </td>
@@ -770,20 +824,53 @@ export function AdminConsoleScreen() {
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1.5">
-                          <button onClick={() => startEdit(s)} className="px-2.5 py-1 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-[11px] font-bold cursor-pointer flex items-center gap-1">
-                            <Pencil className="w-3 h-3" />
-                            <span>एडिट</span>
-                          </button>
-                          {confirmDeleteId === s.id ? (
-                            <button onClick={() => deleteSchool(s.id)} disabled={busyId === s.id} className="px-2.5 py-1 bg-rose-600 text-white rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50">
-                              पक्का हटाएं?
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {confirmProvisionId === s.id ? (
+                              <>
+                                <button onClick={() => provisionDedicated(s.id)} disabled={busyId === 'provision-' + s.id} className="px-2.5 py-1 bg-indigo-600 text-white rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50">
+                                  पक्का प्रोविजन?
+                                </button>
+                                <button onClick={() => setConfirmProvisionId(null)} className="px-2 py-1 border border-slate-200 rounded-lg text-[11px] font-bold cursor-pointer">
+                                  रद्द
+                                </button>
+                              </>
+                            ) : (
+                              <button onClick={() => startProvision(s)} disabled={busyId === 'provision-' + s.id || busyId === 'provision-check-' + s.id} className="px-2.5 py-1 border border-indigo-200 text-indigo-700 hover:bg-indigo-50 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50 flex items-center gap-1">
+                                <Globe className="w-3 h-3" />
+                                <span>{s.provisioningStatus && s.provisioningStatus !== 'none' ? 'री-डिप्लॉय' : 'प्रोविजन'}</span>
+                              </button>
+                            )}
+                            {(s.provisioningStatus === 'pending' || s.provisioningStatus === 'provisioning') && (
+                              <button onClick={() => checkProvision(s.id)} disabled={busyId === 'provision-check-' + s.id} className="px-2 py-1 border border-amber-200 text-amber-700 hover:bg-amber-50 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50">
+                                स्टेटस जाँचें
+                              </button>
+                            )}
+                            <button onClick={() => startEdit(s)} className="px-2.5 py-1 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-[11px] font-bold cursor-pointer flex items-center gap-1">
+                              <Pencil className="w-3 h-3" />
+                              <span>एडिट</span>
                             </button>
-                          ) : (
-                            <button onClick={() => setConfirmDeleteId(s.id)} className="px-2 py-1 border border-rose-200 text-rose-600 hover:bg-rose-50 rounded-lg text-[11px] font-bold cursor-pointer flex items-center gap-1">
-                              <Trash2 className="w-3 h-3" />
-                              <span>हटाएं</span>
-                            </button>
+                            {confirmDeleteId === s.id ? (
+                              <button onClick={() => deleteSchool(s.id)} disabled={busyId === s.id} className="px-2.5 py-1 bg-rose-600 text-white rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50">
+                                पक्का हटाएं?
+                              </button>
+                            ) : (
+                              <button onClick={() => setConfirmDeleteId(s.id)} className="px-2 py-1 border border-rose-200 text-rose-600 hover:bg-rose-50 rounded-lg text-[11px] font-bold cursor-pointer flex items-center gap-1">
+                                <Trash2 className="w-3 h-3" />
+                                <span>हटाएं</span>
+                              </button>
+                            )}
+                          </div>
+                          {confirmProvisionId === s.id && (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                value={provisionSlug}
+                                onChange={(e) => setProvisionSlug(e.target.value)}
+                                placeholder="slug (उदा. dps-bhopal)"
+                                className="w-36 px-2 py-1 border border-indigo-200 rounded-lg text-[11px] font-mono"
+                              />
+                              <span className="text-[9px] text-slate-400 font-mono whitespace-nowrap">{provisionSlug ? provisionSlug + '.pragnya.nasven.com' : ''}</span>
+                            </div>
                           )}
                         </div>
                       )}
