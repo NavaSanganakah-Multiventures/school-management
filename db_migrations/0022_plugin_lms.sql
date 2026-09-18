@@ -2,15 +2,14 @@
 -- Description: Register LMS (Learning Management System) Plugin and create school-scoped tables
 
 -- 1. Register LMS Plugin in the global plugins catalog
-INSERT OR IGNORE INTO plugins (id, name, description, category, price_inr, is_active, type)
+INSERT OR IGNORE INTO plugins (id, name, description, type, price, is_active)
 VALUES (
   'plugin-lms',
   'LMS एवं डिजिटल क्लासरूम (Learning Management System)',
   'ऑनलाइन पाठ्य सामग्री, वीडियो लेक्चर्स, असाइनमेंट सबमिशन, क्विज़ और डिजिटल लर्निंग मॉड्यूल',
-  'academics',
-  49900,
-  1,
-  'global'
+  'global',
+  499.00,
+  1
 );
 
 -- 2. LMS Courses Table (School-scoped)
