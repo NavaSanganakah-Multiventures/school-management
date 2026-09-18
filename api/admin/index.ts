@@ -364,4 +364,182 @@ adminApp.post('/plans/delete', async (c) => {
   return c.json({ success: true, message: 'प्लान निष्क्रिय कर दिया गया।' });
 });
 
+// ==========================================
+// Super Admin Plugin Catalog & Management
+// ==========================================
+
+// GET /api/admin/plugins - सभी प्लगइन्स की सूची व उनके सक्रिय ग्राहक
+adminApp.get('/plugins', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const { results: plugins } = await db.prepare(`
+    SELECT p.*,
+      (SELECT COUNT(*) FROM school_plugins sp WHERE sp.plugin_id = p.id AND sp.status = 'active') AS active_subscribers_count
+    FROM plugins p
+    ORDER BY p.name ASC
+  `).all();
+
+  return c.json({ success: true, plugins: plugins || [] });
+});
+
+// POST /api/admin/plugins/toggle - प्लगइन को प्लेटफॉर्म पर तुरंत एक्टिव / इनएक्टिव करें
+adminApp.post('/plugins/toggle', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const id = String(body.id || '').trim();
+  if (!id) return c.json({ success: false, message: 'प्लगइन आईडी आवश्यक है।' }, 400);
+
+  const existing = await db.prepare('SELECT id, is_active FROM plugins WHERE id = ?').bind(id).first();
+  if (!existing) return c.json({ success: false, message: 'प्लगइन नहीं मिला।' }, 404);
+
+  const newStatus = existing.is_active ? 0 : 1;
+  await db.prepare('UPDATE plugins SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    .bind(newStatus, id).run();
+
+  return c.json({
+    success: true,
+    message: newStatus === 1 ? 'प्लगइन सक्रिय कर दिया गया।' : 'प्लगइन निष्क्रिय कर दिया गया।',
+    isActive: newStatus === 1
+  });
+});
+
+// POST /api/admin/plugins/create - नया प्लगइन कैटलॉग में जोड़ें
+adminApp.post('/plugins/create', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const id = String(body.id || '').trim();
+  const name = String(body.name || '').trim();
+  const description = String(body.description || '').trim();
+  const type = body.type === 'private' ? 'private' : 'global';
+  const price = Number(body.price) || 0;
+  const isActive = body.isActive !== false ? 1 : 0;
+  const targetSchoolId = type === 'private' ? (String(body.targetSchoolId || '').trim() || null) : null;
+
+  if (!id || !name) {
+    return c.json({ success: false, message: 'प्लगइन आईडी और नाम अनिवार्य हैं।' }, 400);
+  }
+
+  const existing = await db.prepare('SELECT id FROM plugins WHERE id = ?').bind(id).first();
+  if (existing) {
+    return c.json({ success: false, message: 'इस आईडी का प्लगइन पहले से मौजूद है।' }, 400);
+  }
+
+  await db.prepare(`
+    INSERT INTO plugins (id, name, description, type, price, is_active, target_school_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  `).bind(id, name, description, type, price, isActive, targetSchoolId).run();
+
+  return c.json({ success: true, message: 'नया प्लगइन सफलतापूर्वक जोड़ा गया।' });
+});
+
+// POST /api/admin/plugins/update - प्लगइन विवरण अपडेट करें
+adminApp.post('/plugins/update', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const id = String(body.id || '').trim();
+  if (!id) return c.json({ success: false, message: 'प्लगइन आईडी आवश्यक है।' }, 400);
+
+  const existing = await db.prepare('SELECT * FROM plugins WHERE id = ?').bind(id).first();
+  if (!existing) return c.json({ success: false, message: 'प्लगइन नहीं मिला।' }, 404);
+
+  const name = body.name !== undefined ? String(body.name).trim() : existing.name;
+  const description = body.description !== undefined ? String(body.description).trim() : existing.description;
+  const type = body.type === 'private' ? 'private' : (body.type === 'global' ? 'global' : existing.type);
+  const price = body.price !== undefined ? (Number(body.price) || 0) : existing.price;
+  const isActive = body.isActive !== undefined ? (body.isActive ? 1 : 0) : existing.is_active;
+  const targetSchoolId = type === 'private' ? (body.targetSchoolId !== undefined ? (String(body.targetSchoolId).trim() || null) : existing.target_school_id) : null;
+
+  await db.prepare(`
+    UPDATE plugins
+    SET name = ?, description = ?, type = ?, price = ?, is_active = ?, target_school_id = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(name, description, type, price, isActive, targetSchoolId, id).run();
+
+  return c.json({ success: true, message: 'प्लगइन सफलतापूर्वक अपडेट कर दिया गया।' });
+});
+
+// GET /api/admin/plugins/subscriptions - सभी स्कूलों के प्लगइन सब्सक्रिप्शन्स
+adminApp.get('/plugins/subscriptions', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const { results: subscriptions } = await db.prepare(`
+    SELECT sp.id, sp.school_id, sp.plugin_id, sp.status, sp.valid_until, sp.created_at, sp.updated_at,
+           s.school_name, p.name AS plugin_name, p.price AS plugin_price
+    FROM school_plugins sp
+    JOIN school_tenants s ON sp.school_id = s.id
+    JOIN plugins p ON sp.plugin_id = p.id
+    ORDER BY sp.updated_at DESC
+  `).all();
+
+  return c.json({ success: true, subscriptions: subscriptions || [] });
+});
+
+// POST /api/admin/plugins/assign - किसी स्कूल को सीधे प्लगइन आवंटित या सक्रिय करें
+adminApp.post('/plugins/assign', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  const pluginId = String(body.pluginId || '').trim();
+  const status = body.status === 'inactive' ? 'inactive' : 'active';
+
+  if (!schoolId || !pluginId) {
+    return c.json({ success: false, message: 'स्कूल और प्लगइन दोनों चुनना अनिवार्य है।' }, 400);
+  }
+
+  const id = `sp-${crypto.randomUUID()}`;
+  await db.prepare(`
+    INSERT INTO school_plugins (id, school_id, plugin_id, status, updated_at)
+    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(school_id, plugin_id) DO UPDATE SET status = excluded.status, updated_at = CURRENT_TIMESTAMP
+  `).bind(id, schoolId, pluginId, status).run();
+
+  return c.json({ success: true, message: `स्कूल को प्लगइन ${status === 'active' ? 'सक्रिय' : 'निष्क्रिय'} कर दिया गया।` });
+});
+
+// POST /api/admin/plugins/revoke - किसी स्कूल का प्लगइन रद्द करें
+adminApp.post('/plugins/revoke', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  const pluginId = String(body.pluginId || '').trim();
+
+  if (!schoolId || !pluginId) {
+    return c.json({ success: false, message: 'स्कूल और प्लगइन आईडी आवश्यक है।' }, 400);
+  }
+
+  await db.prepare(`
+    UPDATE school_plugins
+    SET status = 'inactive', updated_at = CURRENT_TIMESTAMP
+    WHERE school_id = ? AND plugin_id = ?
+  `).bind(schoolId, pluginId).run();
+
+  return c.json({ success: true, message: 'प्लगइन सफलतापूर्वक निष्क्रिय (Revoke) कर दिया गया।' });
+});
+
 export default adminApp;

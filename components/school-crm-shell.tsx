@@ -85,6 +85,29 @@ function readStoredUser(): CurrentUser | null {
   if (typeof window === 'undefined') return null;
   try {
     const saved = localStorage.getItem('vidyasetu_user');
+    const token = localStorage.getItem('vidyasetu_token');
+    if (!token) return null;
+
+    // Validate JWT expiration timestamp on load
+    try {
+      const parts = token.split('.');
+      if (parts.length === 3) {
+        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+          atob(base64)
+            .split('')
+            .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+            .join('')
+        );
+        const payload = JSON.parse(jsonPayload);
+        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+          localStorage.removeItem('vidyasetu_user');
+          localStorage.removeItem('vidyasetu_token');
+          return null;
+        }
+      }
+    } catch (_) {}
+
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed && parsed.email && parsed.role) return parsed as CurrentUser;
@@ -151,15 +174,19 @@ export function SchoolCrmShell() {
       })
       .catch(() => {});
 
-    // Fetch active plugins
-    fetch('/api/plugins/active')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && Array.isArray(data.activePlugins)) {
-          setActivePlugins(data.activePlugins);
-        }
-      })
-      .catch(() => {});
+    // Fetch active plugins (only for school roles, SuperAdmin manages catalog directly)
+    if (currentUser.role !== 'SuperAdmin') {
+      fetch('/api/plugins/active')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && Array.isArray(data.activePlugins)) {
+            setActivePlugins(data.activePlugins);
+          }
+        })
+        .catch(() => {});
+    } else {
+      setActivePlugins([]);
+    }
   }, [currentUser]);
 
   const [schoolProfile, setSchoolProfile] = useState<any>({
@@ -171,7 +198,7 @@ export function SchoolCrmShell() {
     directorName: '',
   });
 
-  // Attach auth token + school id to every outgoing request (no per-screen changes needed)
+  // Attach auth token + school id to every outgoing request & intercept 401s for automatic session expiry
   useEffect(() => {
     const originalFetch = (window as any).fetch;
     (window as any).fetch = function (input: any, init: any) {
@@ -183,9 +210,30 @@ export function SchoolCrmShell() {
         if (user && user.schoolId) headers.set('X-School-Id', user.schoolId);
       } catch (e) {}
       const newInit = Object.assign({}, init, { headers });
-      return originalFetch(input, newInit);
+      return originalFetch(input, newInit).then((res: Response) => {
+        if (res.status === 401) {
+          const url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+          if (!url.includes('/api/auth/login') && !url.includes('/api/auth/register') && !url.includes('/api/auth/reset')) {
+            window.dispatchEvent(new CustomEvent('vidyasetu-auth-expired', {
+              detail: { message: 'आपका लॉगिन सत्र समाप्त हो गया है। कृपया पुनः लॉगिन करें।' }
+            }));
+          }
+        }
+        return res;
+      });
     };
-    return () => { (window as any).fetch = originalFetch; };
+
+    const handleSessionExpired = (e: any) => {
+      const msg = (e && e.detail && e.detail.message) || 'आपका लॉगिन सत्र समाप्त हो गया है। कृपया पुनः लॉगिन करें।';
+      handleLogout(msg);
+    };
+
+    window.addEventListener('vidyasetu-auth-expired', handleSessionExpired);
+
+    return () => {
+      (window as any).fetch = originalFetch;
+      window.removeEventListener('vidyasetu-auth-expired', handleSessionExpired);
+    };
   }, []);
 
   // Load school profile
@@ -320,14 +368,18 @@ export function SchoolCrmShell() {
     };
   }, [currentUser]);
 
-  const handleLogout = async () => {
+  const handleLogout = async (reason?: string | React.MouseEvent) => {
     lastRegisteredUserIdRef.current = null;
     try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) {}
     localStorage.removeItem('vidyasetu_user');
     localStorage.removeItem('vidyasetu_token');
     setCurrentUser(null);
+    setActivePlugins([]);
     setAuthScreen('login');
     setActiveTab('dashboard');
+    if (typeof reason === 'string' && reason) {
+      setPushToast({ title: 'सत्र समाप्त (Session Expired)', body: reason });
+    }
   };
 
   const handleLoginSuccess = (user: any, token: string) => {
@@ -404,7 +456,7 @@ export function SchoolCrmShell() {
     { id: 'notices', label: 'सूचना पट्ट एवं पुश अलर्ट', icon: Bell, allowedRoles: ['Director', 'Principal', 'Staff'] },
     { id: 'principal', label: 'प्रधानाचार्य प्रबंधन', icon: UserCheck, allowedRoles: ['Director'], requiredModule: 'principal', badge: 'प्रो' },
     { id: 'settings', label: 'स्कूल प्रोफ़ाइल व सेटिंग्स', icon: Settings, allowedRoles: ['Director'] },
-    { id: 'plugins', label: 'प्लगइन मार्केटप्लेस', icon: Store, allowedRoles: ['Director', 'SuperAdmin'], badge: 'नया' },
+    { id: 'plugins', label: 'प्लगइन मार्केटप्लेस', icon: Store, allowedRoles: ['Director'], badge: 'नया' },
     { id: 'billing', label: 'प्लान व बिलिंग', icon: CreditCard, allowedRoles: ['Director'], badge: 'अपग्रेड' },
   ];
 
@@ -415,10 +467,10 @@ export function SchoolCrmShell() {
     return true;
   });
 
-  const activeFrontendPlugins = PLUGINS_REGISTRY.filter(p => activePlugins.includes(p.id));
+  const activeFrontendPlugins = (userRole === 'SuperAdmin') ? [] : PLUGINS_REGISTRY.filter(p => activePlugins.includes(p.id));
   
-  const dynamicNavItems = activeFrontendPlugins.flatMap(p => p.navItems || []).filter(item => {
-    if (item.superAdminOnly) return userRole === 'SuperAdmin';
+  const dynamicNavItems = (userRole === 'SuperAdmin') ? [] : activeFrontendPlugins.flatMap(p => p.navItems || []).filter(item => {
+    if (item.superAdminOnly) return false;
     if (!item.allowedRoles || item.allowedRoles.indexOf(userRole) === -1) return false;
     if (item.requiredModule && planModules.indexOf(item.requiredModule) === -1) return false;
     return true;
