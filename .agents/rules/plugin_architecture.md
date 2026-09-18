@@ -1,3 +1,8 @@
+---
+trigger: always_on
+description: Mandatory WordPress-style Plugin Architecture guidelines
+---
+
 # Plugin Architecture Guidelines
 
 ## Overview

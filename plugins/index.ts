@@ -1,7 +1,9 @@
 import React from 'react';
-import { Sparkles, Bot } from 'lucide-react';
+import { Sparkles, Bot, BookOpen } from 'lucide-react';
 import { AIAssistantScreen } from './ai-assistant/screen';
 import { AIAssistantWidget } from './ai-assistant/widget';
+import { PluginLmsScreen } from './plugin-lms/screen';
+import { PluginLmsWidget } from './plugin-lms/widget';
 
 export interface FrontendPlugin {
   id: string; // The plugin ID matching the DB (e.g. 'plugin-ai-assistant')
@@ -37,5 +39,16 @@ export const PLUGINS_REGISTRY: FrontendPlugin[] = [
       { id: 'ai-assistant-widget', component: AIAssistantWidget }
     ]
   },
-  // Future plugins can be added here
+  {
+    id: 'plugin-lms',
+    navItems: [
+      { id: 'lms', label: 'डिजिटल LMS पोर्टल', icon: BookOpen, allowedRoles: ['Director', 'Principal', 'Staff', 'SuperAdmin'], badge: 'LMS' }
+    ],
+    routes: [
+      { id: 'lms', component: PluginLmsScreen }
+    ],
+    widgets: [
+      { id: 'lms-widget', component: PluginLmsWidget }
+    ]
+  },
 ];

@@ -40,6 +40,18 @@ function getExistingD1Id(dbName) {
   }
 }
 
+function getExistingKVId(kvName) {
+  try {
+    const out = run(`npx wrangler kv:namespace list`);
+    const list = JSON.parse(out);
+    if (Array.isArray(list)) {
+      const match = list.find((k) => k.title === kvName);
+      if (match && match.id) return match.id;
+    }
+  } catch (e) {}
+  return null;
+}
+
 async function main() {
   if (!fs.existsSync(REGISTRY_FILE)) {
     console.error(`Registry file ${REGISTRY_FILE} not found.`);
@@ -107,22 +119,35 @@ async function main() {
 
       if (!school.kvNamespaceId) {
         console.log(`Provisioning KV namespace: ${kvName}`);
-        try {
-          const out = run(`npx wrangler kv:namespace create ${kvName}`);
-          const id = parseKVId(out);
-          if (id) {
-            school.kvNamespaceId = id;
-            updated = true;
-            console.log(`✅ KV Created: ${id}`);
-          } else {
-            console.warn(`⚠️ Could not parse KV ID from output: ${out}`);
-          }
-        } catch (e) {
-          if (e.message.includes('already exists')) {
-             console.log(`⚠️ KV namespace already exists, but ID parsing logic needs improvement.`);
-             // Ideally we should list and find the ID here, but for now we skip.
-          } else {
-             console.error(`Failed to create KV for ${school.slug}:`, e.message);
+        const existingKvId = getExistingKVId(kvName);
+        if (existingKvId) {
+          console.log(`✅ Found existing KV namespace: ${existingKvId}`);
+          school.kvNamespaceId = existingKvId;
+          updated = true;
+        } else {
+          try {
+            const out = run(`npx wrangler kv:namespace create ${kvName}`);
+            const id = parseKVId(out);
+            if (id) {
+              school.kvNamespaceId = id;
+              updated = true;
+              console.log(`✅ KV Created: ${id}`);
+            } else {
+              console.warn(`⚠️ Could not parse KV ID from output: ${out}`);
+            }
+          } catch (e) {
+            if (e.message.includes('already exists')) {
+              const fallbackId = getExistingKVId(kvName);
+              if (fallbackId) {
+                school.kvNamespaceId = fallbackId;
+                updated = true;
+                console.log(`✅ KV retrieved after already-exists: ${fallbackId}`);
+              } else {
+                console.error(`⚠️ KV namespace already exists, but could not resolve ID.`);
+              }
+            } else {
+              console.error(`Failed to create KV for ${school.slug}:`, e.message);
+            }
           }
         }
       } else {
