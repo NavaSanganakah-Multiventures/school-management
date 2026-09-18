@@ -1,9 +1,11 @@
 import React from 'react';
-import { Sparkles, Bot, BookOpen } from 'lucide-react';
+import { Sparkles, Bot, BookOpen, BarChart3 } from 'lucide-react';
 import { AIAssistantScreen } from './ai-assistant/screen';
 import { AIAssistantWidget } from './ai-assistant/widget';
 import { PluginLmsScreen } from './plugin-lms/screen';
 import { PluginLmsWidget } from './plugin-lms/widget';
+import { AIReportAnalyzerScreen } from './ai-report-analyzer/screen';
+import { AIReportAnalyzerWidget } from './ai-report-analyzer/widget';
 
 export interface FrontendPlugin {
   id: string; // The plugin ID matching the DB (e.g. 'plugin-ai-assistant')
@@ -49,6 +51,18 @@ export const PLUGINS_REGISTRY: FrontendPlugin[] = [
     ],
     widgets: [
       { id: 'lms-widget', component: PluginLmsWidget }
+    ]
+  },
+  {
+    id: 'plugin-ai-reports',
+    navItems: [
+      { id: 'ai-reports', label: 'AI रिपोर्ट विश्लेषक', icon: BarChart3, allowedRoles: ['Director', 'Principal', 'Staff'], badge: 'AI' }
+    ],
+    routes: [
+      { id: 'ai-reports', component: AIReportAnalyzerScreen }
+    ],
+    widgets: [
+      { id: 'ai-reports-widget', component: AIReportAnalyzerWidget }
     ]
   },
 ];
