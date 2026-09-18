@@ -126,7 +126,7 @@ export function AddScholarModal({
         <div className="mx-6 mt-3 p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-start gap-2 shrink-0">
           <FileText className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
           <div className="leading-relaxed">
-            <strong>महत्वपूर्ण निर्देश (पुनः प्रवेश):</strong> यदि कोई विद्यार्थी पूर्व में इस विद्यालय में पढ़कर टी.सी. ले गया था (जैसे 1 वर्ष अन्य स्कूल में पढ़कर लौटा है), तो नया स्कॉलर बनाने के बजाय <strong>स्कॉलर रजिस्टर</strong> में उस विद्यार्थी पर <strong>"पुनः प्रवेश (Re-Admission)"</strong> बटन का उपयोग करें, ताकि उसका मूल इतिहास व क्रमांक सुरक्षित रहे।
+            <strong>महत्वपूर्ण निर्देश (पुनः प्रवेश):</strong> यदि कोई विद्यार्थी पूर्व में इस विद्यालय में पढ़कर टी.सी. ले गया था (जैसे 1 वर्ष अन्य स्कूल में पढ़कर लौटा है), तो नया स्कॉलर बनाने के बजाय <strong>स्कॉलर रजिस्टर</strong> में उस विद्यार्थी पर <strong>&quot;पुनः प्रवेश (Re-Admission)&quot;</strong> बटन का उपयोग करें, ताकि उसका मूल इतिहास व क्रमांक सुरक्षित रहे।
           </div>
         </div>
 
