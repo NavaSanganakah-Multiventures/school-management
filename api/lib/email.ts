@@ -1,6 +1,8 @@
 // Cloudflare Email Service (send_email binding) helper.
 // Sends transactional password reset / invite emails via the SEND_EMAIL binding.
 
+import { checkAndReserveEmailQuota } from './email-quota';
+
 export function getRequestOrigin(c: any, env?: any): string {
   if (env && env.APP_BASE_URL) return env.APP_BASE_URL;
   try {
@@ -26,6 +28,11 @@ export async function sendPasswordResetEmail(env: any, input: PasswordResetEmail
   const binding = env && env.SEND_EMAIL;
   if (!binding || typeof binding.send !== 'function') {
     return { sent: false, error: 'SEND_EMAIL binding उपलब्ध नहीं है।' };
+  }
+
+  const quota = await checkAndReserveEmailQuota(env, input.to);
+  if (!quota.allowed) {
+    return { sent: false, error: quota.reason || 'ईमेल भेजने की दैनिक सीमा पार हो गई है।' };
   }
 
   const name = input.name || 'उपयोगकर्ता';
@@ -89,6 +96,11 @@ export async function sendNotificationEmail(env: any, input: NotificationEmailIn
   const binding = env && env.SEND_EMAIL;
   if (!binding || typeof binding.send !== 'function') {
     return { sent: false, error: 'SEND_EMAIL binding उपलब्ध नहीं है।' };
+  }
+
+  const quota = await checkAndReserveEmailQuota(env, input.to);
+  if (!quota.allowed) {
+    return { sent: false, error: quota.reason || 'ईमेल भेजने की दैनिक सीमा पार हो गई है।' };
   }
 
   const title = input.title || 'महत्वपूर्ण सूचना';
