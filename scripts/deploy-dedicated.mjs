@@ -1,67 +1,83 @@
+/**
+ * VidyaSetu — deploy dedicated (Enterprise) schools as Workers for Platforms user workers.
+ *
+ * For each dedicated school this script:
+ *   1. writes a per-school secrets file (JSON),
+ *   2. applies D1 migrations,
+ *   3. uploads the user worker into the dispatch namespace via
+ *      wrangler deploy --dispatch-namespace <ns> --secrets-file <file> -c wrangler-<slug>.toml.
+ *
+ * Required env vars: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+ * Optional env vars: DEDICATED_SECRETS_JSON, RAZORPAY_KEY_ID/SECRET, AUTH_SECRET,
+ *   FCM_SERVICE_ACCOUNT_JSON, WEB_PUSH_VAPID_PRIVATE_KEY, FIREBASE_WEB_CONFIG_JSON
+ */
 import fs from 'fs';
 import { execSync } from 'child_process';
 
 const REGISTRY_FILE = 'schools.json';
+// WfP deploy flags (--dispatch-namespace, --secrets-file) need wrangler 4.x.
+const WRANGLER = 'npx --yes wrangler@4';
 
-function run(cmd, envs) {
-  console.log(`> ${cmd}`);
-  return execSync(cmd, { encoding: 'utf-8', stdio: 'inherit', env: { ...process.env, ...envs } });
-}
-
-function runWithSecret(cmd, secretValue) {
-  return execSync(cmd, { input: secretValue, encoding: 'utf-8', stdio: ['pipe', 'inherit', 'inherit'], env: process.env });
+function run(cmd) {
+  console.log('> ' + cmd);
+  return execSync(cmd, { encoding: 'utf-8', stdio: 'inherit', env: process.env });
 }
 
 async function main() {
   if (!fs.existsSync(REGISTRY_FILE)) {
-    console.error(`Registry file ${REGISTRY_FILE} not found.`);
+    console.error('Registry file ' + REGISTRY_FILE + ' not found.');
     process.exit(1);
   }
 
   const registry = JSON.parse(fs.readFileSync(REGISTRY_FILE, 'utf-8'));
-  const SECRETS_JSON = process.env.DEDICATED_SECRETS_JSON ? JSON.parse(process.env.DEDICATED_SECRETS_JSON) : {};
+  const namespace = registry.sharedWorker?.dispatchNamespace || 'school-management-dispatch';
+  const SECRETS_JSON = process.env.DEDICATED_SECRETS_JSON
+    ? JSON.parse(process.env.DEDICATED_SECRETS_JSON)
+    : {};
 
   for (const school of registry.schools) {
-    if (school.mode === 'dedicated') {
-      const slug = school.slug;
-      const conf = `wrangler-${slug}.toml`;
-      if (!fs.existsSync(conf)) {
-         console.error(`Missing config ${conf}`);
-         continue;
+    if (school.mode !== 'dedicated') continue;
+
+    const slug = school.slug;
+    const conf = 'wrangler-' + slug + '.toml';
+    if (!fs.existsSync(conf)) {
+      console.error('Missing config ' + conf + ' — run "node scripts/generate-school-configs.mjs" first.');
+      continue;
+    }
+
+    console.log('\n=== Deploying Dedicated (WfP) Worker: ' + slug + ' ===\n');
+
+    const schoolSecrets = SECRETS_JSON[slug] || {};
+    const secrets = {
+      RAZORPAY_KEY_ID: schoolSecrets.RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID,
+      RAZORPAY_KEY_SECRET: schoolSecrets.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRET,
+      AUTH_SECRET: schoolSecrets.AUTH_SECRET || process.env.AUTH_SECRET,
+      FCM_SERVICE_ACCOUNT_JSON: process.env.FCM_SERVICE_ACCOUNT_JSON,
+      WEB_PUSH_VAPID_PRIVATE_KEY: process.env.WEB_PUSH_VAPID_PRIVATE_KEY,
+      FIREBASE_WEB_CONFIG_JSON: process.env.FIREBASE_WEB_CONFIG_JSON,
+    };
+    for (const key of Object.keys(secrets)) {
+      if (!secrets[key]) delete secrets[key];
+    }
+
+    // Apply D1 migrations first so the schema is ready when the worker goes live.
+    run(WRANGLER + ' d1 migrations apply DB --remote -c ' + conf);
+
+    if (Object.keys(secrets).length > 0) {
+      const secretsFile = 'wrangler-' + slug + '.secrets.json';
+      fs.writeFileSync(secretsFile, JSON.stringify(secrets));
+      try {
+        run(WRANGLER + ' deploy --dispatch-namespace ' + namespace + ' --secrets-file ' + secretsFile + ' -c ' + conf);
+      } finally {
+        fs.rmSync(secretsFile, { force: true });
       }
-
-      console.log(`\n=== Deploying Dedicated Worker: ${slug} ===\n`);
-
-      run(`npx --yes wrangler@3.90.0 d1 migrations apply DB --remote -c ${conf}`);
-      run(`npx --yes wrangler@3.90.0 deploy -c ${conf}`);
-
-      const schoolSecrets = SECRETS_JSON[slug] || {};
-
-      const rzpId = schoolSecrets.RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID;
-      const rzpSec = schoolSecrets.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRET;
-      const authSec = schoolSecrets.AUTH_SECRET || process.env.AUTH_SECRET;
-
-      if(rzpId) { console.log(`Setting RAZORPAY_KEY_ID for ${slug}`); runWithSecret(`npx --yes wrangler@3.90.0 secret put RAZORPAY_KEY_ID -c ${conf}`, rzpId); }
-      if(rzpSec) { console.log(`Setting RAZORPAY_KEY_SECRET for ${slug}`); runWithSecret(`npx --yes wrangler@3.90.0 secret put RAZORPAY_KEY_SECRET -c ${conf}`, rzpSec); }
-      if(authSec) { console.log(`Setting AUTH_SECRET for ${slug}`); runWithSecret(`npx --yes wrangler@3.90.0 secret put AUTH_SECRET -c ${conf}`, authSec); }
-
-      if (process.env.FCM_SERVICE_ACCOUNT_JSON) {
-         console.log(`Setting FCM_SERVICE_ACCOUNT_JSON for ${slug}`);
-         runWithSecret(`npx --yes wrangler@3.90.0 secret put FCM_SERVICE_ACCOUNT_JSON -c ${conf}`, process.env.FCM_SERVICE_ACCOUNT_JSON);
-      }
-      if (process.env.WEB_PUSH_VAPID_PRIVATE_KEY) {
-         console.log(`Setting WEB_PUSH_VAPID_PRIVATE_KEY for ${slug}`);
-         runWithSecret(`npx --yes wrangler@3.90.0 secret put WEB_PUSH_VAPID_PRIVATE_KEY -c ${conf}`, process.env.WEB_PUSH_VAPID_PRIVATE_KEY);
-      }
-      if (process.env.FIREBASE_WEB_CONFIG_JSON) {
-         console.log(`Setting FIREBASE_WEB_CONFIG_JSON for ${slug}`);
-         runWithSecret(`npx --yes wrangler@3.90.0 secret put FIREBASE_WEB_CONFIG_JSON -c ${conf}`, process.env.FIREBASE_WEB_CONFIG_JSON);
-      }
+    } else {
+      run(WRANGLER + ' deploy --dispatch-namespace ' + namespace + ' -c ' + conf);
     }
   }
 }
 
-main().catch(e => {
-  console.error(e);
+main().catch((err) => {
+  console.error(err);
   process.exit(1);
 });
