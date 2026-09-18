@@ -74,6 +74,7 @@ jobs:
             if [ -n "$FCM_SERVICE_ACCOUNT_JSON" ]; then printf '%s' "$FCM_SERVICE_ACCOUNT_JSON" | npx wrangler secret put FCM_SERVICE_ACCOUNT_JSON; fi
             if [ -n "$WEB_PUSH_VAPID_PRIVATE_KEY" ]; then printf '%s' "$WEB_PUSH_VAPID_PRIVATE_KEY" | npx wrangler secret put WEB_PUSH_VAPID_PRIVATE_KEY; fi
             printf '%s' "$FIREBASE_WEB_CONFIG_JSON" | npx wrangler secret put FIREBASE_WEB_CONFIG_JSON
+            if [ -n "$PROVISIONING_GITHUB_TOKEN" ]; then printf '%s' "$PROVISIONING_GITHUB_TOKEN" | npx wrangler secret put GITHUB_TOKEN; fi
         env:
           RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
           RAZORPAY_KEY_SECRET: ${{ secrets.RAZORPAY_KEY_SECRET }}
@@ -83,6 +84,7 @@ jobs:
           FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
           WEB_PUSH_VAPID_PRIVATE_KEY: ${{ secrets.WEB_PUSH_VAPID_PRIVATE_KEY }}
           FIREBASE_WEB_CONFIG_JSON: ${{ secrets.FIREBASE_WEB_CONFIG_JSON }}
+          PROVISIONING_GITHUB_TOKEN: ${{ secrets.PROVISIONING_GITHUB_TOKEN }}
 
       - name: Deploy Dispatcher Worker
         run: npx --yes wrangler@4 deploy -c dispatcher/wrangler.toml
