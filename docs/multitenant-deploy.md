@@ -225,7 +225,7 @@ Dedicated mode में isolation की पूरी गारंटी के
 1. Enterprise plan subscribe/approve (या payment complete)।
 2. Main (control plane) worker **Cloudflare API से** provision करता है:
    - D1 database + R2 bucket + KV namespace बनाना।
-   - school worker (dispatch namespace में tag/binding) बनाना।
+   - school worker (dispatch namespace में script) बनाना।
    - `AUTH_SECRET`, Razorpay keys, email credentials जैसे secrets set करना।
    - `(slug).pragnya.nasven.com` custom domain/route बनाना।
 3. schema migrations apply।
@@ -233,8 +233,10 @@ Dedicated mode में isolation की पूरी गारंटी के
 
 CI/CD (GitHub Actions) में main branch पर push होते ही:
 - build एक बार होता है (shared + dedicated दोनों के लिए same bundle)।
+- `ensure-dispatch-namespace.mjs` dispatch namespace को idempotent create करता है।
 - platform/shared worker deploy होता है।
-- dedicated schools के लिए provision step चलता है (schools.json पढ़कर)।
+- dispatcher worker deploy होता है (wildcard route `*.pragnya.nasven.com`)।
+- dedicated schools के लिए provision + deploy step चलता है (schools.json पढ़कर, `wrangler deploy --dispatch-namespace`)।
 
 ## 15. Secrets Management
 
@@ -248,7 +250,7 @@ CI/CD (GitHub Actions) में main branch पर push होते ही:
 - Shared/platform: **pragnya.nasven.com**
 - Dedicated: **(slug).pragnya.nasven.com**
 - `pragnya.nasven.com` और `*.pragnya.nasven.com` Cloudflare zone पर होने चाहिए।
-- `*.pragnya.nasven.com` route **dispatch namespace** पर जाता है, जो hostname से सही school worker चुनता है।
+- `*.pragnya.nasven.com` route dispatcher worker (`school-management-dispatcher`) पर जाता है, जो dispatch namespace से hostname (= slug) के हिसाब से सही school worker चुनता है।
 - Cloudflare API token में Workers + Custom Domains/Routes की permission चाहिए।
 
 **Migration note:** repo में पुराने domains reference हैं — `wrangler.toml` का `APP_BASE_URL` (`pragnya.navasanganakah.com`) और `deploy.yml` का bootstrap URL (`school-management.nssite.workers.dev`)। इन्हें हटाकर सिर्फ़ nasven.com tree रखना है।
@@ -267,11 +269,14 @@ CI/CD (GitHub Actions) में main branch पर push होते ही:
 ## 18. Repository File Structure
 
 - `schools.json` — school registry (source of truth)
-- `scripts/provision-school.mjs` — नए dedicated school के resources auto-create (Workers for Platforms API)
-- `scripts/generate-school-configs.mjs` — registry से per-school config generate
+- `scripts/provision-school.mjs` — नए dedicated school के D1/R2/KV resources auto-create
+- `scripts/ensure-dispatch-namespace.mjs` — dispatch namespace idempotent create (REST API)
+- `scripts/generate-school-configs.mjs` — registry से per-school WfP user worker config (`wrangler-<slug>.toml`) generate
+- `scripts/deploy-dedicated.mjs` — dedicated user worker को dispatch namespace में deploy (migrations + secrets साथ)
 - `scripts/downgrade-school.mjs` — dedicated से shared data merge
 - `.github/workflows/deploy.yml` — CI/CD pipeline
 - `wrangler.toml` — platform/shared worker config
+- `dispatcher/` — WfP dispatcher worker (`*.pragnya.nasven.com` → slug worker)
 - `api/` — Hono API (core backend)
 - `app/` + `components/` — Next.js frontend
 - `plugins/` — plugin system (frontend) + `api/plugins/` (backend)
@@ -288,7 +293,7 @@ CI/CD (GitHub Actions) में main branch पर push होते ही:
 - KV: `CONFIG_KV` (shared)
 
 **Dedicated (हर school के लिए):**
-- Worker (dispatch namespace में tag): `school-management-(slug)`
+- Worker (dispatch namespace में script): `(slug)`
 - D1: `school-management-(slug)-db`
 - R2: `school-management-(slug)-media`
 - KV: `school-management-(slug)-config`
