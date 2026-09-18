@@ -27,7 +27,7 @@ function utf8ToBase64(s: string) {
 }
 
 function base64ToUtf8(b64: string) {
-  const bytes = Uint8Array.from(atob(String(b64).replace(/s/g, '')), (c) => c.charCodeAt(0));
+  const bytes = Uint8Array.from(atob(String(b64).replace(/\s/g, '')), (c) => c.charCodeAt(0));
   return new TextDecoder('utf-8').decode(bytes);
 }
 
