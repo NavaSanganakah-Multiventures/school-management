@@ -45,6 +45,7 @@ Checks: npm run lint | npm run typecheck | npm run build
 - RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET — payments
 - FCM_SERVICE_ACCOUNT_JSON / WEB_PUSH_VAPID_PRIVATE_KEY / FIREBASE_WEB_CONFIG_JSON — push
 - GEMINI_API_KEY — optional platform AI fallback
+- GITHUB_TOKEN — dedicated worker provisioning (worker secret; schools.json commit via GitHub Contents API)
 - SEND_EMAIL — Cloudflare Email binding (see wrangler.toml)
 
 ## Multi-tenancy rules
@@ -65,6 +66,17 @@ components/school-crm-shell.tsx को edit न करें। नया plugin
 .github/workflows/deploy.yml:
 - build job: lint + typecheck + next build (pull_request और push दोनों पर)
 - deploy job (सिर्फ main + non-PR): provision → dispatch namespace → D1 migrations → shared worker → dispatcher worker → dedicated workers
+
+## Dedicated worker provisioning (SuperAdmin)
+
+SuperAdmin कंसोल में स्कूल की row पर "प्रोविजन" बटन से POST /api/admin/schools/provision कॉल होता है:
+- schools.json (Tenant registry) में school entry mode: "dedicated" + slug/domain जोड़ता है
+- GITHUB_TOKEN (PAT) से main branch पर commit करता है → deploy.yml → provision-school.mjs → D1/R2/KV + dedicated deploy
+- school_tenants में provisioning_status track होता है; POST /api/admin/schools/provision/check से live status जाँचा जाता है
+
+GITHUB_TOKEN worker secret के लिए repo में PROVISIONING_GITHUB_TOKEN नाम का PAT secret चाहिए
+(fine-grained PAT, Contents: Read and write, इसी repo पर)। Built-in GITHUB_TOKEN जॉब खत्म होते ही
+expire हो जाता है, इसलिए long-lived PAT आवश्यक है।
 
 ## Notes
 
