@@ -3,6 +3,7 @@ import { getDB, makeUniqueUsername } from '../db';
 import { hashPassword, verifyPassword, signToken, getAuthUser } from '../lib/auth';
 import { issueResetToken, consumeResetToken } from '../lib/reset-tokens';
 import { sendPasswordResetEmail, getRequestOrigin } from '../lib/email';
+import { syncTenantFromPlatform } from '../lib/tenant-sync';
 
 const authApp = new Hono<{ Bindings: any }>();
 
@@ -22,26 +23,67 @@ authApp.post('/login', async (c) => {
     return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   }
 
+  const isDedicated = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+
   // 1) Platform Super Admin
-  const admin = await db.prepare('SELECT * FROM platform_admins WHERE LOWER(email) = ?').bind(identifier).first();
-  if (admin) {
-    const ok = await verifyPassword(password, admin.password_hash || '');
-    if (!ok) return c.json({ success: false, message: 'अमान्य पासवर्ड।' }, 401);
-    await db.prepare('UPDATE platform_admins SET updated_at = ? WHERE id = ?').bind(new Date().toISOString(), admin.id).run();
-    const SESSION_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
-    const token = await signToken(c, { sub: admin.id, role: 'SuperAdmin', schoolId: '', exp: Math.floor(Date.now() / 1000) + SESSION_EXPIRY_SECONDS });
-    return c.json({
-      success: true,
-      message: 'Super Admin लॉगिन सफल।',
-      token,
-      user: { id: admin.id, fullName: admin.full_name, email: admin.email, phone: admin.phone, role: 'SuperAdmin', designation: 'प्लेटफ़ॉर्म Super Admin', schoolId: '' },
-    });
+  // Strict Isolation: Super Admin is strictly for the central control plane (pragnya.nasven.com).
+  // Super Admin login is completely forbidden on dedicated workers.
+  if (!isDedicated) {
+    const admin = await db.prepare('SELECT * FROM platform_admins WHERE LOWER(email) = ?').bind(identifier).first();
+    if (admin) {
+      // Validate that the admin email belongs to authorized platform domains or PLATFORM_ADMIN_EMAIL
+      const platformEmail = String((c.env && c.env.PLATFORM_ADMIN_EMAIL) || '').trim().toLowerCase();
+      const adminEmail = String(admin.email || '').trim().toLowerCase();
+      const isDomainAllowed = adminEmail.endsWith('@nasven.com') || adminEmail.endsWith('@vidyasetu.com') || (platformEmail && adminEmail === platformEmail);
+
+      if (!isDomainAllowed) {
+        return c.json({ success: false, message: 'अनधिकृत Super Admin ईमेल डोमेन। केवल अधिकृत प्लेटफ़ॉर्म डोमेन अनुमत है।' }, 403);
+      }
+
+      const ok = await verifyPassword(password, admin.password_hash || '');
+      if (!ok) return c.json({ success: false, message: 'अमान्य पासवर्ड।' }, 401);
+      await db.prepare('UPDATE platform_admins SET updated_at = ? WHERE id = ?').bind(new Date().toISOString(), admin.id).run();
+      const SESSION_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
+      const token = await signToken(c, { sub: admin.id, role: 'SuperAdmin', schoolId: '', exp: Math.floor(Date.now() / 1000) + SESSION_EXPIRY_SECONDS });
+      return c.json({
+        success: true,
+        message: 'Super Admin लॉगिन सफल।',
+        token,
+        user: { id: admin.id, fullName: admin.full_name, email: admin.email, phone: admin.phone, role: 'SuperAdmin', designation: 'प्लेटफ़ॉर्म Super Admin', schoolId: '' },
+      });
+    }
+  } else {
+    // If on a dedicated worker, prevent any platform admin login attempt
+    try {
+      const maybeAdmin = await db.prepare('SELECT id FROM platform_admins WHERE LOWER(email) = ?').bind(identifier).first();
+      if (maybeAdmin) {
+        return c.json({ success: false, message: 'Dedicated स्कूल पोर्टल पर Super Admin लॉगिन अनुमत नहीं है। कृपया मुख्य प्लेटफ़ॉर्म (pragnya.nasven.com) का उपयोग करें।' }, 403);
+      }
+    } catch (_) {
+      // table may not exist in dedicated DB, safe to ignore
+    }
   }
 
   // 2) School user (Director / Principal / Staff)
-  const user = await db.prepare('SELECT * FROM system_users WHERE LOWER(email) = ? OR LOWER(username) = ?').bind(identifier, identifier).first();
+  let user = await db.prepare('SELECT * FROM system_users WHERE LOWER(email) = ? OR LOWER(username) = ?').bind(identifier, identifier).first();
+
+  // If user is not found on a dedicated worker, perform auto-sync from central platform to self-heal
+  if (!user && isDedicated && c.env.SCHOOL_ID) {
+    try {
+      await syncTenantFromPlatform(c, c.env.SCHOOL_ID);
+      user = await db.prepare('SELECT * FROM system_users WHERE LOWER(email) = ? OR LOWER(username) = ?').bind(identifier, identifier).first();
+    } catch (syncErr) {
+      console.warn('Auto-sync during login encountered an error:', syncErr);
+    }
+  }
+
   if (!user) {
-    return c.json({ success: false, message: 'इस ईमेल से कोई अधिकृत उपयोगकर्ता नहीं मिला। कृपया पहले स्कूल रजिस्टर करें।' }, 401);
+    return c.json({
+      success: false,
+      message: isDedicated
+        ? 'इस स्कूल पोर्टल पर यह उपयोगकर्ता नहीं मिला। कृपया अपने स्कूल एडमिन/डायरेक्टर से संपर्क करें।'
+        : 'इस ईमेल से कोई अधिकृत उपयोगकर्ता नहीं मिला। कृपया पहले स्कूल रजिस्टर करें।',
+    }, 401);
   }
   if (!user.password_hash) {
     const invite = await issueResetToken(db, user.id, 'system', 'invite');
@@ -96,6 +138,7 @@ authApp.post('/forgot-password', async (c) => {
   let userName = '';
   let tokenType = 'reset';
 
+  const isDedicated = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
   const user = await db.prepare('SELECT * FROM system_users WHERE LOWER(email) = ?').bind(identifier).first();
   if (user) {
     userId = user.id;
@@ -103,7 +146,7 @@ authApp.post('/forgot-password', async (c) => {
     userEmail = user.email;
     userName = user.full_name;
     tokenType = user.password_hash ? 'reset' : 'invite';
-  } else {
+  } else if (!isDedicated) {
     const admin = await db.prepare('SELECT * FROM platform_admins WHERE LOWER(email) = ?').bind(identifier).first();
     if (admin) {
       userId = admin.id;
@@ -156,6 +199,14 @@ authApp.post('/reset-password', async (c) => {
 // POST /api/auth/register - नया स्कूल + डायरेक्टर रजिस्ट्रेशन।
 // School starts as Suspended/Pending_Approval. Super Admin approval starts the 7-day trial.
 authApp.post('/register', async (c) => {
+  const isDedicated = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+  if (isDedicated) {
+    return c.json({
+      success: false,
+      message: 'Dedicated स्कूल पोर्टल से नया स्कूल रजिस्टर नहीं किया जा सकता। कृपया मुख्य प्लेटफ़ॉर्म (pragnya.nasven.com) पर जाएं।',
+    }, 403);
+  }
+
   const body = await c.req.json().catch(() => ({}));
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);

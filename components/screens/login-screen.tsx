@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Lock, Mail, Eye, EyeOff, School, AlertCircle, ArrowRight, UserPlus, CheckCircle2 } from 'lucide-react';
 
 interface LoginScreenProps {
@@ -19,6 +19,20 @@ export function LoginScreen({ onLoginSuccess, onRegister }: LoginScreenProps) {
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotMsg, setForgotMsg] = useState<string | null>(null);
   const [forgotLoading, setForgotLoading] = useState(false);
+  const [isDedicated, setIsDedicated] = useState(false);
+  const [schoolTitle, setSchoolTitle] = useState('विद्या सेतु स्कूल प्रबंधन');
+
+  useEffect(() => {
+    fetch('/api/config')
+      .then((res) => res.json())
+      .then((cfg) => {
+        if (cfg && cfg.isDedicated) {
+          setIsDedicated(true);
+          if (cfg.schoolName) setSchoolTitle(cfg.schoolName);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,8 +96,10 @@ export function LoginScreen({ onLoginSuccess, onRegister }: LoginScreenProps) {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 mb-3 shadow-inner">
             <School className="w-8 h-8 text-amber-300" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight">विद्या सेतु स्कूल प्रबंधन</h1>
-          <p className="text-xs text-blue-200 mt-1">अधिकृत लॉगिन — भूमिका क्रेडेंशियल्स से स्वतः पहचानी जाती है</p>
+          <h1 className="text-xl font-bold tracking-tight">{schoolTitle}</h1>
+          <p className="text-xs text-blue-200 mt-1">
+            {isDedicated ? 'अधिकृत विद्यालय पोर्टल लॉगिन' : 'अधिकृत लॉगिन — भूमिका क्रेडेंशियल्स से स्वतः पहचानी जाती है'}
+          </p>
           <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-medium border border-emerald-400/30">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
             सुरक्षित एवं एन्क्रिप्टेड प्रमाणीकरण
@@ -176,13 +192,15 @@ export function LoginScreen({ onLoginSuccess, onRegister }: LoginScreenProps) {
           )}
         </form>
 
-        <div className="bg-slate-50 p-5 border-t border-slate-100">
-          <p className="text-xs text-slate-600 mb-3">नया विद्यालय पंजीकृत करना चाहते हैं? Super Admin अप्रूवल के बाद 7-दिन का फ्री ट्रायल मिलेगा।</p>
-          <button type="button" onClick={onRegister} className="w-full py-2.5 px-4 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-800 font-semibold text-sm rounded-xl transition flex items-center justify-center gap-2 cursor-pointer">
-            <UserPlus className="w-4 h-4" />
-            <span>नया स्कूल रजिस्टर करें</span>
-          </button>
-        </div>
+        {!isDedicated && (
+          <div className="bg-slate-50 p-5 border-t border-slate-100">
+            <p className="text-xs text-slate-600 mb-3">नया विद्यालय पंजीकृत करना चाहते हैं? Super Admin अप्रूवल के बाद 7-दिन का फ्री ट्रायल मिलेगा।</p>
+            <button type="button" onClick={onRegister} className="w-full py-2.5 px-4 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-800 font-semibold text-sm rounded-xl transition flex items-center justify-center gap-2 cursor-pointer">
+              <UserPlus className="w-4 h-4" />
+              <span>नया स्कूल रजिस्टर करें</span>
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="mt-6 text-center text-xs text-slate-400">
