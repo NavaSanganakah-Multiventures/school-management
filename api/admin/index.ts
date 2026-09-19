@@ -106,6 +106,13 @@ function tenantToJson(row: any) {
     kvNamespaceId: row.kv_namespace_id || '',
     provisionedAt: row.provisioned_at || '',
     provisioningError: row.provisioning_error || '',
+    emailQuotaLimit: row.email_quota_limit === undefined || row.email_quota_limit === null ? null : Number(row.email_quota_limit),
+    emailQuotaUsed: row.email_quota_used === undefined || row.email_quota_used === null ? 0 : Number(row.email_quota_used),
+    emailQuotaResetAt: row.email_quota_reset_at || '',
+    emailFromName: row.email_from_name || '',
+    emailFromEmail: row.email_from_email || '',
+    emailReplyTo: row.email_reply_to || '',
+    emailConfigActive: row.email_config_active === undefined ? true : !!row.email_config_active,
   };
 }
 
@@ -133,9 +140,59 @@ adminApp.get('/schools', async (c) => {
   const guard = await requireSuperAdmin(c);
   if (!guard.ok) return guard.error;
   const db = getDB(c);
-  const rows = await db.prepare('SELECT s.*, sub.plan_id AS sub_plan_id, sub.plan_name AS sub_plan_name, sub.status AS sub_status, sub.trial_ends_at AS trial_ends_at FROM school_tenants s LEFT JOIN school_subscriptions sub ON sub.school_id = s.id WHERE s.deleted_at IS NULL ORDER BY s.created_at DESC').all();
+  const rows = await db.prepare(
+    'SELECT s.*, sub.plan_id AS sub_plan_id, sub.plan_name AS sub_plan_name, sub.status AS sub_status, sub.trial_ends_at AS trial_ends_at, '
+    + 'sub.email_quota_limit AS email_quota_limit, sub.email_quota_used AS email_quota_used, sub.email_quota_reset_at AS email_quota_reset_at, '
+    + 'ec.from_name AS email_from_name, ec.from_email AS email_from_email, ec.reply_to AS email_reply_to, ec.is_active AS email_config_active '
+    + 'FROM school_tenants s '
+    + 'LEFT JOIN school_subscriptions sub ON sub.school_id = s.id '
+    + 'LEFT JOIN school_email_config ec ON ec.school_id = s.id '
+    + 'WHERE s.deleted_at IS NULL ORDER BY s.created_at DESC'
+  ).all();
   const schools = (rows.results || []).map(tenantToJson);
   return c.json({ success: true, schools });
+});
+
+// POST /api/admin/schools/email-config - monthly email quota + business-domain sender config
+adminApp.post('/schools/email-config', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String((body && body.schoolId) || '').trim();
+  if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
+
+  const tenant = await db.prepare('SELECT id FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  if (!tenant) return c.json({ success: false, message: 'स्कूल नहीं मिला।' }, 404);
+
+  const limitRaw = String(body.limit === undefined || body.limit === null ? '' : body.limit).trim();
+  const limit = limitRaw === '' ? null : Number(limitRaw);
+  if (limit !== null && (Number.isNaN(limit) || limit < 0)) {
+    return c.json({ success: false, message: 'अमान्य मासिक ईमेल सीमा।' }, 400);
+  }
+
+  const fromName = String((body && body.fromName) || '').trim();
+  const fromEmail = String((body && body.fromEmail) || '').trim().toLowerCase();
+  const replyTo = String((body && body.replyTo) || '').trim().toLowerCase();
+  const isActive = body && body.isActive === false ? 0 : 1;
+  const now = new Date().toISOString();
+  const currentMonth = now.slice(0, 7);
+
+  await db.prepare('UPDATE school_subscriptions SET email_quota_limit = ?, email_quota_used = 0, email_quota_reset_at = ?, updated_at = ? WHERE school_id = ?')
+    .bind(limit, currentMonth, now, schoolId).run();
+
+  const existing = await db.prepare('SELECT id FROM school_email_config WHERE school_id = ?').bind(schoolId).first();
+  if (existing) {
+    await db.prepare('UPDATE school_email_config SET from_name = ?, from_email = ?, reply_to = ?, is_active = ?, updated_at = ? WHERE school_id = ?')
+      .bind(fromName, fromEmail, replyTo, isActive, now, schoolId).run();
+  } else {
+    await db.prepare('INSERT INTO school_email_config (id, school_id, from_name, from_email, reply_to, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind('emcfg-' + crypto.randomUUID(), schoolId, fromName, fromEmail, replyTo, isActive, now, now).run();
+  }
+
+  return c.json({ success: true, message: 'ईमेल कोटा व सेंडर कॉन्फ़िगरेशन सहेजा गया।' });
 });
 
 // GET /api/admin/schools/deleted - हटाए गए स्कूलों की सूची (restore के लिए)
