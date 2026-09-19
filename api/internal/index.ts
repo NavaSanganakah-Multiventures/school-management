@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
 import { getDB } from '../db';
+import { deriveSyncKey, encryptPayload } from '../lib/tenant-crypto';
 
 export const internalApp = new Hono<{ Bindings: any }>();
 
 // GET /api/internal/tenant-sync/:schoolId
 // Internal endpoint used by dedicated workers and deployment scripts to sync tenant metadata
-// from the central platform control plane. Protected by X-Internal-Secret: AUTH_SECRET.
+// from the central platform control plane. Protected by X-Internal-Secret and domain-separated key.
 internalApp.get('/tenant-sync/:schoolId', async (c) => {
   const secret = c.req.header('X-Internal-Secret') || '';
   const expectedSecret = (c.env && (c.env.INTERNAL_SYNC_SECRET || c.env.AUTH_SECRET)) || '';
@@ -26,8 +27,6 @@ internalApp.get('/tenant-sync/:schoolId', async (c) => {
 
   const tenant = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
   const profile = await db.prepare('SELECT * FROM school_profile WHERE id = ?').bind(schoolId).first();
-  // Machine-to-machine tenant data plane synchronization:
-  // Select explicit columns required for tenant operations and credential synchronization.
   const usersRows = await db.prepare(
     'SELECT id, username, full_name, email, phone, role, designation, department, qualification, salary, status, last_login, created_at, updated_at, password_hash, school_id '
     + 'FROM system_users WHERE school_id = ?'
@@ -41,16 +40,34 @@ internalApp.get('/tenant-sync/:schoolId', async (c) => {
     // optional table
   }
 
-  if (!tenant && !profile && (!usersRows.results || usersRows.results.length === 0)) {
+  const rawUsers = (usersRows.results || []) as any[];
+  if (!tenant && !profile && rawUsers.length === 0) {
     return c.json({ success: false, message: 'स्कूल डेटा नहीं मिला।' }, 404);
   }
+
+  // Sanitize user records so no password hashes are exposed in the users array
+  const cleanUsers: any[] = [];
+  const credentialsMap: Record<string, string> = {};
+
+  for (const u of rawUsers) {
+    const { password_hash, ...safeUser } = u;
+    cleanUsers.push(safeUser);
+    if (password_hash) {
+      credentialsMap[u.id] = password_hash;
+    }
+  }
+
+  // Encrypt authentication credentials via domain-separated AES-GCM
+  const syncKey = await deriveSyncKey(expectedSecret);
+  const encryptedCredentials = await encryptPayload(syncKey, credentialsMap);
 
   return c.json({
     success: true,
     schoolId,
     tenant,
     profile,
-    users: usersRows.results || [],
+    users: cleanUsers,
+    encryptedCredentials,
     subscription,
     emailConfig,
   });

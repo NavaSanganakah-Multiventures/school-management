@@ -3,6 +3,7 @@
 // the dedicated school worker's local D1 database.
 
 import { getDB } from '../db';
+import { deriveSyncKey, decryptPayload } from './tenant-crypto';
 
 export async function syncTenantFromPlatform(c: any, targetSchoolId?: string): Promise<{ success: boolean; message: string; count?: number }> {
   const env = c && c.env;
@@ -103,11 +104,23 @@ export async function syncTenantFromPlatform(c: any, targetSchoolId?: string): P
       ).run();
     }
 
-    // 2) Sync system_users (Director, Staff, etc. with password hashes)
+    // Decrypt user authentication credentials if provided
+    let credentialsMap: Record<string, string> = {};
+    if (data.encryptedCredentials) {
+      try {
+        const syncKey = await deriveSyncKey(syncSecret);
+        credentialsMap = await decryptPayload(syncKey, data.encryptedCredentials);
+      } catch (decErr) {
+        console.warn('Could not decrypt synchronized credentials:', decErr);
+      }
+    }
+
+    // 2) Sync system_users (Director, Staff, etc. with decrypted password hashes)
     let syncedUsers = 0;
     if (Array.isArray(data.users) && data.users.length > 0) {
       for (const u of data.users) {
         if (!u || !u.id || !u.email) continue;
+        const passwordHash = credentialsMap[u.id] || u.password_hash || null;
         await db.prepare(
           'INSERT OR REPLACE INTO system_users (id, username, full_name, email, phone, role, designation, department, qualification, salary, status, last_login, created_at, updated_at, password_hash, school_id) '
           + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -126,7 +139,7 @@ export async function syncTenantFromPlatform(c: any, targetSchoolId?: string): P
           u.last_login || null,
           u.created_at || new Date().toISOString(),
           u.updated_at || new Date().toISOString(),
-          u.password_hash || null,
+          passwordHash,
           schoolId
         ).run();
         syncedUsers++;
