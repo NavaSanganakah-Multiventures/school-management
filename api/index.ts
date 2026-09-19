@@ -23,6 +23,7 @@ import pluginsApp from './plugins';
 import aiApp from './ai';
 import configApp from './config';
 import lmsApp from './lms';
+import emailApp from './email';
 
 const app = new Hono<{ Bindings: any }>().basePath('/api');
 
@@ -86,5 +87,6 @@ app.route('/plugins', pluginsApp);
 app.route('/ai', aiApp);
 app.route('/config', configApp);
 app.route('/lms', lmsApp);
+app.route('/email', emailApp);
 
 export default app;
