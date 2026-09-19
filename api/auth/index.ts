@@ -233,8 +233,13 @@ authApp.post('/register', async (c) => {
   const now = new Date().toISOString();
   const username = await makeUniqueUsername(db, email);
 
-  await db.prepare('INSERT INTO school_tenants (id, school_name, subdomain, custom_domain, contact_email, contact_phone, status, registration_status, plan_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
-    .bind(schoolId, schoolName, subdomain, body.customDomain || '', email, phone, 'Suspended', 'Pending_Approval', 'trial', now).run();
+  const estimatedStudents = Number(body.estimatedStudents) || 0;
+  const estimatedStaff = Number(body.estimatedStaff) || 0;
+  const preferredPlanId = String(body.preferredPlanId || 'trial').trim();
+  const customRequirements = String(body.customRequirements || '').trim();
+
+  await db.prepare('INSERT INTO school_tenants (id, school_name, subdomain, custom_domain, contact_email, contact_phone, status, registration_status, plan_id, estimated_students, estimated_staff, preferred_plan_id, custom_requirements, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(schoolId, schoolName, subdomain, body.customDomain || '', email, phone, 'Suspended', 'Pending_Approval', preferredPlanId === 'trial' ? 'trial' : preferredPlanId, estimatedStudents, estimatedStaff, preferredPlanId, customRequirements, now).run();
 
   await db.prepare('INSERT INTO school_profile (id, school_name, affiliation_number, board_name, school_code, email, phone, alternate_phone, address, city, state, pincode, academic_session, director_name, principal_name, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .bind(schoolId, schoolName, body.affiliationNumber || '', body.boardName || 'CBSE', body.schoolCode || '', email, phone, body.alternatePhone || '', body.address || '', body.city || '', body.state || '', body.pincode || '', body.academicSession || '2026-2027', directorName, body.principalName || directorName, now.split('T')[0]).run();
@@ -243,11 +248,31 @@ authApp.post('/register', async (c) => {
     .bind(userId, username, directorName, email, phone, 'Director', body.designation || 'स्कूल निदेशक (Director)', 'प्रबंधन एवं प्रशासन', body.qualification || '', 0, 'Active', schoolId, passwordHash, now).run();
 
   await db.prepare('INSERT INTO school_subscriptions (id, school_id, plan_id, plan_name, billing_cycle, price_per_cycle, discount_percent, status, auto_pay_enabled, payment_method, mandate_id, next_billing_date, period_start, period_end, trial_ends_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind('sub-' + Date.now(), schoolId, 'starter', '7-दिन फ्री ट्रायल', 'monthly', 0, 0, 'Trial', 0, '', '', '', '', '', '', now).run();
+    .bind('sub-' + Date.now(), schoolId, preferredPlanId === 'trial' ? 'trial' : preferredPlanId, preferredPlanId === 'trial' ? '7-दिन फ्री ट्रायल' : preferredPlanId, 'monthly', 0, 0, 'Trial', 0, '', '', '', '', '', '', now).run();
+
+  if (customRequirements) {
+    try {
+      await db.prepare(
+        'INSERT INTO school_feature_requests (id, school_id, requested_by_user_id, title, description, category, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).bind(
+        'freq-' + Date.now(),
+        schoolId,
+        userId,
+        'पंजीकरण के समय विशेष आवश्यकताएं',
+        customRequirements,
+        'onboarding_requirement',
+        'Pending',
+        now,
+        now
+      ).run();
+    } catch (_) {
+      // Non-fatal if table not migrated yet
+    }
+  }
 
   return c.json({
     success: true,
-    message: 'स्कूल पंजीकरण अनुरोध प्राप्त हुआ। Super Admin अप्रूवल के बाद 7-दिन का फ्री ट्रायल शुरू होगा।',
+    message: 'स्कूल पंजीकरण अनुरोध प्राप्त हुआ। Super Admin अप्रूवल के बाद आपका खाता सक्रिय हो जाएगा।',
     schoolId,
   });
 });

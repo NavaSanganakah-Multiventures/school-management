@@ -25,13 +25,14 @@ import configApp from './config';
 import lmsApp from './lms';
 import emailApp from './email';
 import internalApp from './internal';
+import featuresApp from './features';
 
 const app = new Hono<{ Bindings: any }>().basePath('/api');
 
 app.use('*', cors());
 
 // Dedicated Worker Request Policy:
-// 1. Billing and Plugins routes are proxied to the central platform worker (pragnya.nasven.com).
+// 1. Billing, Plugins, and Features routes are proxied to the central platform worker (pragnya.nasven.com).
 // 2. SuperAdmin / Admin Console routes are strictly BLOCKED on dedicated school workers.
 app.use('*', async (c, next) => {
   const isDedicated = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
@@ -46,7 +47,7 @@ app.use('*', async (c, next) => {
       }, 403);
     }
 
-    if (path.startsWith('/api/billing') || path.startsWith('/api/plugins')) {
+    if (path.startsWith('/api/billing') || path.startsWith('/api/plugins') || path.startsWith('/api/features')) {
       try {
         const platformUrl = new URL(c.req.url);
         platformUrl.hostname = 'pragnya.nasven.com';
@@ -102,5 +103,6 @@ app.route('/config', configApp);
 app.route('/lms', lmsApp);
 app.route('/email', emailApp);
 app.route('/internal', internalApp);
+app.route('/features', featuresApp);
 
 export default app;
