@@ -81,3 +81,40 @@ expire हो जाता है, इसलिए long-lived PAT आवश्�
 ## Notes
 
 - Migrations idempotent (CREATE TABLE IF NOT EXISTS / INSERT OR IGNORE) और composite (school_id, ...) indexes के साथ।
+
+## ईमेल कोटा व बिज़नेस-डोमेन ईमेल (Phase 3)
+
+### सारांश
+- हर स्कूल के लिए प्लान-आधारित मासिक ईमेल कोटा लागू होता है (broadcast/notification ईमेल पर)।
+- Transactional ईमेल (forgot-password / login-नोटिफ़िकेशन) कोटा से मुक्त रहते हैं ताकि पासवर्ड रीसेट कभी block न हो।
+- हर स्कूल अपना भेजने वाला (sender) ईमेल पहचान (from name / from email / reply-to) रख सकता है (business-domain email)।
+
+### डेटा मॉडल (Migration 0026)
+- subscription_plans.email_quota_limit — प्लान का default मासिक कोटा (NULL = असीमित)।
+  - trial = 50, starter = 500, pro = 2000, enterprise = NULL (असीमित)।
+- school_subscriptions.email_quota_limit — admin override (NULL हो तो प्लान का default लागू)।
+- school_subscriptions.email_quota_used — चालू माह में भेजे गए broadcast/notification ईमेल।
+- school_subscriptions.email_quota_reset_at — उपयोग काउंटर का माह (YYYY-MM)।
+- school_email_config — प्रति-स्कूल sender कॉन्फ़िगरेशन (from_name, from_email, reply_to, is_active)।
+
+### प्रभावी कोटा (precedence)
+1. अगर school_subscriptions.email_quota_limit set है → वही प्रभावी।
+2. वरना प्लान का emailQuotaLimit लागू।
+3. दोनों NULL/absent → असीमित।
+
+### API
+- GET /api/email/quota — लॉगिन किए स्कूल का वर्तमान कोटा/उपयोग (data-plane, school-scoped)।
+- POST /api/email/test — परीक्षण ईमेल भेजता है (सिर्फ़ Director/Principal)।
+- GET /api/admin/schools — अब हर स्कूल में emailQuotaLimit, emailQuotaUsed, emailQuotaResetAt, emailFromName, emailFromEmail, emailReplyTo, emailConfigActive भी आते हैं।
+- POST /api/admin/schools/email-config — Super Admin के लिए: मासिक कोटा (खाली = असीमित) + sender config एक साथ सेव करता है और उपयोग काउंटर रीसेट करता है।
+
+### भेजने का प्रवाह
+- api/lib/email.ts का sendSchoolEmail():
+  1. SEND_EMAIL binding जाँचता है।
+  2. school कोटा reserve करता है (block होने पर नहीं भेजता)।
+  3. दैनिक anti-abuse कोटा (checkAndReserveEmailQuota) जाँचता है।
+  4. sender: school config सक्रिय हो तो वह, वरना platform default pragnya@navasanganakah.com।
+
+### ज़रूरी शर्त (Cloudflare Email Routing)
+- SEND_EMAIL binding Cloudflare Email Routing पर निर्भर है। zone pragnya.nasven.com पर Email Routing सक्षम और sender verified होना चाहिए (उदा. no-reply@pragnya.nasven.com), वरना SEND_EMAIL.send() विफल होगा।
+- किसी स्कूल का business-domain sender (उदा. no-reply@school.in) तभी काम करेगा जब वह डोमेन Email Routing में verified हो (या उस sender को अधिकृत किया गया हो)।
