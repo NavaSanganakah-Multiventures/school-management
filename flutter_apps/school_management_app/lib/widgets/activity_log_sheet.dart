@@ -155,8 +155,8 @@ class _ActivityLogSheetState extends State<ActivityLogSheet> {
                       ),
                       Text(
                         isTeacher
-                          ? 'कक्षा व आपके द्वारा किए गए सभी कार्यों का प्रमाणिक रिकॉर्ड'
-                          : 'सभी शिक्षकों एवं स्टाफ द्वारा किए गए वास्तविक कार्यों का विवरण',
+                            ? 'कक्षा व आपके द्वारा किए गए सभी कार्यों का प्रमाणिक रिकॉर्ड'
+                            : 'सभी शिक्षकों एवं स्टाफ द्वारा किए गए वास्तविक कार्यों का विवरण',
                         style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                       ),
                     ],
@@ -217,7 +217,7 @@ class _ActivityLogSheetState extends State<ActivityLogSheet> {
                                     border: Border.all(color: Colors.grey.shade200),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.black.withOpacity(0.02),
+                                        color: Colors.black.withValues(alpha: 0.03),
                                         blurRadius: 4,
                                         offset: const Offset(0, 2),
                                       ),
@@ -228,7 +228,7 @@ class _ActivityLogSheetState extends State<ActivityLogSheet> {
                                     children: [
                                       CircleAvatar(
                                         radius: 18,
-                                        backgroundColor: color.withOpacity(0.12),
+                                        backgroundColor: color.withValues(alpha: 0.12),
                                         child: Icon(icon, color: color, size: 20),
                                       ),
                                       const SizedBox(width: 12),
@@ -248,56 +248,24 @@ class _ActivityLogSheetState extends State<ActivityLogSheet> {
                                                     ),
                                                   ),
                                                 ),
-                                                if (item['class_name'] != null &&
-                                                    item['class_name'].toString().isNotEmpty) ...[
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                    decoration: BoxDecoration(
-                                                      color: Colors.indigo.shade50,
-                                                      borderRadius: BorderRadius.circular(6),
-                                                    ),
-                                                    child: Text(
-                                                      item['class_name'],
-                                                      style: TextStyle(
-                                                        fontSize: 10,
-                                                        fontWeight: FontWeight.bold,
-                                                        color: Colors.indigo.shade900,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ],
-                                            ),
-                                            const SizedBox(height: 3),
-                                            Text(
-                                              item['description'] ?? '',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey.shade700,
-                                                height: 1.3,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            Row(
-                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                              children: [
-                                                Text(
-                                                  'कर्ता: ${item['user_name'] ?? "स्टाफ"} (${item['user_role'] ?? ""})',
-                                                  style: TextStyle(
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: Colors.grey.shade600,
-                                                  ),
-                                                ),
                                                 Text(
                                                   _formatTimestamp(item['created_at']),
-                                                  style: TextStyle(
-                                                    fontSize: 10,
-                                                    color: Colors.grey.shade500,
-                                                  ),
+                                                  style: const TextStyle(fontSize: 10, color: Colors.grey),
                                                 ),
                                               ],
                                             ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              item['details'] ?? '',
+                                              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                                            ),
+                                            if (item['performed_by_name'] != null && !isTeacher) ...[
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                'कर्ता: ${item['performed_by_name']} (${item['performed_by_role'] ?? ""})',
+                                                style: TextStyle(fontSize: 11, color: Colors.indigo.shade700, fontWeight: FontWeight.w500),
+                                              ),
+                                            ],
                                           ],
                                         ),
                                       ),

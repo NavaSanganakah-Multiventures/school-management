@@ -18,10 +18,20 @@ class PrincipalDashboardScreen extends StatefulWidget {
 
 class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
   final ApiClient _api = ApiClient();
+  int _currentTabIndex = 0;
+
   bool _isLoading = true;
   Map<String, dynamic> _stats = {};
   List<dynamic> _schoolAbsentees = [];
   final String _today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+  // Search & Filter for Absentees
+  String _absenteeSearch = '';
+  String _selectedClassFilter = 'All';
+
+  // Notices Tab State
+  List<dynamic> _notices = [];
+  bool _isLoadingNotices = false;
 
   @override
   void initState() {
@@ -49,6 +59,21 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
     }
   }
 
+  Future<void> _loadNotices() async {
+    setState(() => _isLoadingNotices = true);
+    try {
+      final res = await _api.get('/api/notices', queryParams: {'limit': '20'});
+      if (res['success'] == true) {
+        setState(() {
+          _notices = res['notices'] ?? [];
+          _isLoadingNotices = false;
+        });
+      }
+    } catch (_) {
+      setState(() => _isLoadingNotices = false);
+    }
+  }
+
   Future<void> _sendSchoolWideAbsentAlert() async {
     if (_schoolAbsentees.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -69,7 +94,7 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('भेजें'),
+            child: const Text('अलर्ट भेजें'),
           ),
         ],
       ),
@@ -86,7 +111,7 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(res['message'] ?? 'पुश अलर्ट भेज दिया गया।'),
+            content: Text(res['message'] ?? 'सामूहिक पुश अलर्ट प्रेषित कर दिया गया।'),
             backgroundColor: Colors.green,
           ),
         );
@@ -100,12 +125,105 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
     }
   }
 
+  Future<void> _openCreateNoticeDialog() async {
+    final titleCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    bool isSubmitting = false;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.campaign, color: Color(0xFF1E1B4B)),
+              SizedBox(width: 8),
+              Text('नई सूचना / परिपत्र जारी करें', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'शीर्षक *',
+                  hintText: 'उदा. स्वतंत्रता दिवस समारोह',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descCtrl,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'विवरण *',
+                  hintText: 'सूचना का पूरा विवरण लिखें...',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
+              child: const Text('रद्द करें'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1E1B4B),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: isSubmitting
+                  ? null
+                  : () async {
+                      final title = titleCtrl.text.trim();
+                      final desc = descCtrl.text.trim();
+                      if (title.isEmpty || desc.isEmpty) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(content: Text('कृपया शीर्षक व विवरण दोनों भरें।')),
+                        );
+                        return;
+                      }
+
+                      setDialogState(() => isSubmitting = true);
+                      try {
+                        await _api.post('/api/notices', body: {
+                          'title': title,
+                          'description': desc,
+                          'date': _today,
+                          'targetRole': 'All',
+                        });
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        _loadNotices();
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('सूचना सफलतापूर्वक प्रकाशित की गई।'), backgroundColor: Colors.green),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() => isSubmitting = false);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('त्रुटि: $e'), backgroundColor: Colors.red),
+                          );
+                        }
+                      }
+                    },
+              child: isSubmitting
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('प्रकाशित करें'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final todayPresent = _stats['todayPresent'] ?? 0;
-    final todayAbsent = _stats['todayAbsent'] ?? _schoolAbsentees.length;
-    final attRate = _stats['attendanceRate'] ?? 0;
-
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -125,10 +243,12 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
+            tooltip: 'ताज़ा करें',
             onPressed: _loadDashboardData,
           ),
           IconButton(
             icon: const Icon(Icons.logout),
+            tooltip: 'लॉगआउट',
             onPressed: () async {
               await AuthService().logout();
               if (context.mounted) {
@@ -140,241 +260,481 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadDashboardData,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Welcome Banner
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF312E81), Color(0xFF4338CA)],
+      body: IndexedStack(
+        index: _currentTabIndex,
+        children: [
+          _buildOverviewTab(),
+          _buildAbsenteeTab(),
+          _buildNoticesTab(),
+          _buildAuditTab(),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentTabIndex,
+        onDestinationSelected: (idx) {
+          setState(() => _currentTabIndex = idx);
+          if (idx == 2 && _notices.isEmpty) {
+            _loadNotices();
+          }
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard, color: Color(0xFF4338CA)),
+            label: 'अवलोकन',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_off_outlined),
+            selectedIcon: Icon(Icons.person_off, color: Colors.red),
+            label: 'अनुपस्थित',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.campaign_outlined),
+            selectedIcon: Icon(Icons.campaign, color: Color(0xFF4338CA)),
+            label: 'नोटिस बोर्ड',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.verified_user_outlined),
+            selectedIcon: Icon(Icons.verified_user, color: Color(0xFF4338CA)),
+            label: 'स्टाफ ऑडिट',
+          ),
+        ],
+      ),
+    );
+  }
+
+  // TAB 1: Daily Overview
+  Widget _buildOverviewTab() {
+    final todayPresent = _stats['todayPresent'] ?? 0;
+    final todayAbsent = _stats['todayAbsent'] ?? _schoolAbsentees.length;
+    final attRate = _stats['attendanceRate'] ?? 0;
+    final totalStudents = _stats['totalStudents'] ?? 0;
+    final totalStaff = _stats['totalStaff'] ?? 0;
+
+    return _isLoading
+        ? const Center(child: CircularProgressIndicator())
+        : RefreshIndicator(
+            onRefresh: _loadDashboardData,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Welcome Banner
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF312E81), Color(0xFF4338CA)],
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Icon(Icons.account_balance_rounded, color: Colors.white, size: 32),
                         ),
-                        borderRadius: BorderRadius.circular(20),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'दैनिक विद्यालय पर्यवेक्षण',
+                                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'तारीख: $_today • सत्र 2026-2027',
+                                style: TextStyle(color: Colors.indigo.shade100, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Quick Action Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => TeacherAttendanceScreen(user: widget.user),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.checklist_rtl, size: 16),
+                          label: const Text('उपस्थिति पंजिका', style: TextStyle(fontSize: 12)),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            side: const BorderSide(color: Color(0xFF4338CA)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _openCreateNoticeDialog,
+                          icon: const Icon(Icons.campaign, size: 16),
+                          label: const Text('नोटिस जारी करें', style: TextStyle(fontSize: 12)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF312E81),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Today Attendance KPI Cards
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildMetricCard(
+                          'आज की उपस्थिति दर',
+                          '$attRate%',
+                          '$todayPresent छात्र उपस्थित',
+                          const Color(0xFF047857),
+                          const Color(0xFFECFDF5),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildMetricCard(
+                          'कुल अनुपस्थित',
+                          '$todayAbsent छात्र',
+                          'त्वरित अलर्ट उपलब्ध',
+                          Colors.red.shade700,
+                          const Color(0xFFFEF2F2),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildMetricCard(
+                          'कुल नामांकित छात्र',
+                          '$totalStudents',
+                          'सभी कक्षाएं मिलाकर',
+                          Colors.blue.shade800,
+                          const Color(0xFFEFF6FF),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildMetricCard(
+                          'कार्यरत स्टाफ',
+                          '$totalStaff शिक्षक/कर्मचारी',
+                          'सक्रिय सदस्य',
+                          Colors.purple.shade800,
+                          const Color(0xFFFAF5FF),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Quick Absentee Banner Link to Tab 1
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.person_off, color: Colors.red.shade700, size: 20),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'आज ${_schoolAbsentees.length} छात्र अनुपस्थित दर्ज हैं',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                              const Text('अभिभावकों को WhatsApp या कॉल करने के लिए देखें', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                            ],
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => setState(() => _currentTabIndex = 1),
+                          child: const Text('सूची देखें →'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+  }
+
+  // TAB 2: Absentee Roster with Search & Direct Call/WhatsApp
+  Widget _buildAbsenteeTab() {
+    final filtered = _schoolAbsentees.where((a) {
+      final name = (a['studentName'] ?? '').toString().toLowerCase();
+      final parent = (a['parentName'] ?? '').toString().toLowerCase();
+      final cls = (a['className'] ?? '').toString();
+      final matchesSearch = _absenteeSearch.isEmpty || name.contains(_absenteeSearch.toLowerCase()) || parent.contains(_absenteeSearch.toLowerCase());
+      final matchesClass = (_selectedClassFilter == 'All') || (cls == _selectedClassFilter);
+      return matchesSearch && matchesClass;
+    }).toList();
+
+    // Unique classes for filter
+    final classes = {'All', ..._schoolAbsentees.map((e) => e['className']?.toString() ?? '')}.toList();
+
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          color: Colors.white,
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'अनुपस्थित छात्र (${_schoolAbsentees.length})',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  if (_schoolAbsentees.isNotEmpty)
+                    ElevatedButton.icon(
+                      onPressed: _sendSchoolWideAbsentAlert,
+                      icon: const Icon(Icons.send_rounded, size: 14),
+                      label: const Text('सभी को अलर्ट', style: TextStyle(fontSize: 11)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      onChanged: (val) => setState(() => _absenteeSearch = val.trim()),
+                      decoration: InputDecoration(
+                        hintText: 'छात्र या अभिभावक खोजें...',
+                        prefixIcon: const Icon(Icons.search, size: 18),
+                        isDense: true,
+                        filled: true,
+                        fillColor: const Color(0xFFF8FAFC),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                      ),
+                    ),
+                  ),
+                  if (classes.length > 2) ...[
+                    const SizedBox(width: 8),
+                    DropdownButton<String>(
+                      value: _selectedClassFilter,
+                      items: classes.map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(fontSize: 12)))).toList(),
+                      onChanged: (v) {
+                        if (v != null) setState(() => _selectedClassFilter = v);
+                      },
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+
+        Expanded(
+          child: filtered.isEmpty
+              ? const Center(
+                  child: Text('कोई अनुपस्थित छात्र नहीं मिला।', style: TextStyle(color: Colors.grey)),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final item = filtered[index];
+                    final phone = item['parentPhone'] ?? '';
+
+                    return Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.red.shade100),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.02),
+                            blurRadius: 4,
+                          ),
+                        ],
                       ),
                       child: Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(16),
+                              color: Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Icon(Icons.account_balance, color: Colors.white, size: 32),
+                            child: Text(
+                              item['className'] ?? '',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.red.shade900,
+                                fontSize: 11,
+                              ),
+                            ),
                           ),
-                          const SizedBox(width: 14),
+                          const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text(
-                                  'दैनिक विद्यालय पर्यवेक्षण',
-                                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                                ),
-                                const SizedBox(height: 2),
                                 Text(
-                                  'तारीख: $_today • सत्र 2026-2027',
-                                  style: TextStyle(color: Colors.indigo.shade100, fontSize: 12),
+                                  item['studentName'] ?? '',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                                Text(
+                                  'अभिभावक: ${item['parentName'] ?? ""} ($phone)',
+                                  style: const TextStyle(fontSize: 11, color: Colors.black54),
                                 ),
                               ],
                             ),
                           ),
+                          if (phone.isNotEmpty) ...[
+                            IconButton(
+                              icon: const Icon(Icons.chat, color: Colors.green, size: 20),
+                              tooltip: 'WhatsApp',
+                              onPressed: () {
+                                final num = phone.replaceAll(RegExp(r'[^0-9]'), '');
+                                final fullNum = num.length == 10 ? '91$num' : num;
+                                final msg = Uri.encodeComponent(
+                                  'सादर नमस्कार। आपका बच्चा ${item['studentName']} आज ($_today) विद्यालय में अनुपस्थित है। कृपया विद्यालय प्रशासन को सूचित करें।',
+                                );
+                                launchUrl(Uri.parse('https://wa.me/$fullNum?text=$msg'), mode: LaunchMode.externalApplication);
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.call, color: Colors.blue, size: 20),
+                              tooltip: 'कॉल करें',
+                              onPressed: () {
+                                launchUrl(Uri.parse('tel:$phone'));
+                              },
+                            ),
+                          ],
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 16),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
 
-                    // Quick Actions
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => TeacherAttendanceScreen(user: widget.user),
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.checklist_rtl, size: 16),
-                            label: const Text('उपस्थिति रजिस्टर', style: TextStyle(fontSize: 12)),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              side: const BorderSide(color: Color(0xFF4338CA)),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () => ActivityLogSheet.show(context, user: widget.user),
-                            icon: const Icon(Icons.history_edu, size: 16),
-                            label: const Text('स्टाफ ऑडिट ट्रेल', style: TextStyle(fontSize: 12)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF312E81),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Today Attendance KPI Cards
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildMetricCard(
-                            'आज की उपस्थिति',
-                            '$attRate%',
-                            '$todayPresent उपस्थित',
-                            const Color(0xFF047857),
-                            const Color(0xFFECFDF5),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _buildMetricCard(
-                            'कुल अनुपस्थित',
-                            '$todayAbsent छात्र',
-                            'त्वरित अलर्ट उपलब्ध',
-                            Colors.red.shade700,
-                            const Color(0xFFFEF2F2),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Absentee Report Header & Broadcast Button
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'आज के अनुपस्थित छात्र (${_schoolAbsentees.length})',
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                        ),
-                        if (_schoolAbsentees.isNotEmpty)
-                          ElevatedButton.icon(
-                            onPressed: _sendSchoolWideAbsentAlert,
-                            icon: const Icon(Icons.send, size: 14),
-                            label: const Text('सभी को अलर्ट', style: TextStyle(fontSize: 11)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-
-                    // Absentee List Cards
-                    if (_schoolAbsentees.isEmpty)
-                      Container(
-                        padding: const EdgeInsets.all(24),
+  // TAB 3: Notices & Circulars
+  Widget _buildNoticesTab() {
+    return Scaffold(
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: const Color(0xFF1E1B4B),
+        foregroundColor: Colors.white,
+        onPressed: _openCreateNoticeDialog,
+        icon: const Icon(Icons.add),
+        label: const Text('नई सूचना जारी करें'),
+      ),
+      body: _isLoadingNotices
+          ? const Center(child: CircularProgressIndicator())
+          : _notices.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.campaign_outlined, size: 48, color: Colors.grey),
+                      const SizedBox(height: 12),
+                      const Text('वर्तमान में कोई सूचना उपलब्ध नहीं है।', style: TextStyle(color: Colors.grey)),
+                      const SizedBox(height: 8),
+                      ElevatedButton(onPressed: _loadNotices, child: const Text('ताज़ा करें')),
+                    ],
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadNotices,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _notices.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final n = _notices[index];
+                      return Container(
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(16),
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
                           border: Border.all(color: Colors.grey.shade200),
                         ),
-                        child: const Center(
-                          child: Text(
-                            'आज कोई अनुपस्थित छात्र दर्ज नहीं है।',
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        ),
-                      )
-                    else
-                      ListView.separated(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: _schoolAbsentees.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (context, index) {
-                          final item = _schoolAbsentees[index];
-                          final phone = item['parentPhone'] ?? '';
-
-                          return Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: Colors.red.shade100),
-                            ),
-                            child: Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.shade50,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    item['className'] ?? '',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.red.shade900,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
                                 Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        item['studentName'] ?? '',
-                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                      ),
-                                      Text(
-                                        'अभिभावक: ${item['parentName'] ?? ""} ($phone)',
-                                        style: const TextStyle(fontSize: 11, color: Colors.black54),
-                                      ),
-                                    ],
+                                  child: Text(
+                                    n['title'] ?? '',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                                   ),
                                 ),
-                                if (phone.isNotEmpty) ...[
-                                  IconButton(
-                                    icon: const Icon(Icons.chat, color: Colors.green, size: 20),
-                                    tooltip: 'WhatsApp',
-                                    onPressed: () {
-                                      final num = phone.replaceAll(RegExp(r'[^0-9]'), '');
-                                      final msg = Uri.encodeComponent(
-                                        'सादर नमस्कार। आपका बच्चा ${item['studentName']} आज ($_today) अनुपस्थित है। कृपया विद्यालय को सूचित करें।',
-                                      );
-                                      launchUrl(Uri.parse('https://wa.me/91$num?text=$msg'), mode: LaunchMode.externalApplication);
-                                    },
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.call, color: Colors.blue, size: 20),
-                                    tooltip: 'कॉल करें',
-                                    onPressed: () {
-                                      launchUrl(Uri.parse('tel:$phone'));
-                                    },
-                                  ),
-                                ],
+                                Text(
+                                  n['date'] ?? '',
+                                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                                ),
                               ],
                             ),
-                          );
-                        },
-                      ),
-                  ],
+                            const SizedBox(height: 6),
+                            Text(
+                              n['description'] ?? '',
+                              style: const TextStyle(fontSize: 12, color: Colors.black87),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ),
-              ),
-            ),
     );
+  }
+
+  // TAB 4: Staff Audit Trail
+  Widget _buildAuditTab() {
+    return ActivityLogSheet(user: widget.user);
   }
 
   Widget _buildMetricCard(String title, String value, String sub, Color color, Color bg) {
@@ -383,7 +743,7 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -392,7 +752,7 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
           const SizedBox(height: 4),
           Text(value, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w900)),
           const SizedBox(height: 2),
-          Text(sub, style: TextStyle(color: color.withOpacity(0.8), fontSize: 10)),
+          Text(sub, style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 10)),
         ],
       ),
     );
