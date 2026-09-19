@@ -3,6 +3,7 @@ import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { isClassTeacher } from '../lib/permissions';
 import { logActivity } from '../lib/activity-logger';
+import { broadcastAlert } from '../notifications';
 
 const attendanceApp = new Hono<{ Bindings: any }>();
 
@@ -85,7 +86,7 @@ attendanceApp.get('/', async (c) => {
 
   const { clause, params } = classListWhereClause(queryClasses || []);
   const sql =
-    'SELECT s.id AS student_id, s.first_name, s.last_name, s.class_name, s.section, s.roll_number, s.scholar_number, a.id AS att_id, a.status, a.remarks, a.marked_by ' +
+    'SELECT s.id AS student_id, s.first_name, s.last_name, s.class_name, s.section, s.roll_number, s.scholar_number, s.parent_name, s.parent_phone, a.id AS att_id, a.status, a.remarks, a.marked_by ' +
     'FROM students s LEFT JOIN attendance a ON a.student_id = s.id AND a.date = ? ' +
     'WHERE s.school_id = ? AND s.status = ?' + clause + ' ORDER BY s.class_name, s.roll_number, s.first_name';
 
@@ -101,6 +102,8 @@ attendanceApp.get('/', async (c) => {
       scholarNumber: s.scholar_number || s.roll_number || '',
       className: s.class_name,
       section: s.section,
+      parentName: s.parent_name || 'अभिभावक',
+      parentPhone: s.parent_phone || '',
       date,
       status: s.status || 'Present',
       remarks: s.remarks || '',
@@ -122,6 +125,143 @@ attendanceApp.get('/', async (c) => {
     assignedClasses,
     canMark,
     message: accessMessage,
+  });
+});
+
+// GET /api/attendance/absentees-summary - Fetch absent students for date & class
+attendanceApp.get('/absentees-summary', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+
+  const schoolId = getRequestSchoolId(c, authUser);
+  const date = c.req.query('date') || new Date().toISOString().split('T')[0];
+  const className = c.req.query('class') || null;
+
+  const isAdmin = authUser.role === 'Director' || authUser.role === 'Principal' || authUser.role === 'SuperAdmin';
+  const assignedClasses = authUser.role === 'Staff'
+    ? (await db.prepare('SELECT class_name FROM class_teachers WHERE school_id = ? AND teacher_user_id = ? ORDER BY class_name').bind(schoolId, authUser.sub).all()).results?.map((r: any) => r.class_name) || []
+    : [];
+
+  let queryClasses: string[] | null = null;
+  const targetClass = className && className !== 'All' ? className : null;
+
+  if (isAdmin) {
+    queryClasses = targetClass ? [targetClass] : null;
+  } else {
+    if (targetClass) {
+      if (!assignedClasses.includes(targetClass)) {
+        return c.json({ success: false, message: 'अनुमति अस्वीकृत: आप ' + targetClass + ' के अधिकृत कक्षा अध्यापक नहीं हैं।' }, 403);
+      }
+      queryClasses = [targetClass];
+    } else {
+      queryClasses = assignedClasses.length > 0 ? assignedClasses : null;
+    }
+  }
+
+  const { clause, params } = classListWhereClause(queryClasses || []);
+  const sql =
+    'SELECT s.id AS student_id, s.first_name, s.last_name, s.class_name, s.section, s.roll_number, s.scholar_number, s.parent_name, s.parent_phone, a.id AS att_id, a.status, a.remarks, a.marked_by, a.date ' +
+    'FROM students s INNER JOIN attendance a ON a.student_id = s.id AND a.date = ? ' +
+    'WHERE s.school_id = ? AND s.status = ? AND a.status = ?' + clause + ' ORDER BY s.class_name, s.roll_number, s.first_name';
+
+  const queryParams = [date, schoolId, 'Active', 'Absent', ...(queryClasses ? params : [])];
+  const rows = await db.prepare(sql).bind(...queryParams).all();
+
+  const absentees = ((rows.results || []) as any[]).map((s) => {
+    const fullName = ((s.first_name || '') + (s.last_name ? ' ' + s.last_name : '')).trim();
+    return {
+      id: s.att_id || ('att-' + s.student_id + '-' + date),
+      studentId: s.student_id,
+      studentName: fullName,
+      scholarNumber: s.scholar_number || s.roll_number || '',
+      className: s.class_name,
+      section: s.section,
+      parentName: s.parent_name || 'अभिभावक',
+      parentPhone: s.parent_phone || '',
+      date: s.date || date,
+      status: s.status || 'Absent',
+      remarks: s.remarks || '',
+      markedBy: s.marked_by || '',
+    };
+  });
+
+  return c.json({
+    success: true,
+    date,
+    count: absentees.length,
+    absentees,
+  });
+});
+
+// GET /api/attendance/summary - Attendance statistics for student or school
+attendanceApp.get('/summary', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+
+  const schoolId = getRequestSchoolId(c, authUser);
+  const studentId = c.req.query('studentId') || null;
+  const className = c.req.query('class') || null;
+  const today = new Date().toISOString().split('T')[0];
+
+  if (studentId) {
+    const student = await db.prepare('SELECT id, first_name, last_name, class_name, section, roll_number FROM students WHERE id = ? AND school_id = ?').bind(studentId, schoolId).first();
+    if (!student) return c.json({ success: false, message: 'छात्र नहीं मिला।' }, 404);
+
+    const counts = await db.prepare(
+      'SELECT ' +
+      'COUNT(*) AS total, ' +
+      'SUM(CASE WHEN status = "Present" THEN 1 ELSE 0 END) AS present, ' +
+      'SUM(CASE WHEN status = "Absent" THEN 1 ELSE 0 END) AS absent, ' +
+      'SUM(CASE WHEN status = "Leave" THEN 1 ELSE 0 END) AS leave ' +
+      'FROM attendance WHERE student_id = ? AND school_id = ?'
+    ).bind(studentId, schoolId).first();
+
+    const todayRecord = await db.prepare('SELECT status, remarks FROM attendance WHERE student_id = ? AND date = ? AND school_id = ?').bind(studentId, today, schoolId).first();
+
+    const total = Number(counts?.total || 0);
+    const present = Number(counts?.present || 0);
+    const absent = Number(counts?.absent || 0);
+    const leave = Number(counts?.leave || 0);
+    const rate = total > 0 ? Math.round((present / total) * 100) : 100;
+
+    return c.json({
+      success: true,
+      student,
+      todayStatus: todayRecord?.status || 'Unmarked',
+      stats: { total, present, absent, leave, rate },
+    });
+  }
+
+  let sql =
+    'SELECT ' +
+    'COUNT(*) AS total, ' +
+    'SUM(CASE WHEN a.status = "Present" THEN 1 ELSE 0 END) AS present, ' +
+    'SUM(CASE WHEN a.status = "Absent" THEN 1 ELSE 0 END) AS absent, ' +
+    'SUM(CASE WHEN a.status = "Leave" THEN 1 ELSE 0 END) AS leave ' +
+    'FROM students s LEFT JOIN attendance a ON a.student_id = s.id AND a.date = ? ' +
+    'WHERE s.school_id = ? AND s.status = "Active"';
+  const params: any[] = [today, schoolId];
+
+  if (className && className !== 'All') {
+    sql += ' AND s.class_name = ?';
+    params.push(className);
+  }
+
+  const counts = await db.prepare(sql).bind(...params).first();
+  const total = Number(counts?.total || 0);
+  const present = Number(counts?.present || 0);
+  const absent = Number(counts?.absent || 0);
+  const leave = Number(counts?.leave || 0);
+  const rate = total > 0 ? Math.round((present / total) * 100) : 0;
+
+  return c.json({
+    success: true,
+    date: today,
+    stats: { total, present, absent, leave, rate },
   });
 });
 
@@ -232,6 +372,103 @@ attendanceApp.post('/mark-all-present', async (c) => {
   });
 
   return c.json({ success: true, message: 'कक्षा के सभी छात्रों की उपस्थिति Present मार्क कर दी गई।', count: students.length });
+});
+
+// POST /api/attendance/notify-absentees - Send absentee alert to parents via FCM push & web push
+attendanceApp.post('/notify-absentees', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+
+  const schoolId = getRequestSchoolId(c, authUser);
+  const body = await c.req.json().catch(() => ({}));
+  const targetDate = body.date || new Date().toISOString().split('T')[0];
+  const className = body.className || null;
+  const customMessage = body.customMessage ? String(body.customMessage).trim() : null;
+  const studentIds: string[] | null = Array.isArray(body.studentIds) && body.studentIds.length > 0 ? body.studentIds : null;
+
+  const isAdmin = authUser.role === 'Director' || authUser.role === 'Principal' || authUser.role === 'SuperAdmin';
+  if (!isAdmin && authUser.role !== 'Staff') {
+    return c.json({ success: false, message: 'अनुमति अस्वीकृत: केवल स्टाफ या प्रशासक ही अनुपस्थिति अलर्ट भेज सकते हैं।' }, 403);
+  }
+
+  // Find absent students
+  let sql =
+    'SELECT s.id AS student_id, s.first_name, s.last_name, s.class_name, s.section, s.roll_number, s.scholar_number, s.parent_name, s.parent_phone ' +
+    'FROM students s INNER JOIN attendance a ON a.student_id = s.id AND a.date = ? ' +
+    'WHERE s.school_id = ? AND s.status = ? AND a.status = ?';
+  const params: any[] = [targetDate, schoolId, 'Active', 'Absent'];
+
+  if (studentIds && studentIds.length > 0) {
+    const placeholders = studentIds.map(() => '?').join(',');
+    sql += ' AND s.id IN (' + placeholders + ')';
+    params.push(...studentIds);
+  } else if (className && className !== 'All') {
+    sql += ' AND s.class_name = ?';
+    params.push(className);
+  }
+
+  sql += ' ORDER BY s.class_name, s.roll_number, s.first_name';
+  const rows = await db.prepare(sql).bind(...params).all();
+  const absentStudents = (rows.results || []) as any[];
+
+  if (absentStudents.length === 0) {
+    return c.json({
+      success: true,
+      count: 0,
+      notifiedCount: 0,
+      message: 'चयनित तिथि हेतु कोई अनुपस्थित छात्र नहीं मिला।',
+    });
+  }
+
+  const senderName = await resolveMarkedBy(db, authUser);
+  const alertBody = customMessage || `सादर नमस्कार, आपका पाल्य आज (${targetDate}) विद्यालय में अनुपस्थित है। कृपया अनुपस्थिति का कारण विद्यालय को सूचित करें।`;
+
+  // Send push notification via broadcastAlert to Parents topic
+  try {
+    await broadcastAlert(db, c.env, {
+      title: '⚠️ अनुपस्थिति सूचना | VidyaSetu',
+      body: alertBody,
+      schoolId,
+      targetRole: 'Parents',
+      priority: 'high',
+      data: {
+        type: 'absentee_alert',
+        date: targetDate,
+        className: className || 'All',
+        absentCount: String(absentStudents.length),
+      },
+    });
+  } catch (pushErr) {
+    console.warn('[Attendance] broadcastAlert push error:', pushErr);
+  }
+
+  // Log activity
+  await logActivity(db, {
+    schoolId,
+    userId: authUser.sub,
+    userName: senderName,
+    userRole: authUser.role,
+    actionType: 'ATTENDANCE_NOTIFY',
+    actionTitle: 'अनुपस्थिति अलर्ट प्रेषित',
+    description: `कक्षा ${className || 'समस्त'} के कुल ${absentStudents.length} अनुपस्थित छात्रों के अभिभावकों को अनुपस्थिति सूचना भेजी गई।`,
+    entityType: 'attendance',
+    className: className && className !== 'All' ? className : undefined,
+    metadata: {
+      date: targetDate,
+      className,
+      count: absentStudents.length,
+      studentNames: absentStudents.slice(0, 10).map((s) => (s.first_name + ' ' + (s.last_name || '')).trim()),
+    },
+  });
+
+  return c.json({
+    success: true,
+    count: absentStudents.length,
+    notifiedCount: absentStudents.length,
+    message: `${absentStudents.length} अभिभावकों को अनुपस्थिति अलर्ट सफलतापूर्वक प्रेषित कर दिया गया।`,
+  });
 });
 
 export default attendanceApp;

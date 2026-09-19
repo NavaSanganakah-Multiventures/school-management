@@ -21,11 +21,14 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
   List<dynamic> _notices = [];
   final String _today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
-  // Demo stats for child (fallback or from API)
-  final int _totalDays = 85;
-  final int _presentDays = 79;
-  final int _absentDays = 4;
-  final int _leaveDays = 2;
+  // Real-time attendance stats for child
+  int _totalDays = 0;
+  int _presentDays = 0;
+  int _absentDays = 0;
+  int _leaveDays = 0;
+  String _todayStatus = 'Unmarked';
+  String? _childName;
+  String? _childClass;
 
   @override
   void initState() {
@@ -37,9 +40,24 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
     setState(() => _isLoading = true);
     try {
       final noticesRes = await _api.get('/api/notices', queryParams: {'limit': '20'});
+      final summaryRes = await _api.get('/api/attendance/summary');
+
       setState(() {
         if (noticesRes['success'] == true) {
           _notices = noticesRes['notices'] ?? [];
+        }
+        if (summaryRes['success'] == true) {
+          final stats = summaryRes['stats'] ?? {};
+          _totalDays = stats['total'] ?? 0;
+          _presentDays = stats['present'] ?? 0;
+          _absentDays = stats['absent'] ?? 0;
+          _leaveDays = stats['leave'] ?? 0;
+          _todayStatus = summaryRes['todayStatus'] ?? 'Unmarked';
+          if (summaryRes['student'] != null) {
+            final s = summaryRes['student'];
+            _childName = '${s['first_name'] ?? ''} ${s['last_name'] ?? ''}'.trim();
+            _childClass = 'कक्षा: ${s['class_name'] ?? ''}-${s['section'] ?? ''}';
+          }
         }
         _isLoading = false;
       });
@@ -132,7 +150,49 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
 
   // TAB 1: Attendance & Child Progress
   Widget _buildAttendanceTab() {
-    final double attendanceRate = (_presentDays / _totalDays) * 100;
+    final double attendanceRate = _totalDays > 0 ? (_presentDays / _totalDays) * 100 : 100.0;
+
+    Color statusColor;
+    Color statusBgColor;
+    Color statusBorderColor;
+    IconData statusIcon;
+    String statusTitle;
+    String statusSub;
+
+    switch (_todayStatus) {
+      case 'Present':
+        statusColor = const Color(0xFF047857);
+        statusBgColor = const Color(0xFFECFDF5);
+        statusBorderColor = const Color(0xFFA7F3D0);
+        statusIcon = Icons.check_circle_rounded;
+        statusTitle = 'आज की स्थिति: उपस्थित (Present)';
+        statusSub = 'छात्र आज विद्यालय में उपस्थित है।';
+        break;
+      case 'Absent':
+        statusColor = Colors.red.shade700;
+        statusBgColor = const Color(0xFFFEF2F2);
+        statusBorderColor = const Color(0xFFFECACA);
+        statusIcon = Icons.cancel_rounded;
+        statusTitle = 'आज की स्थिति: अनुपस्थित (Absent)';
+        statusSub = 'कृपया अनुपस्थिति का कारण विद्यालय को सूचित करें।';
+        break;
+      case 'Leave':
+        statusColor = Colors.amber.shade800;
+        statusBgColor = const Color(0xFFFFFBEB);
+        statusBorderColor = const Color(0xFFFDE68A);
+        statusIcon = Icons.event_busy_rounded;
+        statusTitle = 'आज की स्थिति: स्वीकृत अवकाश (Leave)';
+        statusSub = 'छात्र का अवकाश आवेदन स्वीकृत है।';
+        break;
+      default:
+        statusColor = const Color(0xFF0284C7);
+        statusBgColor = const Color(0xFFF0F9FF);
+        statusBorderColor = const Color(0xFFBAE6FD);
+        statusIcon = Icons.access_time_rounded;
+        statusTitle = 'आज की स्थिति: अद्यावधिक (लंबित)';
+        statusSub = 'आज की उपस्थिति कक्षा अध्यापक द्वारा शीघ्र दर्ज की जाएगी।';
+        break;
+    }
 
     return _isLoading
         ? const Center(child: CircularProgressIndicator())
@@ -173,12 +233,12 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'नमस्ते, ${widget.user.fullName}',
+                                _childName != null ? 'पाल्य: $_childName' : 'नमस्ते, ${widget.user.fullName}',
                                 style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'आज की तारीख: $_today • सत्र 2026-2027',
+                                '${_childClass ?? 'अभिभावक पोर्टल'} • तारीख: $_today',
                                 style: const TextStyle(color: Color(0xFFD1FAE5), fontSize: 12),
                               ),
                             ],
@@ -193,33 +253,33 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFECFDF5),
-                      border: Border.all(color: const Color(0xFFA7F3D0)),
+                      color: statusBgColor,
+                      border: Border.all(color: statusBorderColor),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Row(
                       children: [
                         Container(
                           padding: const EdgeInsets.all(8),
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF10B981),
+                          decoration: BoxDecoration(
+                            color: statusColor,
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.check, color: Colors.white, size: 20),
+                          child: Icon(statusIcon, color: Colors.white, size: 20),
                         ),
                         const SizedBox(width: 12),
-                        const Expanded(
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'आज की स्थिति: उपस्थित (Present)',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF065F46)),
+                                statusTitle,
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: statusColor),
                               ),
-                              SizedBox(height: 2),
+                              const SizedBox(height: 2),
                               Text(
-                                'बच्चे की दैनिक हाजिरी विद्यालय द्वारा दर्ज कर दी गई है।',
-                                style: TextStyle(fontSize: 11, color: Color(0xFF047857)),
+                                statusSub,
+                                style: TextStyle(fontSize: 11, color: statusColor.withValues(alpha: 0.9)),
                               ),
                             ],
                           ),
