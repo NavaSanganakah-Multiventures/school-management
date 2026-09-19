@@ -33,6 +33,9 @@ SCHOOL_NAME = "विद्या सेतु पब्लिक स्कू�
 APP_BASE_URL = "https://pragnya.nasven.com"
 WEB_PUSH_VAPID_PUBLIC_KEY = "BJlcKjZBfC5YzmoIxZ1ndHRJAiemr7Rdi4LBuceK6GI7N6g9aV3ctHpKCtZ8RbaPugnfvfJQNBiRTi63CGipHP4"
 WEB_PUSH_VAPID_SUBJECT = "mailto:pragnya@navasanganakah.com"
+# SuperAdmin authorized emails (comma-separated). Add your admin email(s) here.
+# Alternatively set PLATFORM_ADMIN_EMAIL as a Cloudflare Secret for production.
+PLATFORM_ADMIN_EMAIL = "lifesstudy@gmail.com"
 
 # -------------------------------------------------------------
 # Preview Environment
@@ -59,3 +62,4 @@ WEB_PUSH_VAPID_PUBLIC_KEY = "BJlcKjZBfC5YzmoIxZ1ndHRJAiemr7Rdi4LBuceK6GI7N6g9aV3
 WEB_PUSH_VAPID_SUBJECT = "mailto:pragnya@navasanganakah.com"
 # FCM project id is derived from FCM_SERVICE_ACCOUNT_JSON.project_id (see api/lib/fcm.ts).
 SCHOOL_NAME = "विद्या सेतु पब्लिक स्कूल (VidyaSetu Preview)"
+PLATFORM_ADMIN_EMAIL = "lifesstudy@gmail.com"

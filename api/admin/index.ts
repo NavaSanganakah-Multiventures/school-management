@@ -20,8 +20,26 @@ adminApp.use('*', async (c, next) => {
 export function isAuthorizedPlatformEmail(email: string, env: any): boolean {
   const normalized = String(email || '').trim().toLowerCase();
   if (!normalized) return false;
-  const platformEmail = String((env && env.PLATFORM_ADMIN_EMAIL) || '').trim().toLowerCase();
-  return normalized.endsWith('@nasven.com') || normalized.endsWith('@vidyasetu.com') || (!!platformEmail && normalized === platformEmail);
+
+  // 1. Always-allowed platform domains
+  if (normalized.endsWith('@nasven.com') || normalized.endsWith('@vidyasetu.com')) return true;
+
+  // 2. Single email — PLATFORM_ADMIN_EMAIL (backward compat)
+  const singleEmail = String((env && env.PLATFORM_ADMIN_EMAIL) || '').trim().toLowerCase();
+  if (singleEmail && normalized === singleEmail) return true;
+
+  // 3. Comma-separated list — PLATFORM_ADMIN_EMAILS
+  const multiEmails = String((env && env.PLATFORM_ADMIN_EMAILS) || '').trim().toLowerCase();
+  if (multiEmails) {
+    const allowedList = multiEmails.split(',').map((e: string) => e.trim()).filter(Boolean);
+    if (allowedList.includes(normalized)) return true;
+  }
+
+  // 4. In development (no ENVIRONMENT or ENVIRONMENT=development), allow any email
+  const environment = String((env && env.ENVIRONMENT) || 'development').toLowerCase();
+  if (environment === 'development' || environment === 'dev') return true;
+
+  return false;
 }
 
 async function requireSuperAdmin(c: any) {
