@@ -38,15 +38,17 @@ class ApiClient {
     return headers;
   }
 
-  Uri _buildUri(String path, [Map<String, dynamic>? queryParams]) {
+  Future<Uri> _buildUri(String path, [Map<String, dynamic>? queryParams]) async {
+    final baseUrl = await AppConfig.getActiveBaseUrl();
+    final cleanBase = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
     final cleanPath = path.startsWith('/') ? path : '/$path';
-    return Uri.parse('${AppConfig.apiBaseUrl}$cleanPath').replace(
+    return Uri.parse('$cleanBase$cleanPath').replace(
       queryParameters: queryParams?.map((k, v) => MapEntry(k, v.toString())),
     );
   }
 
   Future<dynamic> get(String path, {Map<String, dynamic>? queryParams, String? schoolId}) async {
-    final url = _buildUri(path, queryParams);
+    final url = await _buildUri(path, queryParams);
     final headers = await _buildHeaders(schoolId: schoolId);
 
     final response = await http.get(url, headers: headers);
@@ -54,7 +56,7 @@ class ApiClient {
   }
 
   Future<dynamic> post(String path, {dynamic body, String? schoolId}) async {
-    final url = _buildUri(path);
+    final url = await _buildUri(path);
     final headers = await _buildHeaders(schoolId: schoolId);
 
     final response = await http.post(
@@ -78,8 +80,8 @@ class ApiClient {
     } else {
       final msg = body is Map && body.containsKey('message')
           ? body['message']
-          : 'सर्वर त्रुटि (Status ${response.statusCode})';
-      throw ApiException(msg, statusCode: response.statusCode);
+          : (body is Map && body.containsKey('error') ? body['error'] : 'सर्वर त्रुटि (Status ${response.statusCode})');
+      throw ApiException(msg.toString(), statusCode: response.statusCode);
     }
   }
 }
