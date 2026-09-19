@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/app_config.dart';
@@ -48,23 +50,45 @@ class ApiClient {
   }
 
   Future<dynamic> get(String path, {Map<String, dynamic>? queryParams, String? schoolId}) async {
-    final url = await _buildUri(path, queryParams);
-    final headers = await _buildHeaders(schoolId: schoolId);
+    try {
+      final url = await _buildUri(path, queryParams);
+      final headers = await _buildHeaders(schoolId: schoolId);
 
-    final response = await http.get(url, headers: headers);
-    return _processResponse(response);
+      if (kDebugMode) {
+        debugPrint('[ApiClient GET] $url');
+      }
+
+      final response = await http.get(url, headers: headers);
+      return _processResponse(response);
+    } on SocketException catch (_) {
+      throw ApiException('इंटरनेट कनेक्शन अनुपलब्ध है। कृपया अपना नेटवर्क कनेक्शन जांचें।');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('नेटवर्क त्रुटि: सर्वर से संपर्क नहीं हो सका ($e)');
+    }
   }
 
   Future<dynamic> post(String path, {dynamic body, String? schoolId}) async {
-    final url = await _buildUri(path);
-    final headers = await _buildHeaders(schoolId: schoolId);
+    try {
+      final url = await _buildUri(path);
+      final headers = await _buildHeaders(schoolId: schoolId);
 
-    final response = await http.post(
-      url,
-      headers: headers,
-      body: body != null ? jsonEncode(body) : null,
-    );
-    return _processResponse(response);
+      if (kDebugMode) {
+        debugPrint('[ApiClient POST] $url');
+      }
+
+      final response = await http.post(
+        url,
+        headers: headers,
+        body: body != null ? jsonEncode(body) : null,
+      );
+      return _processResponse(response);
+    } on SocketException catch (_) {
+      throw ApiException('इंटरनेट कनेक्शन अनुपलब्ध है। कृपया अपना नेटवर्क कनेक्शन जांचें।');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('नेटवर्क त्रुटि: सर्वर से संपर्क नहीं हो सका ($e)');
+    }
   }
 
   dynamic _processResponse(http.Response response) {
