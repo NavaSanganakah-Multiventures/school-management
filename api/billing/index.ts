@@ -159,7 +159,7 @@ billingApp.post('/razorpay/verify', async (c) => {
   await db.prepare('UPDATE school_tenants SET plan_id=?, status=?, registration_status=?, trial_ends_at=? WHERE id=?')
     .bind(plan.id, 'Active', 'Approved', '', schoolId).run();
 
-  await db.prepare('  await db.prepare('UPDATE billing_invoices SET payment_status=?, razorpay_payment_id=?, transaction_id=?, paid_at=? WHERE razorpay_order_id=?')
+  await db.prepare('UPDATE billing_invoices SET payment_status=?, razorpay_payment_id=?, transaction_id=?, paid_at=? WHERE razorpay_order_id=?')
     .bind('Paid', razorpay_payment_id, razorpay_payment_id, now.split('T')[0] + ' ' + now.split('T')[1].slice(0, 8), razorpay_order_id).run();
 
   // Enterprise plan -> automatically dispatch a dedicated WfP worker.
