@@ -1,8 +1,23 @@
 import { Hono } from 'hono';
+import { resolveTenant, extractHostDetails } from './lib/tenant-resolver';
 
 const configApp = new Hono<{ Bindings: any }>();
 
-configApp.get('/', (c) => {
+// GET /api/config/resolve-school - Public endpoint to resolve school by domain/subdomain/slug from headers or query
+configApp.get('/resolve-school', async (c) => {
+  const hostDetails = extractHostDetails(c);
+  const tenant = await resolveTenant(c);
+
+  return c.json({
+    success: true,
+    detectedHost: hostDetails.cleanHost,
+    subdomain: hostDetails.subdomain,
+    customDomain: hostDetails.customDomain,
+    tenant,
+  });
+});
+
+configApp.get('/', async (c) => {
   let webConfig = null;
   if (c.env && c.env.FIREBASE_WEB_CONFIG_JSON) {
     try {
@@ -25,16 +40,20 @@ configApp.get('/', (c) => {
     }
   }
 
-  const isDedicated = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+  const tenant = await resolveTenant(c);
 
   return c.json({
     firebaseWebConfig: webConfig ? JSON.stringify(webConfig) : null,
-    isDedicated,
-    schoolName: (c.env && c.env.SCHOOL_NAME) || '',
-    schoolSlug: (c.env && c.env.SCHOOL_SLUG) || '',
-    schoolId: (c.env && c.env.SCHOOL_ID) || '',
-    appBaseUrl: (c.env && c.env.APP_BASE_URL) || '',
+    isDedicated: tenant.isDedicated,
+    schoolName: tenant.schoolName,
+    schoolSlug: tenant.subdomain || tenant.dedicatedSlug || '',
+    schoolId: tenant.schoolId,
+    logoUrl: tenant.logoUrl || null,
+    baseDomain: tenant.baseDomain,
+    apiBaseUrl: tenant.apiBaseUrl,
+    appBaseUrl: (c.env && c.env.APP_BASE_URL) || tenant.apiBaseUrl,
   });
 });
 
 export default configApp;
+

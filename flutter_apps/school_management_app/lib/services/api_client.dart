@@ -27,9 +27,11 @@ class ApiClient {
 
   Future<Map<String, String>> _buildHeaders({String? schoolId}) async {
     final token = await getToken();
+    final host = await AppConfig.getActiveHost();
     final headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      'X-School-Domain': host,
     };
     if (token != null && token.isNotEmpty) {
       headers['Authorization'] = 'Bearer $token';
