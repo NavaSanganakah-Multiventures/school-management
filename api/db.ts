@@ -212,6 +212,7 @@ export interface SubscriptionPlanDefinition {
   maxStudentsLimit?: number | null;
   maxStaffLimit?: number | null;
   maxStaff?: number | null;
+  emailQuotaLimit?: number | null;
   active?: boolean;
   isTrial?: boolean;
   sortOrder?: number;
@@ -230,6 +231,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
     maxStudentsLimit: 50,
     maxStaffLimit: 10,
     maxStaff: 10,
+    emailQuotaLimit: 50,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'settings', 'billing'],
     features: [
       'डैशबोर्ड व स्कूल प्रोफ़ाइल सेटअप',
@@ -255,6 +257,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
     maxStudentsLimit: 500,
     maxStaffLimit: 25,
     maxStaff: 25,
+    emailQuotaLimit: 500,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'settings', 'billing'],
     features: [
       'डिजिटल स्कॉलर रजिस्टर (दाखिला-खारिज)',
@@ -282,6 +285,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
     maxStudentsLimit: 1500,
     maxStaffLimit: 100,
     maxStaff: 100,
+    emailQuotaLimit: 2000,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'principal', 'settings', 'billing'],
     features: [
       'स्टार्टर की सभी सुविधाएं',
@@ -308,6 +312,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
     maxStudentsLimit: null,
     maxStaffLimit: null,
     maxStaff: null,
+    emailQuotaLimit: null,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'principal', 'settings', 'billing'],
     features: [
       'प्रो की सभी सुविधाएं',
@@ -347,6 +352,7 @@ export function planRowToDefinition(row: any): SubscriptionPlanDefinition {
     maxStudentsLimit,
     maxStaffLimit,
     maxStaff: maxStaffLimit,
+    emailQuotaLimit: row.email_quota_limit === null || row.email_quota_limit === undefined ? null : Number(row.email_quota_limit),
     active: row.active === undefined ? true : !!row.active,
     isTrial: !!row.is_trial,
     sortOrder: Number(row.sort_order) || 0,
@@ -397,6 +403,9 @@ export interface SchoolSubscription {
   razorpayPaymentId?: string;
   razorpaySignature?: string;
   updatedAt: string;
+  emailQuotaLimit?: number | null;
+  emailQuotaUsed?: number;
+  emailQuotaResetAt?: string;
 }
 
 export interface SubscriptionAddon {

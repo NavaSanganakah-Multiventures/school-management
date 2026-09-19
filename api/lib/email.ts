@@ -1,7 +1,7 @@
 // Cloudflare Email Service (send_email binding) helper.
 // Sends transactional password reset / invite emails via the SEND_EMAIL binding.
 
-import { checkAndReserveEmailQuota } from './email-quota';
+import { checkAndReserveEmailQuota, checkAndReserveSchoolEmailQuota } from './email-quota';
 
 export function getRequestOrigin(c: any, env?: any): string {
   if (env && env.APP_BASE_URL) return env.APP_BASE_URL;
@@ -127,6 +127,104 @@ export async function sendNotificationEmail(env: any, input: NotificationEmailIn
     await binding.send({
       to: input.to,
       from: { email: 'pragnya@navasanganakah.com', name: 'Pragnya Mitra Alerts' },
+      subject: input.subject,
+      html: html,
+      text: text
+    });
+    return { sent: true };
+  } catch (e: any) {
+    return { sent: false, error: (e && (e.message || e.code)) || 'ईमेल भेजने में त्रुटि हुई।' };
+  }
+}
+
+
+export interface SchoolEmailConfig {
+  fromName: string;
+  fromEmail: string;
+  replyTo: string;
+  isActive: boolean;
+}
+
+export async function getSchoolEmailConfig(db: any, schoolId: string): Promise<SchoolEmailConfig | null> {
+  if (!db || typeof db.prepare !== 'function' || !schoolId) return null;
+  try {
+    const row = await db.prepare(
+      'SELECT from_name, from_email, reply_to, is_active FROM school_email_config WHERE school_id = ?'
+    ).bind(schoolId).first();
+    if (!row) return null;
+    return {
+      fromName: row.from_name || '',
+      fromEmail: row.from_email || '',
+      replyTo: row.reply_to || '',
+      isActive: row.is_active === undefined ? true : !!row.is_active,
+    };
+  } catch (e: any) {
+    console.error('school email config read failed:', e && e.message);
+    return null;
+  }
+}
+
+export interface SchoolEmailInput {
+  schoolId?: string;
+  to: string;
+  subject: string;
+  title?: string;
+  message: string;
+}
+
+export async function sendSchoolEmail(env: any, input: SchoolEmailInput): Promise<EmailSendResult> {
+  const binding = env && env.SEND_EMAIL;
+  if (!binding || typeof binding.send !== 'function') {
+    return { sent: false, error: 'SEND_EMAIL binding उपलब्ध नहीं है। Email Routing सक्षम करें।' };
+  }
+
+  const db = env && env.DB;
+  if (input.schoolId && db && typeof db.prepare === 'function') {
+    const schoolQuota = await checkAndReserveSchoolEmailQuota(db, input.schoolId);
+    if (!schoolQuota.allowed) {
+      return { sent: false, error: schoolQuota.reason || 'मासिक ईमेल सीमा पार हो गई है।' };
+    }
+  }
+
+  const dailyQuota = await checkAndReserveEmailQuota(env, input.to);
+  if (!dailyQuota.allowed) {
+    return { sent: false, error: dailyQuota.reason || 'दैनिक ईमेल सीमा पार हो गई है।' };
+  }
+
+  let fromName = 'Pragnya Mitra Alerts';
+  let fromEmail = 'pragnya@navasanganakah.com';
+  if (input.schoolId && db && typeof db.prepare === 'function') {
+    const cfg = await getSchoolEmailConfig(db, input.schoolId);
+    if (cfg && cfg.isActive && cfg.fromEmail) {
+      fromEmail = cfg.fromEmail;
+      fromName = cfg.fromName || cfg.fromEmail;
+    }
+  }
+
+  const title = input.title || 'महत्वपूर्ण सूचना';
+  const html = [
+    '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1e293b;line-height:1.6">',
+    '<h1 style="font-size:20px;color:#4f46e5;margin:0 0 16px;">' + fromName + '</h1>',
+    '<h2 style="font-size:16px;margin:0 0 12px;">' + title + '</h2>',
+    '<p style="font-size:14px;margin:0 0 24px;white-space:pre-wrap;">' + input.message + '</p>',
+    '<p style="font-size:12px;color:#cbd5e1;margin:0;border-top:1px solid #e2e8f0;padding-top:12px;">यह एक स्वचालित ईमेल है, कृपया इसका उत्तर न दें।</p>',
+    '</div>'
+  ].join('');
+
+  const text = [
+    fromName,
+    '',
+    title,
+    '',
+    input.message,
+    '',
+    'यह एक स्वचालित ईमेल है, कृपया इसका उत्तर न दें।'
+  ].join('\n');
+
+  try {
+    await binding.send({
+      to: input.to,
+      from: { email: fromEmail, name: fromName },
       subject: input.subject,
       html: html,
       text: text
