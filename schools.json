@@ -16,6 +16,13 @@
       "mode": "dedicated",
       "name": "Maa karma",
       "domain": "a.pragnya.nasven.com"
+    },
+    {
+      "slug": "yagya",
+      "schoolId": "school-1789785224252",
+      "mode": "dedicated",
+      "name": "yagya ashram",
+      "domain": "yagya.pragnya.nasven.com"
     }
   ]
 }
