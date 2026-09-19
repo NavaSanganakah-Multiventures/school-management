@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   ShieldCheck, RefreshCw, CheckCircle2, XCircle, School, IndianRupee,
   Loader2, Plus, Trash2, RotateCcw, Pencil, Tag, Boxes, Eye, EyeOff,
-  Search, ToggleLeft, ToggleRight, Sparkles, Globe, Lock, Check, Store
+  Search, ToggleLeft, ToggleRight, Sparkles, Globe, Lock, Check, Store, Mail
 } from 'lucide-react';
 
 interface SchoolRow {
@@ -29,6 +29,13 @@ interface SchoolRow {
   kvNamespaceId: string;
   provisionedAt: string;
   provisioningError: string;
+  emailQuotaLimit: number | null;
+  emailQuotaUsed: number;
+  emailQuotaResetAt: string;
+  emailFromName: string;
+  emailFromEmail: string;
+  emailReplyTo: string;
+  emailConfigActive: boolean;
 }
 
 interface PlanRow {
@@ -110,6 +117,8 @@ export function AdminConsoleScreen() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmProvisionId, setConfirmProvisionId] = useState<string | null>(null);
   const [provisionSlug, setProvisionSlug] = useState('');
+  const [emailQuotaId, setEmailQuotaId] = useState<string | null>(null);
+  const [emailQuotaForm, setEmailQuotaForm] = useState<any>({ limit: '', fromName: '', fromEmail: '', replyTo: '' });
 
   // School Search & Filter
   const [schoolSearch, setSchoolSearch] = useState('');
@@ -297,6 +306,41 @@ export function AdminConsoleScreen() {
         if (data.live) { flashSuccess('डेडिकेटेड वर्कर अब live है!'); await loadData(); }
         else flashSuccess('अभी deploy चल रहा है, कृपया थोड़ी देर बाद दोबारा जाँचें।');
       } else setErrorMsg(data.message || 'स्थिति जाँच विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
+  // Email quota + business-domain sender config
+  const startEmailConfig = (s: SchoolRow) => {
+    setEmailQuotaId(s.id);
+    setEmailQuotaForm({
+      limit: s.emailQuotaLimit === null || s.emailQuotaLimit === undefined ? '' : String(s.emailQuotaLimit),
+      fromName: s.emailFromName || '',
+      fromEmail: s.emailFromEmail || '',
+      replyTo: s.emailReplyTo || '',
+    });
+  };
+
+  const saveEmailConfig = async (schoolId: string) => {
+    setBusyId('email-' + schoolId);
+    setErrorMsg('');
+    try {
+      const res = await fetch('/api/admin/schools/email-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          schoolId: schoolId,
+          limit: emailQuotaForm.limit === '' ? null : Number(emailQuotaForm.limit),
+          fromName: emailQuotaForm.fromName,
+          fromEmail: emailQuotaForm.fromEmail,
+          replyTo: emailQuotaForm.replyTo,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEmailQuotaId(null);
+        loadData();
+      } else setErrorMsg(data.message || 'ईमेल कॉन्फ़िगरेशन सहेजा नहीं जा सका।');
     } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
     finally { setBusyId(null); }
   };
@@ -791,6 +835,10 @@ export function AdminConsoleScreen() {
                               )}
                             </div>
                           )}
+                          <div className="mt-1 text-[9px] text-slate-500">
+                            ईमेल: {s.emailQuotaUsed || 0}/{s.emailQuotaLimit === null || s.emailQuotaLimit === undefined ? '∞' : s.emailQuotaLimit}
+                            {s.emailFromEmail && <span className="text-slate-400"> · {s.emailFromEmail}</span>}
+                          </div>
                         </div>
                       )}
                     </td>
@@ -846,6 +894,10 @@ export function AdminConsoleScreen() {
                                 स्टेटस जाँचें
                               </button>
                             )}
+                            <button onClick={() => startEmailConfig(s)} className="px-2.5 py-1 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-[11px] font-bold cursor-pointer flex items-center gap-1">
+                              <Mail className="w-3 h-3" />
+                              <span>ईमेल</span>
+                            </button>
                             <button onClick={() => startEdit(s)} className="px-2.5 py-1 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-[11px] font-bold cursor-pointer flex items-center gap-1">
                               <Pencil className="w-3 h-3" />
                               <span>एडिट</span>
@@ -870,6 +922,30 @@ export function AdminConsoleScreen() {
                                 className="w-36 px-2 py-1 border border-indigo-200 rounded-lg text-[11px] font-mono"
                               />
                               <span className="text-[9px] text-slate-400 font-mono whitespace-nowrap">{provisionSlug ? provisionSlug + '.pragnya.nasven.com' : ''}</span>
+                            </div>
+                          )}
+                          {emailQuotaId === s.id && (
+                            <div className="mt-1.5 p-2 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[9px] font-bold text-slate-500 w-24 shrink-0">मासिक ईमेल सीमा</span>
+                                <input value={emailQuotaForm.limit} onChange={(e) => setEmailQuotaForm(Object.assign({}, emailQuotaForm, { limit: e.target.value }))} placeholder="खाली = असीमित" className="w-32 px-2 py-0.5 border border-slate-200 rounded text-[10px] font-mono" />
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[9px] font-bold text-slate-500 w-24 shrink-0">भेजने वाला नाम</span>
+                                <input value={emailQuotaForm.fromName} onChange={(e) => setEmailQuotaForm(Object.assign({}, emailQuotaForm, { fromName: e.target.value }))} placeholder="उदा. DPS भोपाल" className="flex-1 px-2 py-0.5 border border-slate-200 rounded text-[10px]" />
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[9px] font-bold text-slate-500 w-24 shrink-0">भेजने वाला ईमेल</span>
+                                <input value={emailQuotaForm.fromEmail} onChange={(e) => setEmailQuotaForm(Object.assign({}, emailQuotaForm, { fromEmail: e.target.value }))} placeholder="no-reply@school.in" className="flex-1 px-2 py-0.5 border border-slate-200 rounded text-[10px] font-mono" />
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[9px] font-bold text-slate-500 w-24 shrink-0">Reply-to</span>
+                                <input value={emailQuotaForm.replyTo} onChange={(e) => setEmailQuotaForm(Object.assign({}, emailQuotaForm, { replyTo: e.target.value }))} placeholder="वैकल्पिक" className="flex-1 px-2 py-0.5 border border-slate-200 rounded text-[10px] font-mono" />
+                              </div>
+                              <div className="flex items-center gap-1.5 pt-0.5">
+                                <button onClick={() => saveEmailConfig(s.id)} disabled={busyId === 'email-' + s.id} className="px-2.5 py-1 bg-indigo-600 text-white rounded text-[10px] font-bold cursor-pointer disabled:opacity-50">सहेजें</button>
+                                <button onClick={() => setEmailQuotaId(null)} className="px-2 py-1 border border-slate-200 rounded text-[10px] font-bold cursor-pointer">रद्द</button>
+                              </div>
                             </div>
                           )}
                         </div>
