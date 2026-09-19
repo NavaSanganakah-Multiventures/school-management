@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getDB, SUBSCRIPTION_PLANS, loadSubscriptionPlans, loadSubscriptionPlanById, BillingCycle } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
+import { provisionDedicatedWorker } from '../lib/provisioning';
 import { createRazorpayOrder, verifyRazorpaySignature } from '../lib/razorpay';
 
 const billingApp = new Hono<{ Bindings: any }>();
@@ -158,10 +159,21 @@ billingApp.post('/razorpay/verify', async (c) => {
   await db.prepare('UPDATE school_tenants SET plan_id=?, status=?, registration_status=?, trial_ends_at=? WHERE id=?')
     .bind(plan.id, 'Active', 'Approved', '', schoolId).run();
 
-  await db.prepare('UPDATE billing_invoices SET payment_status=?, razorpay_payment_id=?, transaction_id=?, paid_at=? WHERE razorpay_order_id=?')
+  await db.prepare('  await db.prepare('UPDATE billing_invoices SET payment_status=?, razorpay_payment_id=?, transaction_id=?, paid_at=? WHERE razorpay_order_id=?')
     .bind('Paid', razorpay_payment_id, razorpay_payment_id, now.split('T')[0] + ' ' + now.split('T')[1].slice(0, 8), razorpay_order_id).run();
 
-  return c.json({ success: true, message: 'पेमेंट सफल। ' + plan.name + ' सक्रिय हो गया।' });
+  // Enterprise plan -> automatically dispatch a dedicated WfP worker.
+  let provisioning: any = null;
+  if (plan.featureFlags && plan.featureFlags.dedicatedWorker) {
+    const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
+    if (school) provisioning = await provisionDedicatedWorker(c.env, db, school, {});
+  }
+  const provisionMessage = provisioning && provisioning.status === 'started'
+    ? ' Dedicated worker provisioning शुरू हो गई: ' + (provisioning.domain || '')
+    : (provisioning && provisioning.status === 'error'
+      ? ' (ध्यान दें: dedicated worker provisioning विफल — ' + (provisioning.error || '') + ')'
+      : '');
+  return c.json({ success: true, message: 'पेमेंट सफल। ' + plan.name + ' सक्रिय हो गया।' + provisionMessage, provisioning });
 });
 
 // GET /api/billing/invoices - real invoices from D1
