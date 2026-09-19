@@ -58,8 +58,14 @@ internalApp.get('/tenant-sync/:schoolId', async (c) => {
   }
 
   // Encrypt authentication credentials via domain-separated AES-GCM
-  const syncKey = await deriveSyncKey(expectedSecret);
-  const encryptedCredentials = await encryptPayload(syncKey, credentialsMap);
+  let encryptedCredentials = '';
+  try {
+    const syncKey = await deriveSyncKey(expectedSecret, schoolId);
+    encryptedCredentials = await encryptPayload(syncKey, credentialsMap);
+  } catch (encErr) {
+    console.error('Failed to encrypt tenant sync credentials:', encErr);
+    return c.json({ success: false, message: 'क्रेडेंशियल्स एन्क्रिप्शन विफल रहा।' }, 500);
+  }
 
   return c.json({
     success: true,

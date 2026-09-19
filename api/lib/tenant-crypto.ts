@@ -1,8 +1,6 @@
 // api/lib/tenant-crypto.ts
 // Domain-separated encryption helpers for secure machine-to-machine tenant data plane synchronization.
 
-const SYNC_SALT = new TextEncoder().encode('vidyasetu-tenant-sync-v1-salt');
-
 /**
  * Resolves the machine-to-machine internal sync secret.
  * Prioritizes INTERNAL_SYNC_SECRET.
@@ -30,8 +28,9 @@ export async function getInternalSyncSecret(env: any): Promise<string> {
   return `m2m_${hex}`;
 }
 
-export async function deriveSyncKey(secretStr: string): Promise<CryptoKey> {
+export async function deriveSyncKey(secretStr: string, tenantId?: string): Promise<CryptoKey> {
   const enc = new TextEncoder();
+  const salt = enc.encode(`vidyasetu-tenant-sync-${tenantId || 'global'}`);
   const baseKey = await crypto.subtle.importKey(
     'raw',
     enc.encode(secretStr),
@@ -43,7 +42,7 @@ export async function deriveSyncKey(secretStr: string): Promise<CryptoKey> {
   return await crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: SYNC_SALT,
+      salt,
       iterations: 10000,
       hash: 'SHA-256',
     },

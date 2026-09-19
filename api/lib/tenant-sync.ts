@@ -108,7 +108,7 @@ export async function syncTenantFromPlatform(c: any, targetSchoolId?: string): P
     let credentialsMap: Record<string, string> = {};
     if (data.encryptedCredentials) {
       try {
-        const syncKey = await deriveSyncKey(syncSecret);
+        const syncKey = await deriveSyncKey(syncSecret, schoolId);
         credentialsMap = await decryptPayload(syncKey, data.encryptedCredentials);
       } catch (decErr) {
         console.warn('Could not decrypt synchronized credentials:', decErr);
@@ -120,7 +120,7 @@ export async function syncTenantFromPlatform(c: any, targetSchoolId?: string): P
     if (Array.isArray(data.users) && data.users.length > 0) {
       for (const u of data.users) {
         if (!u || !u.id || !u.email) continue;
-        const passwordHash = credentialsMap[u.id] || u.password_hash || null;
+        const passwordHash = credentialsMap[u.id] || null;
         await db.prepare(
           'INSERT OR REPLACE INTO system_users (id, username, full_name, email, phone, role, designation, department, qualification, salary, status, last_login, created_at, updated_at, password_hash, school_id) '
           + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
