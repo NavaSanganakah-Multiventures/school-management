@@ -19,17 +19,6 @@ function parseD1Id(output) {
   return fallback ? fallback[0] : null;
 }
 
-function parseKVId(output) {
-  const match = output.match(/id\s*=\s*['"]([a-zA-Z0-9]+)['"]/);
-  if (match) return match[1];
-  try {
-    const json = JSON.parse(output);
-    return json.id;
-  } catch(e) {}
-  const fallback = output.match(/[a-f0-9]{32}/);
-  return fallback ? fallback[0] : null;
-}
-
 function getExistingD1Id(dbName) {
   try {
     const out = run(`npx wrangler d1 info ${dbName} --json`);
@@ -40,16 +29,41 @@ function getExistingD1Id(dbName) {
   }
 }
 
-function getExistingKVId(kvName) {
-  try {
-    const out = run(`npx wrangler kv:namespace list`);
-    const list = JSON.parse(out);
-    if (Array.isArray(list)) {
-      const match = list.find((k) => k.title === kvName);
-      if (match && match.id) return match.id;
-    }
-  } catch (e) {}
-  return null;
+const CF_API_BASE = 'https://api.cloudflare.com/client/v4/accounts';
+
+function cfAccount() {
+  const token = process.env.CLOUDFLARE_API_TOKEN;
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  if (!token || !accountId) {
+    throw new Error('CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set');
+  }
+  return { token, baseUrl: CF_API_BASE + '/' + accountId };
+}
+
+async function getExistingKVId(kvName) {
+  const { token, baseUrl } = cfAccount();
+  const res = await globalThis.fetch(baseUrl + '/storage/kv/namespaces?per_page=100&page=1', {
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+  });
+  const json = await res.json();
+  const list = json && json.success && Array.isArray(json.result) ? json.result : [];
+  const match = list.find((k) => k.title === kvName);
+  return match && match.id ? match.id : null;
+}
+
+async function createKVNamespace(kvName) {
+  const { token, baseUrl } = cfAccount();
+  const res = await globalThis.fetch(baseUrl + '/storage/kv/namespaces', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: kvName }),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    const msg = json && json.errors && json.errors[0] ? json.errors[0].message : ('HTTP ' + res.status);
+    throw new Error(msg);
+  }
+  return json.result && json.result.id ? json.result.id : null;
 }
 
 async function main() {
@@ -119,36 +133,35 @@ async function main() {
 
       if (!school.kvNamespaceId) {
         console.log(`Provisioning KV namespace: ${kvName}`);
-        const existingKvId = getExistingKVId(kvName);
-        if (existingKvId) {
-          console.log(`✅ Found existing KV namespace: ${existingKvId}`);
-          school.kvNamespaceId = existingKvId;
-          updated = true;
-        } else {
-          try {
-            const out = run(`npx wrangler kv:namespace create ${kvName}`);
-            const id = parseKVId(out);
-            if (id) {
-              school.kvNamespaceId = id;
-              updated = true;
-              console.log(`✅ KV Created: ${id}`);
-            } else {
-              console.warn(`⚠️ Could not parse KV ID from output: ${out}`);
-            }
-          } catch (e) {
-            if (e.message.includes('already exists')) {
-              const fallbackId = getExistingKVId(kvName);
-              if (fallbackId) {
-                school.kvNamespaceId = fallbackId;
-                updated = true;
-                console.log(`✅ KV retrieved after already-exists: ${fallbackId}`);
-              } else {
-                console.error(`⚠️ KV namespace already exists, but could not resolve ID.`);
+        try {
+          let id = await getExistingKVId(kvName);
+          if (id) {
+            console.log(`✅ Found existing KV namespace: ${id}`);
+          } else {
+            try {
+              id = await createKVNamespace(kvName);
+              if (id) {
+                console.log(`✅ KV Created: ${id}`);
               }
-            } else {
-              console.error(`Failed to create KV for ${school.slug}:`, e.message);
+            } catch (e) {
+              if (/already exists|10014/i.test(e.message)) {
+                id = await getExistingKVId(kvName);
+                if (id) {
+                  console.log(`✅ KV retrieved after already-exists: ${id}`);
+                }
+              } else {
+                throw e;
+              }
             }
           }
+          if (id) {
+            school.kvNamespaceId = id;
+            updated = true;
+          } else {
+            console.warn(`⚠️ Could not resolve KV namespace id for ${kvName}`);
+          }
+        } catch (e) {
+          console.error(`Failed to provision KV for ${school.slug}:`, e.message);
         }
       } else {
         console.log(`✅ KV already provisioned: ${school.kvNamespaceId}`);
