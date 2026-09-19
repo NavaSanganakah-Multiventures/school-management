@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { syncTenantFromPlatform } from '../lib/tenant-sync';
+import { resolveTenant } from '../lib/tenant-resolver';
 
 export const schoolProfileApp = new Hono<{ Bindings: any }>();
 
@@ -32,7 +33,15 @@ schoolProfileApp.get('/', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
-  const schoolId = getRequestSchoolId(c, authUser);
+  let schoolId: string;
+
+  if (authUser) {
+    schoolId = getRequestSchoolId(c, authUser);
+  } else {
+    const resolved = await resolveTenant(c);
+    schoolId = resolved.schoolId;
+  }
+
   let row = await db.prepare('SELECT * FROM school_profile WHERE id = ?').bind(schoolId).first();
 
   const isDedicated = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));

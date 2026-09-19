@@ -134,6 +134,10 @@ export function getRequestSchoolId(c: any, authUser: any): string {
     return authUser.schoolId;
   }
 
+  if (c.get && c.get('schoolId')) {
+    return c.get('schoolId');
+  }
+
   // Safe fallback for unauthenticated/dev/test callers expecting a string
   return (c.env && c.env.DEFAULT_SCHOOL_ID) || 'school-01';
 }
