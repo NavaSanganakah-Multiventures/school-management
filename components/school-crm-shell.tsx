@@ -620,55 +620,55 @@ export function SchoolCrmShell() {
             </div>
           )}
 
-          {activeTab === 'admin' && <AdminConsoleScreen />}
-          {activeTab === 'dashboard' && (
-            <DashboardScreen onNavigate={(tab) => setActiveTab(tab)} onOpenAddStudent={() => setIsAddScholarOpen(true)} onOpenFcmModal={() => setIsBroadcastOpen(true)} userRole={screenRole} currentUser={currentUser} schoolProfile={schoolProfile} />
-          )}
-          {activeTab === 'students' && <StudentsScreen userRole={screenRole} currentUser={currentUser} />}
-          {activeTab === 'activity-logs' && <ActivityLogsScreen userRole={userRole} currentUser={currentUser} />}
-          {activeTab === 'principal' && (
-            userRole !== 'SuperAdmin' && planModules.indexOf('principal') === -1 ? (
-              <UpgradeGateScreen
-                moduleName="प्रधानाचार्य प्रबंधन (Principal Management)"
-                requiredPlanName="Pro / Enterprise"
-                moduleDescription="प्रधानाचार्य का विशेष खाता, शैक्षणिक सुपरविजन और स्टाफ मूल्यांकन मॉड्यूल वर्तमान प्लान में शामिल नहीं है।"
-                onUpgradeClick={() => setActiveTab('billing')}
-                onRequestFeatureClick={() => setIsRequestFeatureOpen(true)}
-              />
-            ) : (
-              <PrincipalManagementScreen userRole={userRole} />
-            )
-          )}
-          {activeTab === 'staff' && <StaffScreen userRole={screenRole} />}
-          {activeTab === 'attendance' && <AttendanceScreen userRole={screenRole} currentUserId={currentUser.id} onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
-          {activeTab === 'classes' && <ClassesScreen userRole={screenRole} />}
-          {activeTab === 'fees' && <FeesScreen />}
-          {activeTab === 'exams' && (
-            userRole !== 'SuperAdmin' && planModules.indexOf('exams') === -1 ? (
-              <UpgradeGateScreen
-                moduleName="परीक्षा एवं रिपोर्ट कार्ड (Examinations & Marks)"
-                requiredPlanName="Pro / Enterprise"
-                moduleDescription="ऑनलाइन अंक प्रविष्टि, परीक्षा रोस्टर और ऑटो-मार्कशीट जनरेशन मॉड्यूल वर्तमान प्लान में शामिल नहीं है।"
-                onUpgradeClick={() => setActiveTab('billing')}
-                onRequestFeatureClick={() => setIsRequestFeatureOpen(true)}
-              />
-            ) : (
-              <ExamsScreen />
-            )
-          )}
-          { activeTab === 'notices' && <NoticesScreen onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
-          { activeTab === 'settings' && <SchoolSettingsScreen userRole={userRole} /> }
-          { activeTab === 'plugins' && <PluginMarketplaceScreen /> }
-          { activeTab === 'billing' && <BillingPlansScreen userRole={userRole} onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
-          
-          {/* Dynamic Plugin Routes */}
-          {activeFrontendPlugins.flatMap(p => p.routes || []).map(route => {
-            if (activeTab === route.id) {
-              const Component = route.component;
-              return <Component key={route.id} />;
+          {(() => {
+            const currentItem = allNavItems.find((i) => i.id === activeTab);
+            const isLocked = userRole !== 'SuperAdmin' && !!currentItem?.requiredModule && planModules.indexOf(currentItem.requiredModule) === -1;
+            if (isLocked) {
+              return (
+                <UpgradeGateScreen
+                  moduleName={currentItem?.label || 'विशेष मॉड्यूल'}
+                  requiredPlanName={currentItem?.id === 'principal' ? 'Pro / Enterprise' : 'Starter, Pro, Enterprise'}
+                  moduleDescription={
+                    currentItem?.id === 'principal'
+                      ? 'प्रधानाचार्य का विशेष खाता, शैक्षणिक सुपरविजन और स्टाफ मूल्यांकन मॉड्यूल वर्तमान प्लान में शामिल नहीं है।'
+                      : 'यह उन्नत प्रशासनिक मॉड्यूल आपके वर्तमान स्कूल प्लान में सक्रिय नहीं है। इसका उपयोग करने के लिए प्लान अपग्रेड करें।'
+                  }
+                  onUpgradeClick={() => setActiveTab('billing')}
+                  onRequestFeatureClick={() => setIsRequestFeatureOpen(true)}
+                />
+              );
             }
-            return null;
-          })}
+
+            return (
+              <>
+                {activeTab === 'admin' && <AdminConsoleScreen />}
+                {activeTab === 'dashboard' && (
+                  <DashboardScreen onNavigate={(tab) => setActiveTab(tab)} onOpenAddStudent={() => setIsAddScholarOpen(true)} onOpenFcmModal={() => setIsBroadcastOpen(true)} userRole={screenRole} currentUser={currentUser} schoolProfile={schoolProfile} />
+                )}
+                {activeTab === 'students' && <StudentsScreen userRole={screenRole} currentUser={currentUser} />}
+                {activeTab === 'activity-logs' && <ActivityLogsScreen userRole={userRole} currentUser={currentUser} />}
+                {activeTab === 'principal' && <PrincipalManagementScreen userRole={userRole} />}
+                {activeTab === 'staff' && <StaffScreen userRole={screenRole} />}
+                {activeTab === 'attendance' && <AttendanceScreen userRole={screenRole} currentUserId={currentUser.id} onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
+                {activeTab === 'classes' && <ClassesScreen userRole={screenRole} />}
+                {activeTab === 'fees' && <FeesScreen />}
+                {activeTab === 'exams' && <ExamsScreen />}
+                { activeTab === 'notices' && <NoticesScreen onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
+                { activeTab === 'settings' && <SchoolSettingsScreen userRole={userRole} /> }
+                { activeTab === 'plugins' && <PluginMarketplaceScreen /> }
+                { activeTab === 'billing' && <BillingPlansScreen userRole={userRole} onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
+                
+                {/* Dynamic Plugin Routes */}
+                {activeFrontendPlugins.flatMap(p => p.routes || []).map(route => {
+                  if (activeTab === route.id) {
+                    const Component = route.component;
+                    return <Component key={route.id} />;
+                  }
+                  return null;
+                })}
+              </>
+            );
+          })()}
         </main>
       </div>
 

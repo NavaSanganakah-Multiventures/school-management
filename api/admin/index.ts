@@ -208,15 +208,26 @@ adminApp.post('/registrations/approve', async (c) => {
       .bind(plan.id, plan.name, 'Active', '', now, schoolId).run();
 
     let provisioning: any = null;
+    let provisioningError: string | null = null;
     if (plan.featureFlags && plan.featureFlags.dedicatedWorker) {
       const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
-      if (school) provisioning = await provisionDedicatedWorker(c.env, db, school, {});
+      if (school) {
+        try {
+          provisioning = await provisionDedicatedWorker(c.env, db, school, {});
+        } catch (provErr: any) {
+          console.error('[Admin] provisionDedicatedWorker failed:', provErr);
+          provisioningError = provErr?.message || 'डेडीकेटेड वर्कर प्रोविजनिंग विफल रही।';
+        }
+      }
     }
 
     return c.json({
       success: true,
-      message: `स्कूल को ${plan.name} के साथ स्वीकृत किया गया।`,
+      message: provisioningError
+        ? `स्कूल को ${plan.name} के साथ स्वीकृत किया गया, परन्तु डेडीकेटेड वर्कर प्रोविजनिंग में त्रुटि: ${provisioningError}`
+        : `स्कूल को ${plan.name} के साथ स्वीकृत किया गया।`,
       provisioning,
+      provisioningError,
     });
   }
 
@@ -275,6 +286,11 @@ adminApp.post('/feature-requests/status', async (c) => {
   const adminNotes = String(body.adminNotes || '').trim();
 
   if (!id) return c.json({ success: false, message: 'id आवश्यक है।' }, 400);
+
+  const VALID_STATUSES = ['Pending', 'In_Review', 'Approved', 'Delivered', 'Rejected'];
+  if (!VALID_STATUSES.includes(status)) {
+    return c.json({ success: false, message: `अमान्य स्थिति। मान्य स्थितियां: ${VALID_STATUSES.join(', ')}` }, 400);
+  }
 
   await db.prepare(
     'UPDATE school_feature_requests SET status = ?, admin_notes = ?, updated_at = ? WHERE id = ?'

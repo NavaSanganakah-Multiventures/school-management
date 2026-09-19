@@ -228,14 +228,17 @@ authApp.post('/register', async (c) => {
 
   const schoolId = 'school-' + Date.now();
   const userId = 'usr-' + Date.now();
-  const subdomain = String(body.subdomain || ('school' + Date.now().toString().slice(-6))).toLowerCase().replace(/[^a-z0-9-]/g, '');
+  const rawSubdomain = String(body.subdomain || ('school' + Date.now().toString().slice(-6))).toLowerCase().trim();
+  const subdomain = rawSubdomain.replace(/[^a-z0-9-]/g, '').replace(/--+/g, '-').replace(/^-+|-+$/g, '') || ('school' + Date.now().toString().slice(-6));
   const passwordHash = await hashPassword(password);
   const now = new Date().toISOString();
   const username = await makeUniqueUsername(db, email);
 
-  const estimatedStudents = Number(body.estimatedStudents) || 0;
-  const estimatedStaff = Number(body.estimatedStaff) || 0;
-  const preferredPlanId = String(body.preferredPlanId || 'trial').trim();
+  const estimatedStudents = Math.max(0, Number(body.estimatedStudents) || 0);
+  const estimatedStaff = Math.max(0, Number(body.estimatedStaff) || 0);
+  const VALID_PLANS = ['trial', 'starter', 'pro', 'enterprise'];
+  const rawPreferredPlan = String(body.preferredPlanId || 'trial').trim().toLowerCase();
+  const preferredPlanId = VALID_PLANS.includes(rawPreferredPlan) ? rawPreferredPlan : 'trial';
   const customRequirements = String(body.customRequirements || '').trim();
 
   await db.prepare('INSERT INTO school_tenants (id, school_name, subdomain, custom_domain, contact_email, contact_phone, status, registration_status, plan_id, estimated_students, estimated_staff, preferred_plan_id, custom_requirements, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')

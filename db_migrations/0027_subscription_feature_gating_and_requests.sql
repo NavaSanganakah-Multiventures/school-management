@@ -21,5 +21,5 @@ CREATE TABLE IF NOT EXISTS school_feature_requests (
     FOREIGN KEY (school_id) REFERENCES school_tenants(id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_feature_req_school ON school_feature_requests(school_id);
-CREATE INDEX IF NOT EXISTS idx_feature_req_status ON school_feature_requests(status);
+CREATE INDEX IF NOT EXISTS idx_feature_req_school_status ON school_feature_requests(school_id, status);
+CREATE INDEX IF NOT EXISTS idx_feature_req_school_created ON school_feature_requests(school_id, created_at DESC);
