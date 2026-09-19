@@ -3,6 +3,33 @@
 
 const SYNC_SALT = new TextEncoder().encode('vidyasetu-tenant-sync-v1-salt');
 
+/**
+ * Resolves the machine-to-machine internal sync secret.
+ * Prioritizes INTERNAL_SYNC_SECRET.
+ * If only AUTH_SECRET is configured, derives an independent HMAC-SHA256 token
+ * rather than reusing AUTH_SECRET directly, preventing dual-purpose secret exposure.
+ */
+export async function getInternalSyncSecret(env: any): Promise<string> {
+  if (env && typeof env.INTERNAL_SYNC_SECRET === 'string' && env.INTERNAL_SYNC_SECRET.trim().length > 0) {
+    return env.INTERNAL_SYNC_SECRET.trim();
+  }
+  const authKey = env && typeof env.AUTH_SECRET === 'string' ? env.AUTH_SECRET : '';
+  if (!authKey) {
+    return '';
+  }
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(authKey),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, enc.encode('vidyasetu-m2m-tenant-sync-token-v1'));
+  const hex = Array.from(new Uint8Array(signature)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `m2m_${hex}`;
+}
+
 export async function deriveSyncKey(secretStr: string): Promise<CryptoKey> {
   const enc = new TextEncoder();
   const baseKey = await crypto.subtle.importKey(

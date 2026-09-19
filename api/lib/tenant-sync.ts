@@ -3,7 +3,7 @@
 // the dedicated school worker's local D1 database.
 
 import { getDB } from '../db';
-import { deriveSyncKey, decryptPayload } from './tenant-crypto';
+import { deriveSyncKey, decryptPayload, getInternalSyncSecret } from './tenant-crypto';
 
 export async function syncTenantFromPlatform(c: any, targetSchoolId?: string): Promise<{ success: boolean; message: string; count?: number }> {
   const env = c && c.env;
@@ -21,9 +21,9 @@ export async function syncTenantFromPlatform(c: any, targetSchoolId?: string): P
     return { success: false, message: 'Local database is not available.' };
   }
 
-  const syncSecret = (env && (env.INTERNAL_SYNC_SECRET || env.AUTH_SECRET)) || '';
+  const syncSecret = await getInternalSyncSecret(env);
   if (!syncSecret) {
-    return { success: false, message: 'INTERNAL_SYNC_SECRET or AUTH_SECRET is not configured for internal sync.' };
+    return { success: false, message: 'INTERNAL_SYNC_SECRET is not configured for internal sync.' };
   }
 
   try {

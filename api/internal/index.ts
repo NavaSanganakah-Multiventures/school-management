@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { getDB } from '../db';
-import { deriveSyncKey, encryptPayload } from '../lib/tenant-crypto';
+import { deriveSyncKey, encryptPayload, getInternalSyncSecret } from '../lib/tenant-crypto';
 
 export const internalApp = new Hono<{ Bindings: any }>();
 
@@ -9,7 +9,7 @@ export const internalApp = new Hono<{ Bindings: any }>();
 // from the central platform control plane. Protected by X-Internal-Secret and domain-separated key.
 internalApp.get('/tenant-sync/:schoolId', async (c) => {
   const secret = c.req.header('X-Internal-Secret') || '';
-  const expectedSecret = (c.env && (c.env.INTERNAL_SYNC_SECRET || c.env.AUTH_SECRET)) || '';
+  const expectedSecret = await getInternalSyncSecret(c.env);
 
   if (!expectedSecret || secret !== expectedSecret) {
     return c.json({ success: false, message: 'अनधिकृत आंतरिक अनुरोध (Unauthorized internal request)' }, 401);
