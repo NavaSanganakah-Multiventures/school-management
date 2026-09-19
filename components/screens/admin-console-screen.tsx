@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   ShieldCheck, RefreshCw, CheckCircle2, XCircle, School, IndianRupee,
   Loader2, Plus, Trash2, RotateCcw, Pencil, Tag, Boxes, Eye, EyeOff,
-  Search, ToggleLeft, ToggleRight, Sparkles, Globe, Lock, Check, Store, Mail
+  Search, ToggleLeft, ToggleRight, Sparkles, Globe, Lock, Check, Store, Mail,
+  MessageSquarePlus, Clock
 } from 'lucide-react';
 
 interface SchoolRow {
@@ -36,6 +37,27 @@ interface SchoolRow {
   emailFromEmail: string;
   emailReplyTo: string;
   emailConfigActive: boolean;
+  estimatedStudents?: number;
+  estimatedStaff?: number;
+  preferredPlanId?: string;
+  customRequirements?: string;
+}
+
+interface FeatureRequestRow {
+  id: string;
+  school_id: string;
+  school_name: string;
+  contact_email: string;
+  contact_phone: string;
+  subdomain: string;
+  plan_id: string;
+  title: string;
+  description: string;
+  category: string;
+  status: 'Pending' | 'In_Review' | 'Approved' | 'Delivered' | 'Rejected';
+  admin_notes?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface PlanRow {
@@ -93,21 +115,25 @@ const FLAG_OPTIONS = [
   { key: 'multiSchool', label: 'मल्टी-स्कूल टेनेंसी' },
   { key: 'prioritySupport', label: 'प्राथमिकता सहायता' },
   { key: 'customDomainIncluded', label: 'कस्टम डोमेन शामिल' },
+  { key: 'dedicatedWorker', label: 'डेडिकेटेड वर्कर (Cloudflare WfP)' },
 ];
 
 const emptyAddForm = { schoolName: '', directorName: '', email: '', phone: '', password: '', subdomain: '', customDomain: '', planId: 'starter', billingCycle: 'annual' };
-const emptyPlanForm = { name: '', tagline: '', badge: '', monthlyPrice: '', quarterlyPrice: '', annualPrice: '', maxStudents: '', maxStaff: '', maxStudentsLabel: '', recommended: false, active: true, isTrial: false, sortOrder: '0', modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'settings', 'billing'], features: '', reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false };
+const emptyPlanForm = { name: '', tagline: '', badge: '', monthlyPrice: '', quarterlyPrice: '', annualPrice: '', maxStudents: '', maxStaff: '', maxStudentsLabel: '', recommended: false, active: true, isTrial: false, sortOrder: '0', modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'settings', 'billing'], features: '', reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false, dedicatedWorker: false };
 const emptyPluginForm = { id: '', name: '', description: '', type: 'global' as 'global' | 'private', price: '0', isActive: true, targetSchoolId: '' };
 const emptyAssignForm = { schoolId: '', pluginId: '', status: 'active' as 'active' | 'inactive' };
 
 export function AdminConsoleScreen() {
-  const [activeTab, setActiveTab] = useState<'schools' | 'plugins' | 'plans'>('schools');
+  const [activeTab, setActiveTab] = useState<'schools' | 'plugins' | 'plans' | 'requests'>('schools');
   const [schools, setSchools] = useState<SchoolRow[]>([]);
   const [registrations, setRegistrations] = useState<SchoolRow[]>([]);
+  const [featureRequests, setFeatureRequests] = useState<FeatureRequestRow[]>([]);
+  const [approvalPlans, setApprovalPlans] = useState<Record<string, string>>({});
   const [plans, setPlans] = useState<PlanRow[]>([]);
   const [plugins, setPlugins] = useState<PluginItem[]>([]);
   const [subscriptions, setSubscriptions] = useState<PluginSubscription[]>([]);
   const [deletedSchools, setDeletedSchools] = useState<SchoolRow[]>([]);
+
   const [showDeleted, setShowDeleted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [deletedLoading, setDeletedLoading] = useState(false);
@@ -148,18 +174,20 @@ export function AdminConsoleScreen() {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const [sRes, rRes, pRes, plRes, subRes] = await Promise.all([
+      const [sRes, rRes, pRes, plRes, subRes, frRes] = await Promise.all([
         fetch('/api/admin/schools').then((r) => r.json()).catch(() => ({})),
         fetch('/api/admin/registrations').then((r) => r.json()).catch(() => ({})),
         fetch('/api/admin/plans').then((r) => r.json()).catch(() => ({})),
         fetch('/api/admin/plugins').then((r) => r.json()).catch(() => ({})),
         fetch('/api/admin/plugins/subscriptions').then((r) => r.json()).catch(() => ({})),
+        fetch('/api/admin/feature-requests').then((r) => r.json()).catch(() => ({})),
       ]);
       if (sRes.success) setSchools(sRes.schools || []);
       if (rRes.success) setRegistrations(rRes.registrations || []);
       if (pRes.success) setPlans(pRes.plans || []);
       if (plRes.success) setPlugins(plRes.plugins || []);
       if (subRes.success) setSubscriptions(subRes.subscriptions || []);
+      if (frRes.success) setFeatureRequests(frRes.requests || []);
 
       if (!sRes.success && sRes.message) setErrorMsg(sRes.message);
       else if (!pRes.success && pRes.message) setErrorMsg(pRes.message);
@@ -197,12 +225,26 @@ export function AdminConsoleScreen() {
   };
 
   // School actions
-  const approve = async (schoolId: string) => {
+  const approve = async (schoolId: string, planId?: string) => {
     setBusyId(schoolId);
     try {
-      const data = await post('/api/admin/registrations/approve', { schoolId });
-      if (data.success) { flashSuccess('स्कूल अप्रूव्ड! 7-दिन का ट्रायल शुरू हुआ।'); await loadData(); }
-      else setErrorMsg(data.message || 'अप्रूवल विफल।');
+      const data = await post('/api/admin/registrations/approve', { schoolId, planId });
+      if (data.success) {
+        flashSuccess(data.message || 'स्कूल अप्रूव्ड!');
+        await loadData();
+      } else setErrorMsg(data.message || 'अप्रूवल विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
+  const updateFeatureRequestStatus = async (id: string, status: string, notes: string) => {
+    setBusyId('freq-' + id);
+    try {
+      const data = await post('/api/admin/feature-requests/status', { id, status, adminNotes: notes });
+      if (data.success) {
+        flashSuccess(data.message || 'अनुरोध स्थिति अपडेट हुई।');
+        await loadData();
+      } else setErrorMsg(data.message || 'स्थिति अपडेट विफल।');
     } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
     finally { setBusyId(null); }
   };
@@ -388,6 +430,7 @@ export function AdminConsoleScreen() {
       multiSchool: !!p.featureFlags.multiSchool,
       prioritySupport: !!p.featureFlags.prioritySupport,
       customDomainIncluded: !!p.featureFlags.customDomainIncluded,
+      dedicatedWorker: !!p.featureFlags.dedicatedWorker,
     });
     setShowPlanForm(true);
   };
@@ -418,6 +461,7 @@ export function AdminConsoleScreen() {
         multiSchool: planForm.multiSchool,
         prioritySupport: planForm.prioritySupport,
         customDomainIncluded: planForm.customDomainIncluded,
+        dedicatedWorker: planForm.dedicatedWorker,
       },
     };
   };
@@ -612,7 +656,18 @@ export function AdminConsoleScreen() {
           <Tag className="w-4 h-4" />
           <span>प्लान एवं मूल्य निर्धारण ({plans.length})</span>
         </button>
+
+        <button
+          onClick={() => setActiveTab('requests')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+            activeTab === 'requests' ? 'bg-amber-600 text-white shadow-xs' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <MessageSquarePlus className="w-4 h-4" />
+          <span>फ़ीचर व आवश्यकता अनुरोध ({featureRequests.length})</span>
+        </button>
       </div>
+
 
       {/* Alert Banners */}
       {errorMsg && (
@@ -740,20 +795,47 @@ export function AdminConsoleScreen() {
               </h3>
               <div className="space-y-2.5">
                 {registrations.map((s) => (
-                  <div key={s.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-amber-200 bg-amber-50/60">
-                    <div>
+                  <div key={s.id} className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl border border-amber-200 bg-amber-50/60">
+                    <div className="space-y-1">
                       <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
                         <School className="w-4 h-4 text-amber-600" />
                         <span>{s.schoolName}</span>
+                        {s.preferredPlanId && s.preferredPlanId !== 'trial' && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
+                            इच्छित: {s.preferredPlanId}
+                          </span>
+                        )}
                       </div>
-                      <div className="text-xs text-slate-500 mt-0.5">
+                      <div className="text-xs text-slate-500">
                         {s.contactEmail} • {s.contactPhone} {s.subdomain ? `• सबडोमेन: ${s.subdomain}` : ''}
                       </div>
+                      {(!!s.estimatedStudents || !!s.estimatedStaff) && (
+                        <div className="text-[11px] text-slate-600 font-medium">
+                          👥 क्षमता: {s.estimatedStudents ? `${s.estimatedStudents} छात्र` : ''} {s.estimatedStaff ? `• ${s.estimatedStaff} स्टाफ` : ''}
+                        </div>
+                      )}
+                      {s.customRequirements && (
+                        <div className="mt-1.5 p-2 rounded-lg bg-amber-100/80 border border-amber-200 text-xs text-amber-950">
+                          <strong>💡 विशेष आवश्यकताएं / फीचर्स:</strong> {s.customRequirements}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => approve(s.id)} disabled={busyId === s.id} className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
+                    <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 shrink-0">
+                      <select
+                        value={approvalPlans[s.id] || s.preferredPlanId || 'trial'}
+                        onChange={(e) => setApprovalPlans(Object.assign({}, approvalPlans, { [s.id]: e.target.value }))}
+                        className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-white text-slate-700 cursor-pointer shadow-2xs"
+                      >
+                        <option value="trial">7-दिन फ्री ट्रायल (Trial)</option>
+                        {nonTrialPlans.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} {p.featureFlags && p.featureFlags.dedicatedWorker ? '⚡ (Dedicated WfP)' : '☁️ (Shared)'}
+                          </option>
+                        ))}
+                      </select>
+                      <button onClick={() => approve(s.id, approvalPlans[s.id] || s.preferredPlanId || 'trial')} disabled={busyId === s.id} className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>स्वीकृत करें (7-दिन ट्रायल)</span>
+                        <span>स्वीकृत करें</span>
                       </button>
                       <button onClick={() => reject(s.id)} disabled={busyId === s.id} className="px-3.5 py-1.5 bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-bold rounded-lg transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
                         <XCircle className="w-3.5 h-3.5" />
@@ -1515,6 +1597,104 @@ export function AdminConsoleScreen() {
           )}
         </>
       )}
+
+      {/* ========================================================================= */}
+      {/* 4. FEATURE & SPECIAL REQUIREMENTS TAB                                     */}
+      {/* ========================================================================= */}
+      {activeTab === 'requests' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                <MessageSquarePlus className="w-4 h-4 text-amber-600" />
+                <span>विशेष आवश्यकताएं एवं कस्टम फीचर अनुरोध ({featureRequests.length})</span>
+              </h3>
+              <p className="text-xs text-slate-500">स्कूलों और निदेशकों द्वारा साइन अप या पोर्टल से सबमिट की गई कस्टम आवश्यकताएं</p>
+            </div>
+          </div>
+
+          <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-2xs overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="text-slate-400 border-b border-slate-100">
+                  <th className="py-2.5 pr-3 font-bold">विद्यालय</th>
+                  <th className="py-2.5 px-3 font-bold">अनुरोध शीर्षक व विवरण</th>
+                  <th className="py-2.5 px-3 font-bold">श्रेणी</th>
+                  <th className="py-2.5 px-3 font-bold">स्थिति</th>
+                  <th className="py-2.5 px-3 font-bold">दिनांक</th>
+                  <th className="py-2.5 px-3 font-bold">कार्रवाई / स्थिति बदलें</th>
+                </tr>
+              </thead>
+              <tbody>
+                {featureRequests.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="py-12 text-center text-slate-400">
+                      अभी तक कोई विशेष आवश्यकता या कस्टम फीचर अनुरोध प्राप्त नहीं हुआ है।
+                    </td>
+                  </tr>
+                )}
+                {featureRequests.map((r) => {
+                  const statusColors: Record<string, string> = {
+                    Pending: 'bg-amber-100 text-amber-800 border-amber-200',
+                    In_Review: 'bg-blue-100 text-blue-800 border-blue-200',
+                    Approved: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+                    Delivered: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+                    Rejected: 'bg-rose-100 text-rose-800 border-rose-200',
+                  };
+                  return (
+                    <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                      <td className="py-3 pr-3 align-top">
+                        <div className="font-bold text-slate-900">{r.school_name || r.school_id}</div>
+                        <div className="text-[10px] text-slate-500">{r.contact_email} • {r.contact_phone}</div>
+                        {r.subdomain && <div className="text-[9px] text-indigo-600 font-mono">{r.subdomain}</div>}
+                      </td>
+                      <td className="py-3 px-3 align-top max-w-xs">
+                        <div className="font-bold text-slate-900">{r.title}</div>
+                        <div className="text-[11px] text-slate-600 mt-1 whitespace-pre-wrap leading-relaxed">{r.description}</div>
+                        {r.admin_notes && (
+                          <div className="mt-2 p-1.5 rounded bg-slate-100 text-[10px] text-slate-700">
+                            <strong>एडमिन नोट:</strong> {r.admin_notes}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 align-top">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                          {r.category}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 align-top">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusColors[r.status] || 'bg-slate-100 text-slate-700'}`}>
+                          {r.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 align-top text-slate-500 text-[10px] whitespace-nowrap">
+                        {r.created_at ? r.created_at.split('T')[0] : '—'}
+                      </td>
+                      <td className="py-3 px-3 align-top">
+                        <div className="flex flex-col gap-1.5 min-w-[140px]">
+                          <select
+                            defaultValue={r.status}
+                            onChange={(e) => updateFeatureRequestStatus(r.id, e.target.value, r.admin_notes || '')}
+                            disabled={busyId === 'freq-' + r.id}
+                            className="px-2 py-1 border border-slate-200 rounded-lg text-xs bg-white cursor-pointer shadow-2xs"
+                          >
+                            <option value="Pending">लंबित (Pending)</option>
+                            <option value="In_Review">समीक्षाधीन (In Review)</option>
+                            <option value="Approved">स्वीकृत (Approved)</option>
+                            <option value="Delivered">लागू किया गया (Delivered)</option>
+                            <option value="Rejected">अस्वीकृत (Rejected)</option>
+                          </select>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

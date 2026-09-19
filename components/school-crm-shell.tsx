@@ -23,6 +23,7 @@ import {
   History,
   Store,
   Sparkles,
+  Lock,
 } from 'lucide-react';
 
 import { DashboardScreen } from './screens/dashboard-screen';
@@ -47,7 +48,10 @@ import { PLUGINS_REGISTRY } from '../plugins';
 
 import { AddScholarModal } from './modals/add-scholar-modal';
 import { FcmBroadcastModal } from './modals/fcm-broadcast-modal';
+import { RequestFeatureModal } from './modals/request-feature-modal';
+import { UpgradeGateScreen } from './ui/upgrade-gate-modal';
 import { registerFcmWebToken, onForegroundFcmMessage, getWebPushDiagnostic } from '../lib/firebase-web-push';
+
 
 type UserRole = 'Director' | 'Principal' | 'Staff' | 'SuperAdmin';
 
@@ -145,6 +149,7 @@ export function SchoolCrmShell() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddScholarOpen, setIsAddScholarOpen] = useState(false);
   const [isBroadcastOpen, setIsBroadcastOpen] = useState(false);
+  const [isRequestFeatureOpen, setIsRequestFeatureOpen] = useState(false);
   const [pushToast, setPushToast] = useState<{ title: string; body: string } | null>(null);
   const [webPushStatus, setWebPushStatus] = useState<string | null>(null);
   const [assignedClasses, setAssignedClasses] = useState<string[]>([]);
@@ -463,7 +468,6 @@ export function SchoolCrmShell() {
   const filteredNavItems = navItems.filter((item) => {
     if (item.superAdminOnly) return userRole === 'SuperAdmin';
     if (!item.allowedRoles || item.allowedRoles.indexOf(userRole) === -1) return false;
-    if (item.requiredModule && planModules.indexOf(item.requiredModule) === -1) return false;
     return true;
   });
 
@@ -472,7 +476,6 @@ export function SchoolCrmShell() {
   const dynamicNavItems = (userRole === 'SuperAdmin') ? [] : activeFrontendPlugins.flatMap(p => p.navItems || []).filter(item => {
     if (item.superAdminOnly) return false;
     if (!item.allowedRoles || item.allowedRoles.indexOf(userRole) === -1) return false;
-    if (item.requiredModule && planModules.indexOf(item.requiredModule) === -1) return false;
     return true;
   });
 
@@ -507,10 +510,16 @@ export function SchoolCrmShell() {
               <button onClick={() => setIsAddScholarOpen(true)} className="hidden lg:flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer">
                 <span>+ स्कॉलर प्रवेश</span>
               </button>
-              <button onClick={() => setIsBroadcastOpen(true)} className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer" title="पुश सूचना / त्वरित अलर्ट भेजें">
+              <button onClick={() => setIsBroadcastOpen(true)} className="hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer" title="पुश सूचना / त्वरित अलर्ट भेजें">
                 <Bell className="h-3.5 w-3.5" />
                 <span>त्वरित पुश अलर्ट</span>
               </button>
+              {(userRole === 'Director' || userRole === 'Principal') && (
+                <button onClick={() => setIsRequestFeatureOpen(true)} className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-colors cursor-pointer" title="विशेष आवश्यकता या फीचर का अनुरोध करें">
+                  <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
+                  <span>कस्टम आवश्यकता</span>
+                </button>
+              )}
             </>
           )}
 
@@ -567,13 +576,22 @@ export function SchoolCrmShell() {
               {allNavItems.map((item) => {
                 const isActive = activeTab === item.id;
                 const Icon = item.icon;
+                const isLocked = userRole !== 'SuperAdmin' && !!item.requiredModule && planModules.indexOf(item.requiredModule) === -1;
                 return (
-                  <button key={item.id} onClick={() => { setActiveTab(item.id); setIsSidebarOpen(false); }} className={'w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ' + (isActive ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900')}>
+                  <button
+                    key={item.id}
+                    onClick={() => { setActiveTab(item.id); setIsSidebarOpen(false); }}
+                    className={'w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ' + (isActive ? 'bg-blue-600 text-white shadow-xs' : isLocked ? 'text-slate-500 hover:bg-slate-50 hover:text-slate-800' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900')}
+                  >
                     <div className="flex items-center gap-3">
-                      <Icon className={'h-4 w-4 ' + (isActive ? 'text-white' : 'text-slate-400')} />
+                      <Icon className={'h-4 w-4 ' + (isActive ? 'text-white' : isLocked ? 'text-amber-500' : 'text-slate-400')} />
                       <span>{item.label}</span>
                     </div>
-                    {item.badge && (
+                    {isLocked ? (
+                      <span className="flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded font-bold bg-amber-50 text-amber-800 border border-amber-300">
+                        <Lock className="h-2.5 w-2.5 text-amber-600" /> अपग्रेड
+                      </span>
+                    ) : item.badge && (
                       <span className={'text-[9px] px-1.5 py-0.5 rounded font-bold ' + (isActive ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800')}>{item.badge}</span>
                     )}
                   </button>
@@ -602,31 +620,55 @@ export function SchoolCrmShell() {
             </div>
           )}
 
-          {activeTab === 'admin' && <AdminConsoleScreen />}
-          {activeTab === 'dashboard' && (
-            <DashboardScreen onNavigate={(tab) => setActiveTab(tab)} onOpenAddStudent={() => setIsAddScholarOpen(true)} onOpenFcmModal={() => setIsBroadcastOpen(true)} userRole={screenRole} currentUser={currentUser} schoolProfile={schoolProfile} />
-          )}
-          {activeTab === 'students' && <StudentsScreen userRole={screenRole} currentUser={currentUser} />}
-          {activeTab === 'activity-logs' && <ActivityLogsScreen userRole={userRole} currentUser={currentUser} />}
-          {activeTab === 'principal' && <PrincipalManagementScreen userRole={userRole} />}
-          {activeTab === 'staff' && <StaffScreen userRole={screenRole} />}
-          {activeTab === 'attendance' && <AttendanceScreen userRole={screenRole} currentUserId={currentUser.id} onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
-          {activeTab === 'classes' && <ClassesScreen userRole={screenRole} />}
-          {activeTab === 'fees' && <FeesScreen />}
-          {activeTab === 'exams' && <ExamsScreen />}
-          { activeTab === 'notices' && <NoticesScreen onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
-          { activeTab === 'settings' && <SchoolSettingsScreen userRole={userRole} /> }
-          { activeTab === 'plugins' && <PluginMarketplaceScreen /> }
-          { activeTab === 'billing' && <BillingPlansScreen userRole={userRole} onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
-          
-          {/* Dynamic Plugin Routes */}
-          {activeFrontendPlugins.flatMap(p => p.routes || []).map(route => {
-            if (activeTab === route.id) {
-              const Component = route.component;
-              return <Component key={route.id} />;
+          {(() => {
+            const currentItem = allNavItems.find((i) => i.id === activeTab);
+            const isLocked = userRole !== 'SuperAdmin' && !!currentItem?.requiredModule && planModules.indexOf(currentItem.requiredModule) === -1;
+            if (isLocked) {
+              return (
+                <UpgradeGateScreen
+                  moduleName={currentItem?.label || 'विशेष मॉड्यूल'}
+                  requiredPlanName={currentItem?.id === 'principal' ? 'Pro / Enterprise' : 'Starter, Pro, Enterprise'}
+                  moduleDescription={
+                    currentItem?.id === 'principal'
+                      ? 'प्रधानाचार्य का विशेष खाता, शैक्षणिक सुपरविजन और स्टाफ मूल्यांकन मॉड्यूल वर्तमान प्लान में शामिल नहीं है।'
+                      : 'यह उन्नत प्रशासनिक मॉड्यूल आपके वर्तमान स्कूल प्लान में सक्रिय नहीं है। इसका उपयोग करने के लिए प्लान अपग्रेड करें।'
+                  }
+                  onUpgradeClick={() => setActiveTab('billing')}
+                  onRequestFeatureClick={() => setIsRequestFeatureOpen(true)}
+                />
+              );
             }
-            return null;
-          })}
+
+            return (
+              <>
+                {activeTab === 'admin' && <AdminConsoleScreen />}
+                {activeTab === 'dashboard' && (
+                  <DashboardScreen onNavigate={(tab) => setActiveTab(tab)} onOpenAddStudent={() => setIsAddScholarOpen(true)} onOpenFcmModal={() => setIsBroadcastOpen(true)} userRole={screenRole} currentUser={currentUser} schoolProfile={schoolProfile} />
+                )}
+                {activeTab === 'students' && <StudentsScreen userRole={screenRole} currentUser={currentUser} />}
+                {activeTab === 'activity-logs' && <ActivityLogsScreen userRole={userRole} currentUser={currentUser} />}
+                {activeTab === 'principal' && <PrincipalManagementScreen userRole={userRole} />}
+                {activeTab === 'staff' && <StaffScreen userRole={screenRole} />}
+                {activeTab === 'attendance' && <AttendanceScreen userRole={screenRole} currentUserId={currentUser.id} onOpenFcmModal={() => setIsBroadcastOpen(true)} />}
+                {activeTab === 'classes' && <ClassesScreen userRole={screenRole} />}
+                {activeTab === 'fees' && <FeesScreen />}
+                {activeTab === 'exams' && <ExamsScreen />}
+                { activeTab === 'notices' && <NoticesScreen onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
+                { activeTab === 'settings' && <SchoolSettingsScreen userRole={userRole} /> }
+                { activeTab === 'plugins' && <PluginMarketplaceScreen /> }
+                { activeTab === 'billing' && <BillingPlansScreen userRole={userRole} onOpenFcmModal={() => setIsBroadcastOpen(true)} /> }
+                
+                {/* Dynamic Plugin Routes */}
+                {activeFrontendPlugins.flatMap(p => p.routes || []).map(route => {
+                  if (activeTab === route.id) {
+                    const Component = route.component;
+                    return <Component key={route.id} />;
+                  }
+                  return null;
+                })}
+              </>
+            );
+          })()}
         </main>
       </div>
 
@@ -638,6 +680,7 @@ export function SchoolCrmShell() {
         onSuccess={() => { setActiveTab('students'); }}
       />
       <FcmBroadcastModal isOpen={isBroadcastOpen} onClose={() => setIsBroadcastOpen(false)} schoolId={currentUser.schoolId || 'school-01'} />
+      <RequestFeatureModal isOpen={isRequestFeatureOpen} onClose={() => setIsRequestFeatureOpen(false)} />
 
       {pushToast && (
         <div className="fixed top-5 right-5 z-[9999] max-w-sm w-full bg-white border-2 border-amber-400 rounded-2xl shadow-2xl p-4 flex items-start gap-3 animate-in fade-in slide-in-from-top-4 duration-300">

@@ -74,8 +74,13 @@ function tenantToJson(row: any) {
     emailFromEmail: row.email_from_email || '',
     emailReplyTo: row.email_reply_to || '',
     emailConfigActive: row.email_config_active === undefined ? true : !!row.email_config_active,
+    estimatedStudents: Number(row.estimated_students) || 0,
+    estimatedStaff: Number(row.estimated_staff) || 0,
+    preferredPlanId: row.preferred_plan_id || 'trial',
+    customRequirements: row.custom_requirements || '',
   };
 }
+
 
 // POST /api/admin/bootstrap - one-time first Super Admin creation from env secrets
 adminApp.post('/bootstrap', async (c) => {
@@ -180,7 +185,7 @@ adminApp.get('/registrations', async (c) => {
   return c.json({ success: true, registrations: (rows.results || []).map(tenantToJson) });
 });
 
-// POST /api/admin/registrations/approve - approve and start 7-day trial
+// POST /api/admin/registrations/approve - approve with selected plan or 7-day trial
 adminApp.post('/registrations/approve', async (c) => {
   const guard = await requireSuperAdmin(c);
   if (!guard.ok) return guard.error;
@@ -188,11 +193,51 @@ adminApp.post('/registrations/approve', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const schoolId = body.schoolId;
   if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
+
+  const selectedPlanId = String(body.planId || '').trim();
+  const now = new Date().toISOString();
+
+  if (selectedPlanId && selectedPlanId !== 'trial') {
+    const plan = await loadSubscriptionPlanById(db, selectedPlanId);
+    if (!plan) return c.json({ success: false, message: 'अमान्य प्लान चयन।' }, 400);
+
+    await db.prepare('UPDATE school_tenants SET status=?, registration_status=?, plan_id=?, trial_ends_at=?, approved_at=?, approved_by=? WHERE id=?')
+      .bind('Active', 'Approved', plan.id, '', now, guard.authUser.sub, schoolId).run();
+
+    await db.prepare('UPDATE school_subscriptions SET plan_id=?, plan_name=?, status=?, trial_ends_at=?, updated_at=? WHERE school_id=?')
+      .bind(plan.id, plan.name, 'Active', '', now, schoolId).run();
+
+    let provisioning: any = null;
+    let provisioningError: string | null = null;
+    if (plan.featureFlags && plan.featureFlags.dedicatedWorker) {
+      const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
+      if (school) {
+        try {
+          provisioning = await provisionDedicatedWorker(c.env, db, school, {});
+        } catch (provErr: any) {
+          console.error('[Admin] provisionDedicatedWorker failed:', provErr);
+          provisioningError = provErr?.message || 'डेडीकेटेड वर्कर प्रोविजनिंग विफल रही।';
+        }
+      }
+    }
+
+    return c.json({
+      success: true,
+      message: provisioningError
+        ? `स्कूल को ${plan.name} के साथ स्वीकृत किया गया, परन्तु डेडीकेटेड वर्कर प्रोविजनिंग में त्रुटि: ${provisioningError}`
+        : `स्कूल को ${plan.name} के साथ स्वीकृत किया गया।`,
+      provisioning,
+      provisioningError,
+    });
+  }
+
+  // Default: 7-day trial
   const trialEnds = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   await db.prepare('UPDATE school_tenants SET status=?, registration_status=?, trial_ends_at=?, approved_at=?, approved_by=? WHERE id=?')
-    .bind('Trial', 'Approved', trialEnds, new Date().toISOString(), guard.authUser.sub, schoolId).run();
-  await db.prepare('UPDATE school_subscriptions SET status=?, trial_ends_at=? WHERE school_id=?').bind('Trial', trialEnds, schoolId).run();
-  return c.json({ success: true, message: 'स्कूल अप्रूव्ड। 7-दिन का फ्री ट्रायल शुरू हो गया।' });
+    .bind('Trial', 'Approved', trialEnds, now, guard.authUser.sub, schoolId).run();
+  await db.prepare('UPDATE school_subscriptions SET status=?, trial_ends_at=?, updated_at=? WHERE school_id=?')
+    .bind('Trial', trialEnds, now, schoolId).run();
+  return c.json({ success: true, message: 'स्कूल स्वीकृत। 7-दिन का फ्री ट्रायल शुरू हो गया।' });
 });
 
 // POST /api/admin/registrations/reject
@@ -206,6 +251,54 @@ adminApp.post('/registrations/reject', async (c) => {
   await db.prepare('UPDATE school_tenants SET status=?, registration_status=? WHERE id=?').bind('Suspended', 'Rejected', schoolId).run();
   return c.json({ success: true, message: 'स्कूल रजिस्ट्रेशन अस्वीकृत कर दिया गया।' });
 });
+
+// GET /api/admin/feature-requests - सभी स्कूलों से प्राप्त विशेष आवश्यकताएं व फीचर अनुरोध
+adminApp.get('/feature-requests', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  try {
+    const rows = await db.prepare(
+      `SELECT fr.*, s.school_name, s.contact_email, s.contact_phone, s.subdomain, s.plan_id
+       FROM school_feature_requests fr
+       JOIN school_tenants s ON s.id = fr.school_id
+       ORDER BY fr.created_at DESC`
+    ).all();
+
+    return c.json({ success: true, requests: rows.results || [] });
+  } catch (e: any) {
+    return c.json({ success: true, requests: [] });
+  }
+});
+
+// POST /api/admin/feature-requests/status - अनुरोध की स्थिति व नोट्स अपडेट करें
+adminApp.post('/feature-requests/status', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const id = String(body.id || '').trim();
+  const status = String(body.status || 'Pending').trim();
+  const adminNotes = String(body.adminNotes || '').trim();
+
+  if (!id) return c.json({ success: false, message: 'id आवश्यक है।' }, 400);
+
+  const VALID_STATUSES = ['Pending', 'In_Review', 'Approved', 'Delivered', 'Rejected'];
+  if (!VALID_STATUSES.includes(status)) {
+    return c.json({ success: false, message: `अमान्य स्थिति। मान्य स्थितियां: ${VALID_STATUSES.join(', ')}` }, 400);
+  }
+
+  await db.prepare(
+    'UPDATE school_feature_requests SET status = ?, admin_notes = ?, updated_at = ? WHERE id = ?'
+  ).bind(status, adminNotes, new Date().toISOString(), id).run();
+
+  return c.json({ success: true, message: 'अनुरोध स्थिति सफलतापूर्वक अपडेट की गई।' });
+});
+
 
 // POST /api/admin/schools/create - Super Admin द्वारा नया स्कूल जोड़ें
 adminApp.post('/schools/create', async (c) => {
