@@ -9,6 +9,13 @@
       "slug": "vidyasetu",
       "schoolId": "school-tenant-id-1",
       "mode": "shared"
+    },
+    {
+      "slug": "a",
+      "schoolId": "school-1789230166572",
+      "mode": "dedicated",
+      "name": "Maa karma",
+      "domain": "a.pragnya.nasven.com"
     }
   ]
 }
