@@ -219,8 +219,7 @@ export async function sendSchoolEmail(env: any, input: SchoolEmailInput): Promis
     input.message,
     '',
     'यह एक स्वचालित ईमेल है, कृपया इसका उत्तर न दें।'
-  ].join('
-');
+  ].join('\n');
 
   try {
     await binding.send({
