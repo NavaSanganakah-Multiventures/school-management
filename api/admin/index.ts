@@ -5,11 +5,40 @@ import { sanitizeSlug, isSlugValid, provisionDedicatedWorker } from '../lib/prov
 
 const adminApp = new Hono<{ Bindings: any }>();
 
+// Dedicated Worker Guard: SuperAdmin console and school management is strictly disallowed on dedicated workers
+adminApp.use('*', async (c, next) => {
+  const isDedicated = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+  if (isDedicated) {
+    return c.json({
+      success: false,
+      message: 'Super Admin कंसोल केवल केंद्रीय प्लेटफ़ॉर्म (pragnya.nasven.com) पर उपलब्ध है। Dedicated स्कूल वर्कर पर यह अनुमत नहीं है।',
+    }, 403);
+  }
+  await next();
+});
+
+export function isAuthorizedPlatformEmail(email: string, env: any): boolean {
+  const normalized = String(email || '').trim().toLowerCase();
+  if (!normalized) return false;
+  const platformEmail = String((env && env.PLATFORM_ADMIN_EMAIL) || '').trim().toLowerCase();
+  return normalized.endsWith('@nasven.com') || normalized.endsWith('@vidyasetu.com') || (!!platformEmail && normalized === platformEmail);
+}
+
 async function requireSuperAdmin(c: any) {
   const authUser = await getAuthUser(c);
   if (!authUser || authUser.role !== 'SuperAdmin') {
     return { ok: false, authUser, error: c.json({ success: false, message: 'केवल Super Admin की अनुमति है।' }, 403) };
   }
+
+  // Enforce authorized platform email domain to prevent unauthorized registration/creation
+  if (!isAuthorizedPlatformEmail(authUser.email, c.env)) {
+    return {
+      ok: false,
+      authUser,
+      error: c.json({ success: false, message: 'अनधिकृत Super Admin ईमेल। केवल अधिकृत प्लेटफ़ॉर्म डोमेन से ही स्कूल प्रबंधन अनुमत है।' }, 403),
+    };
+  }
+
   return { ok: true, authUser };
 }
 
@@ -61,6 +90,12 @@ adminApp.post('/bootstrap', async (c) => {
   if (!email || !password) {
     return c.json({ success: false, message: 'PLATFORM_ADMIN_EMAIL और PLATFORM_ADMIN_PASSWORD env secrets सेट करें।' }, 400);
   }
+
+  // Verify that the bootstrap email belongs to the authorized platform domain
+  if (!isAuthorizedPlatformEmail(email, c.env)) {
+    return c.json({ success: false, message: 'केवल अधिकृत प्लेटफ़ॉर्म ईमेल डोमेन को Super Admin बनाया जा सकता है।' }, 403);
+  }
+
   const passwordHash = await hashPassword(password);
   await db.prepare('INSERT INTO platform_admins (id, email, password_hash, full_name, phone, status, created_at) VALUES (?,?,?,?,?,?,?)')
     .bind('adm-' + Date.now(), email, passwordHash, 'Platform Admin', '', 'Active', new Date().toISOString()).run();

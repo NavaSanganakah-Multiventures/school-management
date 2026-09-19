@@ -25,8 +25,15 @@ configApp.get('/', (c) => {
     }
   }
 
+  const isDedicated = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+
   return c.json({
     firebaseWebConfig: webConfig ? JSON.stringify(webConfig) : null,
+    isDedicated,
+    schoolName: (c.env && c.env.SCHOOL_NAME) || '',
+    schoolSlug: (c.env && c.env.SCHOOL_SLUG) || '',
+    schoolId: (c.env && c.env.SCHOOL_ID) || '',
+    appBaseUrl: (c.env && c.env.APP_BASE_URL) || '',
   });
 });
 

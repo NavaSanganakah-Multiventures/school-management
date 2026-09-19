@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
+import { syncTenantFromPlatform } from '../lib/tenant-sync';
 
 export const schoolProfileApp = new Hono<{ Bindings: any }>();
 
@@ -32,8 +33,45 @@ schoolProfileApp.get('/', async (c) => {
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
   const schoolId = getRequestSchoolId(c, authUser);
-  const row = await db.prepare('SELECT * FROM school_profile WHERE id = ?').bind(schoolId).first();
-  if (!row) return c.json({ success: false, message: 'स्कूल प्रोफ़ाइल नहीं मिली।' }, 404);
+  let row = await db.prepare('SELECT * FROM school_profile WHERE id = ?').bind(schoolId).first();
+
+  const isDedicated = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+  if (!row && isDedicated && c.env.SCHOOL_ID) {
+    try {
+      await syncTenantFromPlatform(c, c.env.SCHOOL_ID);
+      row = await db.prepare('SELECT * FROM school_profile WHERE id = ?').bind(schoolId).first();
+    } catch (e) {
+      console.warn('Auto-sync during profile fetch failed:', e);
+    }
+  }
+
+  if (!row) {
+    if (isDedicated && c.env.SCHOOL_NAME) {
+      return c.json({
+        success: true,
+        profile: {
+          id: schoolId,
+          schoolName: c.env.SCHOOL_NAME,
+          affiliationNumber: '',
+          boardName: 'CBSE',
+          schoolCode: '',
+          email: '',
+          phone: '',
+          alternatePhone: '',
+          address: '',
+          city: '',
+          state: '',
+          pincode: '',
+          academicSession: '2026-2027',
+          directorName: '',
+          principalName: '',
+          logoUrl: null,
+          updatedAt: new Date().toISOString().split('T')[0],
+        },
+      });
+    }
+    return c.json({ success: false, message: 'स्कूल प्रोफ़ाइल नहीं मिली।' }, 404);
+  }
   return c.json({ success: true, profile: rowToProfile(row) });
 });
 

@@ -24,16 +24,29 @@ import aiApp from './ai';
 import configApp from './config';
 import lmsApp from './lms';
 import emailApp from './email';
+import internalApp from './internal';
 
 const app = new Hono<{ Bindings: any }>().basePath('/api');
 
 app.use('*', cors());
 
-// Proxy control-plane routes to the shared platform worker if this is a dedicated worker
+// Dedicated Worker Request Policy:
+// 1. Billing and Plugins routes are proxied to the central platform worker (pragnya.nasven.com).
+// 2. SuperAdmin / Admin Console routes are strictly BLOCKED on dedicated school workers.
 app.use('*', async (c, next) => {
-  if (c.env && (c.env.SCHOOL_ID || c.env.IS_DEDICATED_WORKER === 'true')) {
+  const isDedicated = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+  if (isDedicated) {
     const path = new URL(c.req.url).pathname;
-    if (path.startsWith('/api/billing') || path.startsWith('/api/plugins') || path.startsWith('/api/admin')) {
+
+    // Strict SuperAdmin boundary: never proxy or allow platform admin routes on dedicated workers
+    if (path.startsWith('/api/admin')) {
+      return c.json({
+        success: false,
+        message: 'Super Admin कंसोल केवल केंद्रीय प्लेटफ़ॉर्म (pragnya.nasven.com) पर उपलब्ध है। Dedicated स्कूल वर्कर पर यह अनुमत नहीं है।',
+      }, 403);
+    }
+
+    if (path.startsWith('/api/billing') || path.startsWith('/api/plugins')) {
       try {
         const platformUrl = new URL(c.req.url);
         platformUrl.hostname = 'pragnya.nasven.com';
@@ -88,5 +101,6 @@ app.route('/ai', aiApp);
 app.route('/config', configApp);
 app.route('/lms', lmsApp);
 app.route('/email', emailApp);
+app.route('/internal', internalApp);
 
 export default app;
