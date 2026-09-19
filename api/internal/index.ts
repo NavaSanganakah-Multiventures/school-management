@@ -26,7 +26,12 @@ internalApp.get('/tenant-sync/:schoolId', async (c) => {
 
   const tenant = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
   const profile = await db.prepare('SELECT * FROM school_profile WHERE id = ?').bind(schoolId).first();
-  const usersRows = await db.prepare('SELECT * FROM system_users WHERE school_id = ?').bind(schoolId).all();
+  // Machine-to-machine tenant data plane synchronization:
+  // Select explicit columns required for tenant operations and credential synchronization.
+  const usersRows = await db.prepare(
+    'SELECT id, username, full_name, email, phone, role, designation, department, qualification, salary, status, last_login, created_at, updated_at, password_hash, school_id '
+    + 'FROM system_users WHERE school_id = ?'
+  ).bind(schoolId).all();
   const subscription = await db.prepare('SELECT * FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
 
   let emailConfig = null;

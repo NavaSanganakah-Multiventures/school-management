@@ -17,6 +17,13 @@ adminApp.use('*', async (c, next) => {
   await next();
 });
 
+export function isAuthorizedPlatformEmail(email: string, env: any): boolean {
+  const normalized = String(email || '').trim().toLowerCase();
+  if (!normalized) return false;
+  const platformEmail = String((env && env.PLATFORM_ADMIN_EMAIL) || '').trim().toLowerCase();
+  return normalized.endsWith('@nasven.com') || normalized.endsWith('@vidyasetu.com') || (!!platformEmail && normalized === platformEmail);
+}
+
 async function requireSuperAdmin(c: any) {
   const authUser = await getAuthUser(c);
   if (!authUser || authUser.role !== 'SuperAdmin') {
@@ -24,11 +31,7 @@ async function requireSuperAdmin(c: any) {
   }
 
   // Enforce authorized platform email domain to prevent unauthorized registration/creation
-  const platformEmail = String((c.env && c.env.PLATFORM_ADMIN_EMAIL) || '').trim().toLowerCase();
-  const adminEmail = String((authUser && authUser.email) || '').trim().toLowerCase();
-  const isDomainAllowed = adminEmail.endsWith('@nasven.com') || adminEmail.endsWith('@vidyasetu.com') || (platformEmail && adminEmail === platformEmail);
-
-  if (!isDomainAllowed) {
+  if (!isAuthorizedPlatformEmail(authUser.email, c.env)) {
     return {
       ok: false,
       authUser,
@@ -89,8 +92,7 @@ adminApp.post('/bootstrap', async (c) => {
   }
 
   // Verify that the bootstrap email belongs to the authorized platform domain
-  const isDomainAllowed = email.endsWith('@nasven.com') || email.endsWith('@vidyasetu.com');
-  if (!isDomainAllowed && email !== String((c.env && c.env.PLATFORM_ADMIN_EMAIL) || '').trim().toLowerCase()) {
+  if (!isAuthorizedPlatformEmail(email, c.env)) {
     return c.json({ success: false, message: 'केवल अधिकृत प्लेटफ़ॉर्म ईमेल डोमेन को Super Admin बनाया जा सकता है।' }, 403);
   }
 

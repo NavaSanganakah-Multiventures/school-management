@@ -20,18 +20,19 @@ export async function syncTenantFromPlatform(c: any, targetSchoolId?: string): P
     return { success: false, message: 'Local database is not available.' };
   }
 
-  const authSecret = env.AUTH_SECRET || '';
-  if (!authSecret) {
-    return { success: false, message: 'AUTH_SECRET is not configured for internal sync.' };
+  const syncSecret = (env && (env.INTERNAL_SYNC_SECRET || env.AUTH_SECRET)) || '';
+  if (!syncSecret) {
+    return { success: false, message: 'INTERNAL_SYNC_SECRET or AUTH_SECRET is not configured for internal sync.' };
   }
 
   try {
-    const platformUrl = 'https://pragnya.nasven.com/api/internal/tenant-sync/' + encodeURIComponent(schoolId);
+    const platformBase = String((env && (env.PLATFORM_BASE_URL || env.PLATFORM_API_URL)) || 'https://pragnya.nasven.com').replace(/\/+$/, '');
+    const platformUrl = platformBase + '/api/internal/tenant-sync/' + encodeURIComponent(schoolId);
     const res = await fetch(platformUrl, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'X-Internal-Secret': authSecret,
+        'X-Internal-Secret': syncSecret,
       },
     });
 

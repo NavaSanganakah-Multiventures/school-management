@@ -4,6 +4,7 @@ import { hashPassword, verifyPassword, signToken, getAuthUser } from '../lib/aut
 import { issueResetToken, consumeResetToken } from '../lib/reset-tokens';
 import { sendPasswordResetEmail, getRequestOrigin } from '../lib/email';
 import { syncTenantFromPlatform } from '../lib/tenant-sync';
+import { isAuthorizedPlatformEmail } from '../admin';
 
 const authApp = new Hono<{ Bindings: any }>();
 
@@ -32,11 +33,7 @@ authApp.post('/login', async (c) => {
     const admin = await db.prepare('SELECT * FROM platform_admins WHERE LOWER(email) = ?').bind(identifier).first();
     if (admin) {
       // Validate that the admin email belongs to authorized platform domains or PLATFORM_ADMIN_EMAIL
-      const platformEmail = String((c.env && c.env.PLATFORM_ADMIN_EMAIL) || '').trim().toLowerCase();
-      const adminEmail = String(admin.email || '').trim().toLowerCase();
-      const isDomainAllowed = adminEmail.endsWith('@nasven.com') || adminEmail.endsWith('@vidyasetu.com') || (platformEmail && adminEmail === platformEmail);
-
-      if (!isDomainAllowed) {
+      if (!isAuthorizedPlatformEmail(admin.email, c.env)) {
         return c.json({ success: false, message: 'अनधिकृत Super Admin ईमेल डोमेन। केवल अधिकृत प्लेटफ़ॉर्म डोमेन अनुमत है।' }, 403);
       }
 
