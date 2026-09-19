@@ -48,13 +48,15 @@ export function BillingPlansScreen(_props: { userRole: string; onOpenFcmModal?: 
   const [loading, setLoading] = useState(true);
   const [buying, setBuying] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [emailQuota, setEmailQuota] = useState<{ limit: number | null; used: number; remaining: number | null; resetAt: string } | null>(null);
 
   const loadData = useCallback(async () => {
     try {
-      const [subRes, plansRes, invRes] = await Promise.all([
+      const [subRes, plansRes, invRes, quotaRes] = await Promise.all([
         fetch('/api/billing/subscription').then((r) => r.json()),
         fetch('/api/billing/plans').then((r) => r.json()),
         fetch('/api/billing/invoices').then((r) => r.json()),
+        fetch('/api/email/quota').then((r) => r.json()).catch(() => ({})),
       ]);
       if (subRes.success) {
         setSubscription(subRes.subscription || null);
@@ -66,6 +68,7 @@ export function BillingPlansScreen(_props: { userRole: string; onOpenFcmModal?: 
         setCycles(plansRes.billingCycles || []);
       }
       if (invRes.success) setInvoices(invRes.invoices || []);
+      if (quotaRes && quotaRes.success) setEmailQuota(quotaRes.quota || null);
     } catch (e) {
       setMessage({ type: 'error', text: 'बिलिंग डेटा लोड करने में समस्या हुई।' });
     } finally {
@@ -170,6 +173,19 @@ export function BillingPlansScreen(_props: { userRole: string; onOpenFcmModal?: 
                 <div className="text-lg font-black text-slate-900">{subscription ? subscription.planName : '7-दिन फ्री ट्रायल'}</div>
                 <div className="text-xs text-slate-500">स्थिति: <span className={'font-bold ' + (subscription && subscription.status === 'Active' ? 'text-emerald-700' : 'text-amber-700')}>{statusLabel}</span></div>
                 {trialEndsAt && <div className="text-xs text-amber-700 font-semibold mt-1">ट्रायल समाप्ति: {trialEndsAt}</div>}
+                {emailQuota && (
+                  <div className="mt-3">
+                    <div className="text-[11px] font-bold text-slate-500">ईमेल कोटा (इस माह): {emailQuota.used}{emailQuota.limit === null ? ' / असीमित' : ' / ' + emailQuota.limit}</div>
+                    <div className="mt-1 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                      {emailQuota.limit === null ? (
+                        <div className="h-full bg-emerald-500 rounded-full" style={{ width: '100%' }} />
+                      ) : (
+                        <div className="h-full bg-blue-600 rounded-full" style={{ width: Math.min(100, Math.round((emailQuota.used / Math.max(1, emailQuota.limit)) * 100)) + '%' }} />
+                      )}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1">{emailQuota.limit === null ? 'असीमित ईमेल भेज सकते हैं' : (emailQuota.remaining === null ? '' : emailQuota.remaining + ' ईमेल शेष')}</div>
+                  </div>
+                )}
               </div>
               {planId === 'trial' && (
                 <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
