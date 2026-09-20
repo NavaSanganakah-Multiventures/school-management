@@ -21,8 +21,8 @@
    - **कंट्रोल प्लेन (Main Platform Worker):** केवल **SuperAdmin** और **School Director**। यहाँ स्कूल रजिस्ट्रेशन, बिलिंग, सब्सक्रिप्शन अप्रूवल और ग्लोबल प्लगइन कैटलॉग मैनेज होता है।
    - **डेटा प्लेन (Dedicated School Worker):** केवल **Director, Principal, Teacher, Staff, Student**। 
    - ⚠️ **सख्त नियम:** Dedicated School Worker में **SuperAdmin का कोई रोल नहीं होगा**। स्कूल का ऑपरेशनल डेटा पूरी तरह प्राइवेट रहेगा।
-5. **Workers for Platforms (डिस्पैच नेमस्पेस):**
-   - Enterprise schools को Cloudflare **Workers for Platforms** (dispatch namespace) के ज़रिए provision किया जाता है। `*.pragnya.nasven.com` का route एक dispatch namespace पर जाता है, जो hostname देखकर सही school worker को route करता है।
+5. **Dedicated Direct Workers (प्रति-स्कूल routes):**
+   - Enterprise schools को Cloudflare **plain dedicated Workers** के रूप में provision किया जाता है। हर worker का अपना `[[routes]]` (`<slug>.pragnya.nasven.com/*`) होता है, जो सीधे उसी school worker को serve करता है — कोई अलग routing layer नहीं।
    - हर school worker के अपने bindings (D1/R2/KV) और अपने secrets होते हैं — full tenant isolation, clean worker list और per-tenant usage tracking मिलती है।
 
 ---
