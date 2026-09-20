@@ -1,5 +1,5 @@
 -- 0025_school_provisioning.sql
--- Phase 2b: SuperAdmin provisioning metadata for dedicated WfP workers.
+-- Phase 2b: SuperAdmin provisioning metadata for dedicated workers.
 -- Actual Cloudflare resource creation + deploy is handled by the existing CI
 -- pipeline (scripts/provision-school.mjs + scripts/deploy-dedicated.mjs) after
 -- schools.json is committed. These columns track per-school provisioning state.
