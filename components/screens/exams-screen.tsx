@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Award,
   Calendar,
@@ -14,12 +14,16 @@ import {
   School,
   AlertCircle,
   Loader2,
+  RefreshCw,
+  Clock,
+  Bell,
 } from 'lucide-react';
 import { MarksEntryModal } from '../modals/marks-entry-modal';
 import { AcademicSetupPanel } from './academic-setup-panel';
+import { AnalyticsDashboard } from './analytics-dashboard';
 
 export function ExamsScreen() {
-  const [activeMainTab, setActiveMainTab] = useState<'exams' | 'setup'>('exams');
+  const [activeMainTab, setActiveMainTab] = useState<'exams' | 'setup' | 'analytics'>('exams');
   const [exams, setExams] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
@@ -28,6 +32,14 @@ export function ExamsScreen() {
   const [loadingReport, setLoadingReport] = useState(false);
   const [isMarksModalOpen, setIsMarksModalOpen] = useState(false);
   const [isNewExamModalOpen, setIsNewExamModalOpen] = useState(false);
+  
+  // Real-time updates state
+  const [lastUpdated, setLastUpdated] = useState<string>('');
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(true);
+  const [refreshInterval, setRefreshInterval] = useState<number>(30000); // 30 seconds
+  const [refreshInProgress, setRefreshInProgress] = useState<boolean>(false);
+  const [recentChanges, setRecentChanges] = useState<number>(0);
+  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // New exam form state
   const [newExamName, setNewExamName] = useState('');
@@ -78,6 +90,7 @@ export function ExamsScreen() {
       const data = await res.json();
       if (data.success) {
         setReportCard(data.reportCard);
+        setLastUpdated(data.reportCard?.lastUpdated || new Date().toISOString());
       } else {
         setReportCard(null);
       }
@@ -88,6 +101,61 @@ export function ExamsScreen() {
     }
   };
 
+  // Function to refresh data
+  const refreshData = useCallback(async (force = false) => {
+    if (refreshInProgress && !force) return;
+    
+    setRefreshInProgress(true);
+    try {
+      // If we have a selected student, refresh their marks
+      if (selectedStudentId) {
+        const res = await fetch(`/api/exams/report-card/${selectedStudentId}`);
+        const data = await res.json();
+        if (data.success) {
+          const previousTotal = reportCard?.totalMarks || 0;
+          const newTotal = data.reportCard?.totalMarks || 0;
+          
+          // Check if marks have changed
+          if (Math.abs(newTotal - previousTotal) > 0.1) {
+            setRecentChanges(prev => prev + 1);
+          }
+          
+          setReportCard(data.reportCard);
+          setLastUpdated(data.reportCard?.lastUpdated || new Date().toISOString());
+        }
+      }
+      
+      // Also refresh exams list
+      const examsRes = await fetch('/api/exams');
+      const examsData = await examsRes.json();
+      if (examsData.success) {
+        setExams(examsData.exams);
+      }
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    } finally {
+      setRefreshInProgress(false);
+    }
+  }, [refreshInProgress, selectedStudentId, reportCard]);
+
+  // Auto-refresh effect
+  useEffect(() => {
+    if (autoRefreshEnabled) {
+      refreshTimerRef.current = setInterval(() => {
+        refreshData();
+      }, refreshInterval);
+    } else if (refreshTimerRef.current) {
+      clearInterval(refreshTimerRef.current);
+    }
+
+    return () => {
+      if (refreshTimerRef.current) {
+        clearInterval(refreshTimerRef.current);
+      }
+    };
+  }, [autoRefreshEnabled, refreshInterval, selectedStudentId, refreshData]);
+
+  // Listen for marks entry success
   useEffect(() => {
     if (selectedStudentId) {
       fetchReportCard(selectedStudentId);
@@ -114,6 +182,8 @@ export function ExamsScreen() {
         setExams((prev) => [...prev, data.exam]);
         setIsNewExamModalOpen(false);
         setNewExamName('');
+        // Trigger refresh to show new exam
+        setTimeout(() => refreshData(), 1000);
       }
     } catch {
       //
@@ -126,29 +196,68 @@ export function ExamsScreen() {
     window.print();
   };
 
+  // Format time ago
+  const formatTimeAgo = (timestamp: string) => {
+    if (!timestamp) return 'Never updated';
+    
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) return 'Invalid date';
+      
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      if (diffMs < 0) return 'Future time';
+      
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 1) return 'Just now';
+      if (diffMins < 60) return `${diffMins} min${diffMins !== 1 ? 's' : ''} ago`;
+      if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+      return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+    } catch (error) {
+      return 'Error formatting time';
+    }
+  };
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-12 text-slate-500">
-        <Loader2 className="h-6 w-6 animate-spin mr-2" />
-        <span>परीक्षा डेटा लोड हो रहा है...</span>
+      <div className="flex flex-col items-center justify-center p-12 text-slate-500">
+        <div className="relative">
+          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mb-4" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-6 h-6 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full animate-pulse"></div>
+          </div>
+        </div>
+        <span className="text-sm font-medium mt-2">परीक्षा डेटा लोड हो रहा है...</span>
+        <span className="text-xs text-slate-400 mt-1">Real-time updates will start once loaded</span>
       </div>
     );
   }
 
   return (
     <div className="space-y-6 pb-12">
-      <div className="flex bg-slate-100 p-1 rounded-xl w-max mb-2">
+      <div className="flex bg-slate-100 p-1 rounded-xl w-max mb-2 overflow-x-auto">
         <button
           onClick={() => setActiveMainTab('exams')}
-          className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
+          className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors whitespace-nowrap ${
             activeMainTab === 'exams' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
           }`}
         >
           परीक्षा व मार्कशीट (Exams & Results)
         </button>
         <button
+          onClick={() => setActiveMainTab('analytics')}
+          className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors whitespace-nowrap ${
+            activeMainTab === 'analytics' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          एनालिटिक्स (Analytics Dashboard)
+        </button>
+        <button
           onClick={() => setActiveMainTab('setup')}
-          className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
+          className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors whitespace-nowrap ${
             activeMainTab === 'setup' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
           }`}
         >
@@ -156,7 +265,9 @@ export function ExamsScreen() {
         </button>
       </div>
 
-      {activeMainTab === 'setup' ? (
+      {activeMainTab === 'analytics' ? (
+        <AnalyticsDashboard />
+      ) : activeMainTab === 'setup' ? (
         <AcademicSetupPanel />
       ) : (
         <>
@@ -176,10 +287,66 @@ export function ExamsScreen() {
                 <p className="text-xs text-blue-200 mt-0.5">
                   परीक्षा समय सारिणी, अंक प्रविष्टि एवं सीबीएसई/स्टेट बोर्ड मानक डिजिटल रिपोर्ट कार्ड।
                 </p>
+                
+                {/* Real-time Status Indicator */}
+                <div className="flex items-center gap-3 mt-2">
+                  <div className="flex items-center gap-1 text-xs">
+                    <Clock className="h-3 w-3 text-blue-300" />
+                    <span className="text-blue-100">
+                      Last updated: {formatTimeAgo(lastUpdated)}
+                    </span>
+                  </div>
+                  {recentChanges > 0 && (
+                    <div className="flex items-center gap-1 text-xs bg-emerald-500/30 border border-emerald-400/30 px-2 py-0.5 rounded-full">
+                      <Bell className="h-3 w-3 text-emerald-300" />
+                      <span className="text-emerald-100">{recentChanges} recent update{recentChanges !== 1 ? 's' : ''}</span>
+                    </div>
+                  )}
+                  {refreshInProgress && (
+                    <div className="flex items-center gap-1 text-xs bg-amber-500/30 border border-amber-400/30 px-2 py-0.5 rounded-full">
+                      <Loader2 className="h-3 w-3 animate-spin text-amber-300" />
+                      <span className="text-amber-100">Updating...</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-col sm:flex-row items-center gap-2 shrink-0">
+              {/* Real-time Controls */}
+              <div className="flex items-center gap-2 bg-white/10 border border-white/20 rounded-xl px-3 py-1.5">
+                <button
+                  onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+                  className={`flex items-center gap-1 text-xs ${
+                    autoRefreshEnabled ? 'text-emerald-300' : 'text-slate-300'
+                  }`}
+                  title={autoRefreshEnabled ? 'Disable auto-refresh' : 'Enable auto-refresh'}
+                >
+                  <div className={`w-2 h-2 rounded-full ${autoRefreshEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`}></div>
+                  <span>Auto</span>
+                </button>
+                <select
+                  value={refreshInterval}
+                  onChange={(e) => setRefreshInterval(Number(e.target.value))}
+                  className="bg-transparent border-none text-xs text-white focus:outline-hidden w-20"
+                  disabled={!autoRefreshEnabled}
+                >
+                  <option value="15000" className="text-slate-900">15 sec</option>
+                  <option value="30000" className="text-slate-900">30 sec</option>
+                  <option value="60000" className="text-slate-900">1 min</option>
+                  <option value="300000" className="text-slate-900">5 min</option>
+                </select>
+                <button
+                  onClick={() => refreshData(true)}
+                  disabled={refreshInProgress}
+                  className="text-xs text-white hover:text-blue-200 disabled:opacity-50"
+                  title="Refresh now"
+                >
+                  <RefreshCw className={`h-3 w-3 ${refreshInProgress ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+
+              {/* Action Buttons */}
               <button
                 onClick={() => setIsNewExamModalOpen(true)}
                 className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold border border-white/20 transition-all cursor-pointer"
@@ -234,9 +401,17 @@ export function ExamsScreen() {
           {/* Student Selector Bar */}
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 print:hidden">
             <div className="flex items-center gap-3">
-              <label className="text-xs font-bold text-slate-700 whitespace-nowrap">
-                विद्यार्थी चुनें:
-              </label>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-bold text-slate-700 whitespace-nowrap">
+                  विद्यार्थी चुनें:
+                </label>
+                {reportCard && reportCard.hasData && (
+                  <div className="flex items-center gap-1 text-xs">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                    <span className="text-emerald-700 font-medium">Live Data</span>
+                  </div>
+                )}
+              </div>
               <select
                 value={selectedStudentId}
                 onChange={(e) => setSelectedStudentId(e.target.value)}
@@ -248,6 +423,10 @@ export function ExamsScreen() {
                   </option>
                 ))}
               </select>
+              <div className="hidden sm:flex items-center gap-1 text-xs text-slate-500">
+                <Clock className="h-3 w-3" />
+                {lastUpdated ? formatTimeAgo(lastUpdated) : 'Select student'}
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
@@ -257,6 +436,14 @@ export function ExamsScreen() {
               >
                 <Edit3 className="h-3.5 w-3.5" />
                 <span>इस छात्र के अंक बदलें</span>
+              </button>
+              <button
+                onClick={() => refreshData(true)}
+                disabled={refreshInProgress}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshInProgress ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
               </button>
               <button
                 onClick={handlePrint}
@@ -464,7 +651,17 @@ export function ExamsScreen() {
         onClose={() => setIsMarksModalOpen(false)}
         preselectedStudentId={selectedStudentId}
         onSuccess={() => {
-          if (selectedStudentId) fetchReportCard(selectedStudentId);
+          if (selectedStudentId) {
+            // Trigger immediate refresh with force
+            refreshData(true);
+            // Show notification for changes
+            setRecentChanges(prev => prev + 1);
+            
+            // Clear notification after 5 seconds
+            setTimeout(() => {
+              setRecentChanges(prev => Math.max(0, prev - 1));
+            }, 5000);
+          }
         }}
       />
 
