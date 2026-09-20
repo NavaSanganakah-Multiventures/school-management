@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   TrendingUp, Users, Award, Target, BarChart3, PieChart, LineChart, 
-  BookOpen, Filter, Download, Calendar, School, Trophy, Alert,
+  BookOpen, Calendar, School, Trophy, Alert,
   TrendingDown, Clock, CheckCircle, XCircle 
 } from 'lucide-react';
 
@@ -80,7 +80,7 @@ export function AnalyticsDashboard({ examId, className, section }: AnalyticsDash
     const loadAnalytics = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/exams/analytics/${selectedExamId}`);
+        const res = await fetch(`/api/exams/analytics/${selectedExamId}?dateRange=${dateRange}`);
         const data = await res.json();
         if (data.success) {
           setAnalytics(data.analytics);
@@ -92,7 +92,7 @@ export function AnalyticsDashboard({ examId, className, section }: AnalyticsDash
       }
     };
     loadAnalytics();
-  }, [selectedExamId]);
+  }, [selectedExamId, dateRange]);
 
   if (loading) {
     return (
@@ -288,7 +288,7 @@ export function AnalyticsDashboard({ examId, className, section }: AnalyticsDash
                   <div className="text-xs text-slate-500 mb-1">Toppers</div>
                   <div className="flex items-center justify-center gap-1">
                     <Trophy className="h-4 w-4 text-amber-500" />
-                    <span className="font-bold text-amber-700">{Math.floor(analytics.highestPercentage / 10)}</span>
+                    <span className="font-bold text-amber-700">{Math.floor(analytics.highestPercentage >= 90 ? analytics.totalStudents * 0.1 : 0)}</span>
                     <span className="text-xs text-slate-500">above 90%</span>
                   </div>
                 </div>
@@ -369,7 +369,7 @@ export function AnalyticsDashboard({ examId, className, section }: AnalyticsDash
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
-                    <span>{Math.floor(analytics.highestPercentage / 10)}% of students scored above 90%</span>
+                    <span>Highest score of {analytics.highestPercentage}% shows excellent performance</span>
                   </li>
                 </ul>
               </div>

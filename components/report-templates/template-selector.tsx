@@ -4,8 +4,49 @@ import React, { useState, useEffect } from 'react';
 import { CBSETemplate, StateBoardTemplate, ModernTemplate } from './index';
 import { Settings, Eye, Check, Download, Printer, School, Palette, FileText } from 'lucide-react';
 
+interface ReportData {
+  student: {
+    name: string;
+    rollNumber: string;
+    class: string;
+    section: string;
+    fatherName?: string;
+    motherName?: string;
+    dob?: string;
+    admissionNo?: string;
+  };
+  exam: {
+    name: string;
+    academicYear: string;
+    term?: string;
+  };
+  marks: {
+    subject: string;
+    maxMarks: number;
+    marksObtained: number;
+    grade?: string;
+    remarks?: string;
+  }[];
+  totals: {
+    totalMaxMarks: number;
+    totalMarksObtained: number;
+    percentage: number;
+    overallGrade?: string;
+    overallRemarks?: string;
+    rank?: string;
+  };
+  school?: {
+    name: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+    website?: string;
+  };
+  date?: string;
+}
+
 interface TemplateSelectorProps {
-  reportData: any; // Same as template data
+  reportData: ReportData;
   schoolName?: string;
   schoolCode?: string;
   affiliationNo?: string;

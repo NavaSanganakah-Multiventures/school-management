@@ -1,13 +1,13 @@
--- Migration: 0029_exam_improvements.sql
+-- Migration: 0030_exam_improvements.sql
 -- Description: Improve exam system with proper subject mapping, template support, and enhanced marks tracking
 
 -- 1. Add template_id and other fields to exams table
-ALTER TABLE exams ADD COLUMN template_id TEXT DEFAULT 'template_cbse';
-ALTER TABLE exams ADD COLUMN class_name TEXT;
-ALTER TABLE exams ADD COLUMN section TEXT;
-ALTER TABLE exams ADD COLUMN created_by_user_id TEXT;
-ALTER TABLE exams ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE exams ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS template_id TEXT DEFAULT 'template_cbse';
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS class_name TEXT;
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS section TEXT;
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS created_by_user_id TEXT;
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
 -- 2. Create exam_subjects table for proper subject-exam mapping
 CREATE TABLE IF NOT EXISTS exam_subjects (
@@ -34,9 +34,9 @@ CREATE INDEX IF NOT EXISTS idx_exam_marks_student ON exam_marks(student_id);
 CREATE INDEX IF NOT EXISTS idx_exam_marks_exam ON exam_marks(exam_id);
 
 -- 4. Add created_at to exam_marks if not exists
-ALTER TABLE exam_marks ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE exam_marks ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE exam_marks ADD COLUMN entered_by_user_id TEXT;
+ALTER TABLE exam_marks ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE exam_marks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE exam_marks ADD COLUMN IF NOT EXISTS entered_by_user_id TEXT;
 
 -- 5. Create report card templates table
 CREATE TABLE IF NOT EXISTS report_card_templates (

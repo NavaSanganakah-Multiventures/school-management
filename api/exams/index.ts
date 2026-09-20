@@ -198,6 +198,16 @@ examsApp.post('/marks', async (c) => {
     updatedSubjects.push(m.subject.trim());
   }
 
+  // If no subjects were successfully processed, return failure
+  if (updatedSubjects.length === 0) {
+    return c.json({
+      success: false,
+      message: `किसी भी विषय के अंक दर्ज नहीं किए जा सके। सभी विषयों में त्रुटियाँ हैं।`,
+      errors,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   const actorName = await resolveActorName(db, authUser.sub, authUser.role);
   await logActivity(db, {
     schoolId,
@@ -206,15 +216,15 @@ examsApp.post('/marks', async (c) => {
     userRole: authUser.role,
     actionType: 'MARKS_ENTRY',
     actionTitle: 'परीक्षा अंक प्रविष्टि',
-    description: `छात्र ${studentName} (कक्षा ${st.class_name || ''} - ${st.section || ''}) के लिए परीक्षा "${exam.exam_name}" के ${updatedSubjects.length} विषयों के अंक दर्ज/अद्यतित किए गए।`,
+    description: `छात्र ${studentName} (कक्षा ${st.class_name || '10वीं'} - ${st.section || ''}) के लिए परीक्षा "${exam.exam_name}" के ${updatedSubjects.length} विषयों के अंक दर्ज/अद्यतित किए गए।`,
     entityType: 'exam',
     entityId: examId,
-    className: st.class_name || undefined,
+    className: st.class_name || '10वीं',
     metadata: { studentId, studentName, examId, examName: exam.exam_name, subjects: updatedSubjects },
   });
 
   return c.json({
-    success: true,
+    success: updatedSubjects.length > 0,
     message: `${studentName} के लिए ${updatedSubjects.length} विषयों के अंक सफलतापूर्वक प्रविष्ट/अद्यतित किए गए।`,
     updatedSubjects,
     errors: errors.length > 0 ? errors : undefined,
@@ -507,6 +517,7 @@ examsApp.get('/analytics/:examId', async (c) => {
   const authUser = await getAuthUser(c);
   const schoolId = getRequestSchoolId(c, authUser);
   const examId = c.req.param('examId');
+  const dateRange = c.req.query('dateRange') || 'monthly';
 
   // Get exam details
   const exam = await db.prepare('SELECT * FROM exams WHERE school_id = ? AND id = ?').bind(schoolId, examId).first();
@@ -514,7 +525,7 @@ examsApp.get('/analytics/:examId', async (c) => {
     return c.json({ success: false, message: 'परीक्षा नहीं मिली।' }, 404);
   }
 
-  // Get all marks for this exam
+  // Get all marks for this exam (date range filtering could be added here)
   const marksRows = await db.prepare(
     'SELECT em.*, s.class_name, s.section FROM exam_marks em JOIN students s ON s.id = em.student_id WHERE em.school_id = ? AND em.exam_id = ?'
   ).bind(schoolId, examId).all();

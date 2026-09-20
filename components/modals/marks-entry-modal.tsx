@@ -248,7 +248,7 @@ export function MarksEntryModal({
     } else if (operation === 'defaults') {
       setSubjects(prev => prev.map(s => ({ 
         ...s, 
-        marksObtained: Math.floor((s.maxMarks * 0.75) + Math.random() * (s.maxMarks * 0.15)), 
+        marksObtained: Math.floor(s.maxMarks * 0.75), // Fixed 75% without randomness
         remarks: 'उत्तम प्रदर्शन' 
       })));
     }
