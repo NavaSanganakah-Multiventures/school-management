@@ -2,8 +2,31 @@
 trigger: always_on
 ---
 
-# 🤖 AI Agent & Developer Guidelines (VidyaSetu School Management)
+# 🤖 AI Agent & Developer Guidelines — Pragnya Mitra School Management System
 ## 📌 फ़ाइल: `.agents/rules/ai-instructions.md`
+
+---
+
+## 0. 🏷️ प्रोजेक्ट पहचान (Project Identity) — सर्वोच्च प्राथमिकता
+
+> [!IMPORTANT]
+> **इस प्रोजेक्ट का आधिकारिक नाम है:**
+> # 🎓 **Pragnya Mitra School Management System**
+>
+> | विवरण | मान |
+> |---|---|
+> | **प्रोडक्ट नाम** | Pragnya Mitra School Management System |
+> | **ब्रांड शॉर्ट नेम** | Pragnya Mitra |
+> | **प्लेटफ़ॉर्म URL** | pragnya.nasven.com |
+> | **कंपनी** | NavaSanganakah Multiventures |
+> | **GitHub Repo** | NavaSanganakah-Multiventures/school-management |
+> | **डेटाबेस** | Cloudflare D1 (Shared + Dedicated) |
+> | **Hosting** | Cloudflare Workers + Next.js |
+>
+> ⚠️ **AI Agent के लिए अनिवार्य:**
+> - हर response, commit message, PR title, email template, और UI copy में प्रोडक्ट का नाम **"Pragnya Mitra"** या **"Pragnya Mitra School Management System"** लिखें।
+> - पुराना नाम **"VidyaSetu"** केवल legacy code references में है — नए कोड में यह नाम उपयोग **न** करें।
+> - यदि कोई UI component, email, या notice में school management system का नाम डालना हो, तो हमेशा **Pragnya Mitra** लिखें।
 
 > [!CAUTION]
 > **सर्वोपरि और अनिवार्य नियम (Non-Negotiable Directive):**
