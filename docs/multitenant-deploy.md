@@ -1,5 +1,5 @@
 # VidyaSetu School Management — Multi-Tenant Delivery Architecture
-## एक ही Repository, एक ही Codebase · Cloudflare Workers for Platforms · Shared + Dedicated (Enterprise)
+## एक ही Repository, एक ही Codebase · Cloudflare Workers · Shared + Dedicated (Enterprise)
 
 यह document VidyaSetu school-management system की पूरी working architecture और deployment प्रक्रिया समझाता है। लक्ष्य: **एक ही codebase** से schools को दो तरह से serve करना, ताकि खर्च कम रहे, isolation पूरा रहे और custom/special features **plugin के रास्ते** से managed हों।
 
@@ -10,7 +10,7 @@
 - Delivery **दो tiers** में:
   1. **Shared** — Trial / Starter / Pro schools एक ही worker पर।
   2. **Dedicated** — Enterprise school का अपना worker + अपना D1/R2/KV + अपने secrets।
-- **Workers for Platforms (dispatch namespace)** से provisioning और `*.pragnya.nasven.com` routing।
+- **Plain dedicated Cloudflare Workers** से provisioning और direct per-school `*.pragnya.nasven.com` routes।
 - **Control plane (main worker)** और **Data plane (school worker)** अलग roles के साथ।
 - **LMS dashboard = plugin/add-on** (advanced service)। Core में पहले student + teacher management।
 - **Email quota** per school (business domain email) plan के हिसाब से।
@@ -25,15 +25,15 @@
 - code में किया गया कोई भी बदलाव सभी schools (shared और dedicated दोनों) में अपने-आप पहुँचता है।
 - data isolation का स्तर school के plan से तय होता है — सस्ते plan shared रहते हैं, Enterprise पूरी तरह separate।
 
-## 2. Workers for Platforms (dispatch namespace) — क्यों?
+## 2. Plain Dedicated Workers (direct routes) — क्यों?
 
-Cloudflare Workers में **per-worker कोई fee नहीं** होती; हम अपने एक account में जितने चाहें worker रख सकते हैं। Workers for Platforms इसे एक SaaS provider के लिए और clean बनाता है:
+Cloudflare Workers में **per-worker कोई fee नहीं** होती; हम अपने एक account में जितने चाहें worker रख सकते हैं। हर dedicated school को एक plain Cloudflare Worker मिलता है:
 
-- **Dispatch namespace** पर `*.pragnya.nasven.com` route होता है।
-- Request का hostname देखकर उसे सही school के worker पर भेजा जाता है।
-- Main (control plane) worker से **Cloudflare API के ज़रिए on-the-fly** नया school worker बनाया जा सकता है — flow: *registration → approval/payment → worker तैयार*।
+- हर dedicated worker का अपना `[[routes]]` (`<slug>.pragnya.nasven.com/*`) होता है।
+- Cloudflare route table hostname देखकर सही worker को serve करता है — कोई अलग routing layer नहीं।
+- Main (control plane) worker से **GitHub Actions के ज़रिए** नया school worker deploy किया जाता है — flow: *registration → approval/payment → worker तैयार*।
 - हर school worker के अपने bindings (D1/R2/KV) और अपने secrets होते हैं — full isolation।
-- **Cost**: workers के लिए कोई अलग per-worker charge नहीं; bill request/usage (D1/KV/R2) के हिसाब से आता है। exact pricing Cloudflare के Workers for Platforms docs से verify करें।
+- **Cost**: workers के लिए कोई अलग per-worker charge नहीं; bill request/usage (D1/KV/R2) के हिसाब से आता है।
 
 ## 3. दो Delivery Models
 
@@ -80,8 +80,7 @@ Cloudflare Workers में **per-worker कोई fee नहीं** होत
 {
   "sharedWorker": {
     "name": "school-management",
-    "domain": "pragnya.nasven.com",
-    "dispatchNamespace": "school-management-dispatch"
+    "domain": "pragnya.nasven.com"
   },
   "schools": [
     {
@@ -145,7 +144,7 @@ Cloudflare Workers में **per-worker कोई fee नहीं** होत
 ### 8.2 Request Flow (Dedicated School)
 
 1. User browser में **(slug).pragnya.nasven.com** खोलता है।
-2. Request dispatch namespace से उस school के अपने worker पर पहुँचता है।
+2. Request उस school के अपने dedicated worker route से उसके worker पर पहुँचता है।
 3. Worker का `env.SCHOOL_ID` और `env.SCHOOL_SLUG` fixed होता है।
 4. सारा operational data उस school के अपने D1/R2/KV में रहता है।
 5. दूसरे school का data physically उस worker/DB में होता ही नहीं।
@@ -213,7 +212,7 @@ Dedicated mode में isolation की पूरी गारंटी के
 - इससे एक ही bundle (`out/`) shared और सभी dedicated schools दोनों के लिए काम करेगा।
 - FCM service account जैसे private secrets हमेशा Worker side (`env`) में रहेंगे, client पर कभी नहीं आएँगे।
 
-## 14. Provisioning (Workers for Platforms)
+## 14. Provisioning (Dedicated Workers)
 
 ### 14.1 नया Shared School
 1. School register/approve होता है।
@@ -223,20 +222,19 @@ Dedicated mode में isolation की पूरी गारंटी के
 
 ### 14.2 नया Dedicated School (Enterprise)
 1. Enterprise plan subscribe/approve (या payment complete)।
-2. Main (control plane) worker **Cloudflare API से** provision करता है:
-   - D1 database + R2 bucket + KV namespace बनाना।
-   - school worker (dispatch namespace में script) बनाना।
+2. Main (control plane) worker **schools.json commit के ज़रिए** provision करता है:
+   - D1 database + R2 bucket + KV namespace बनाना (scripts/provision-school.mjs)।
+   - school worker (अपने `[[routes]]` के साथ) generate + deploy करना।
    - `AUTH_SECRET`, Razorpay keys, email credentials जैसे secrets set करना।
-   - `(slug).pragnya.nasven.com` custom domain/route बनाना।
+   - `(slug).pragnya.nasven.com` route बनाना।
 3. schema migrations apply।
 4. school अपने subdomain पर live।
 
 CI/CD (GitHub Actions) में main branch पर push होते ही:
 - build एक बार होता है (shared + dedicated दोनों के लिए same bundle)।
-- `ensure-dispatch-namespace.mjs` dispatch namespace को idempotent create करता है।
-- platform/shared worker deploy होता है।
-- dispatcher worker deploy होता है (wildcard route `*.pragnya.nasven.com`)।
-- dedicated schools के लिए provision + deploy step चलता है (schools.json पढ़कर, `wrangler deploy --dispatch-namespace`)।
+- `ensure-wildcard-dns.mjs` wildcard DNS record को idempotent ensure करता है।
+- platform/shared worker deploy होता है (wildcard route `*.pragnya.nasven.com` के साथ)।
+- dedicated schools के लिए provision + deploy step चलता है (schools.json पढ़कर, `wrangler deploy -c wrangler-<slug>.toml`)।
 
 ## 15. Secrets Management
 
@@ -250,7 +248,7 @@ CI/CD (GitHub Actions) में main branch पर push होते ही:
 - Shared/platform: **pragnya.nasven.com**
 - Dedicated: **(slug).pragnya.nasven.com**
 - `pragnya.nasven.com` और `*.pragnya.nasven.com` Cloudflare zone पर होने चाहिए।
-- `*.pragnya.nasven.com` route dispatcher worker (`school-management-dispatcher`) पर जाता है, जो dispatch namespace से hostname (= slug) के हिसाब से सही school worker चुनता है।
+- `*.pragnya.nasven.com` wildcard route shared worker (`school-management`) पर जाता है; dedicated schools के specific `(slug).pragnya.nasven.com` routes उनके अपने worker को serve करते हैं।
 - Cloudflare API token में Workers + Custom Domains/Routes की permission चाहिए।
 
 **Migration note:** repo में पुराने domains reference हैं — `wrangler.toml` का `APP_BASE_URL` (`pragnya.navasanganakah.com`) और `deploy.yml` का bootstrap URL (`school-management.nssite.workers.dev`)। इन्हें हटाकर सिर्फ़ nasven.com tree रखना है।
@@ -270,13 +268,12 @@ CI/CD (GitHub Actions) में main branch पर push होते ही:
 
 - `schools.json` — school registry (source of truth)
 - `scripts/provision-school.mjs` — नए dedicated school के D1/R2/KV resources auto-create
-- `scripts/ensure-dispatch-namespace.mjs` — dispatch namespace idempotent create (REST API)
-- `scripts/generate-school-configs.mjs` — registry से per-school WfP user worker config (`wrangler-<slug>.toml`) generate
-- `scripts/deploy-dedicated.mjs` — dedicated user worker को dispatch namespace में deploy (migrations + secrets साथ)
+- `scripts/ensure-wildcard-dns.mjs` — wildcard DNS record idempotent ensure (REST API)
+- `scripts/generate-school-configs.mjs` — registry से per-school dedicated worker config (`wrangler-<slug>.toml`) generate (अपने `[[routes]]` के साथ)
+- `scripts/deploy-dedicated.mjs` — dedicated worker को सीधे deploy (migrations + secrets साथ)
 - `scripts/downgrade-school.mjs` — dedicated से shared data merge
 - `.github/workflows/deploy.yml` — CI/CD pipeline
 - `wrangler.toml` — platform/shared worker config
-- `dispatcher/` — WfP dispatcher worker (`*.pragnya.nasven.com` → slug worker)
 - `api/` — Hono API (core backend)
 - `app/` + `components/` — Next.js frontend
 - `plugins/` — plugin system (frontend) + `api/plugins/` (backend)
@@ -287,13 +284,12 @@ CI/CD (GitHub Actions) में main branch पर push होते ही:
 
 **Platform / Shared:**
 - Worker: `school-management`
-- Dispatch namespace: `school-management-dispatch`
 - D1: `school-management` (shared)
 - R2: `school-management-production` (shared)
 - KV: `CONFIG_KV` (shared)
 
 **Dedicated (हर school के लिए):**
-- Worker (dispatch namespace में script): `(slug)`
+- Worker (direct, अपने route के साथ): `(slug)`
 - D1: `school-management-(slug)-db`
 - R2: `school-management-(slug)-media`
 - KV: `school-management-(slug)-config`
@@ -310,9 +306,9 @@ CI/CD (GitHub Actions) में main branch पर push होते ही:
 
 ## 21. Roadmap / आगे के चरण
 
-1. इस document को Workers for Platforms + control/data plane + LMS-as-plugin architecture पर update करना (यह step)।
-2. `schools.json` + provisioning scripts को Workers for Platforms API के हिसाब से बनाना।
-3. `.github/workflows/deploy.yml` को dispatch namespace + provision step में update करना।
+1. इस document को dedicated direct workers + control/data plane + LMS-as-plugin architecture पर update करना (यह step)।
+2. `schools.json` + provisioning scripts को direct dedicated-worker deploy के हिसाब से बनाना।
+3. `.github/workflows/deploy.yml` को per-school routes + provision step में update करना।
 4. Enterprise plan में `dedicatedWorker` flag जोड़ना (code + migration)।
 5. Worker में `SCHOOL_ID`/`SCHOOL_SLUG` context और school-isolation enforcement।
 6. Roles split: main worker (SuperAdmin + Director) vs school worker (Director/Principal/Teacher/Staff/Student)।

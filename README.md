@@ -1,17 +1,17 @@
 # VidyaSetu School Management System & CRM (Pragnya Mitra)
 
-Multi-tenant school management platform built on Cloudflare Workers for Platforms (WfP).
+Multi-tenant school management platform built on Cloudflare Workers.
 यह single repo, single codebase है — कोई school-specific fork या hardcoded condition नहीं।
 
-## Architecture (WfP only)
+## Architecture
 
 - Shared / control-plane worker: pragnya.nasven.com
   - SuperAdmin console, billing, plugin marketplace, school provisioning
+  - Also serves non-dedicated school subdomains via the `*.pragnya.nasven.com` wildcard route
 - Dedicated / data-plane workers: <slug>.pragnya.nasven.com
   - Director, Principal, Teacher, Staff, Student (school-scoped data)
-- Routing: Workers for Platforms dispatch namespace (school-management-dispatch)
-  + dispatcher worker (dispatcher/)
-- Plain Workers use नहीं होते — केवल WfP dispatch namespace।
+  - Each dedicated worker is a plain Cloudflare Worker with its own per-school route
+- Routing: direct per-school `[[routes]]` — every worker serves its own subdomain
 
 ## Tech stack
 
@@ -26,8 +26,7 @@ Multi-tenant school management platform built on Cloudflare Workers for Platform
 - components/     React UI (school-crm-shell + screens + modals)
 - plugins/        Pluggable feature modules (AI Assistant, LMS, AI Report Analyzer)
 - db_migrations/  D1 migrations (idempotent, school_id-scoped)
-- scripts/        WfP provisioning + deploy helpers
-- dispatcher/     WfP dispatcher worker
+- scripts/        provisioning + deploy helpers
 - schools.json    Tenant registry (source of truth for dedicated deploy)
 
 ## Local development
@@ -41,7 +40,7 @@ Checks: npm run lint | npm run typecheck | npm run build
 
 - AUTH_SECRET — HMAC session signing (>= 32 chars, required)
 - PLATFORM_ADMIN_EMAIL / PLATFORM_ADMIN_PASSWORD — first SuperAdmin bootstrap
-- CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID — WfP provisioning + deploy
+- CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID — provisioning + deploy
 - RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET — payments
 - FCM_SERVICE_ACCOUNT_JSON / WEB_PUSH_VAPID_PRIVATE_KEY / FIREBASE_WEB_CONFIG_JSON — push
 - GEMINI_API_KEY — optional platform AI fallback
@@ -65,7 +64,7 @@ components/school-crm-shell.tsx को edit न करें। नया plugin
 
 .github/workflows/deploy.yml:
 - build job: lint + typecheck + next build (pull_request और push दोनों पर)
-- deploy job (सिर्फ main + non-PR): provision → dispatch namespace → D1 migrations → shared worker → dispatcher worker → dedicated workers
+- deploy job (सिर्फ main + non-PR): provision → wildcard DNS → D1 migrations → shared worker → dedicated workers
 
 ## Dedicated worker provisioning (SuperAdmin)
 

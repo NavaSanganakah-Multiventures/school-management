@@ -162,7 +162,7 @@ billingApp.post('/razorpay/verify', async (c) => {
   await db.prepare('UPDATE billing_invoices SET payment_status=?, razorpay_payment_id=?, transaction_id=?, paid_at=? WHERE razorpay_order_id=?')
     .bind('Paid', razorpay_payment_id, razorpay_payment_id, now.split('T')[0] + ' ' + now.split('T')[1].slice(0, 8), razorpay_order_id).run();
 
-  // Enterprise plan -> automatically dispatch a dedicated WfP worker.
+  // Enterprise plan -> automatically provision a dedicated worker.
   let provisioning: any = null;
   if (plan.featureFlags && plan.featureFlags.dedicatedWorker) {
     const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();

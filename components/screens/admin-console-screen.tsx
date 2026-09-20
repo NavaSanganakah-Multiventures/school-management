@@ -115,7 +115,7 @@ const FLAG_OPTIONS = [
   { key: 'multiSchool', label: 'मल्टी-स्कूल टेनेंसी' },
   { key: 'prioritySupport', label: 'प्राथमिकता सहायता' },
   { key: 'customDomainIncluded', label: 'कस्टम डोमेन शामिल' },
-  { key: 'dedicatedWorker', label: 'डेडिकेटेड वर्कर (Cloudflare WfP)' },
+  { key: 'dedicatedWorker', label: 'डेडिकेटेड वर्कर' },
 ];
 
 const emptyAddForm = { schoolName: '', directorName: '', email: '', phone: '', password: '', subdomain: '', customDomain: '', planId: 'starter', billingCycle: 'annual' };
@@ -319,7 +319,7 @@ export function AdminConsoleScreen() {
     finally { setBusyId(null); }
   };
 
-  // Dedicated Worker (WfP) provisioning actions
+  // Dedicated Worker provisioning actions
   const startProvision = (s: SchoolRow) => {
     setConfirmProvisionId(s.id);
     setProvisionSlug(s.subdomain || '');
@@ -829,7 +829,7 @@ export function AdminConsoleScreen() {
                         <option value="trial">7-दिन फ्री ट्रायल (Trial)</option>
                         {nonTrialPlans.map((p) => (
                           <option key={p.id} value={p.id}>
-                            {p.name} {p.featureFlags && p.featureFlags.dedicatedWorker ? '⚡ (Dedicated WfP)' : '☁️ (Shared)'}
+                            {p.name} {p.featureFlags && p.featureFlags.dedicatedWorker ? '⚡ (Dedicated)' : '☁️ (Shared)'}
                           </option>
                         ))}
                       </select>

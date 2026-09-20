@@ -42,7 +42,7 @@ async function requireSuperAdmin(c: any) {
   return { ok: true, authUser };
 }
 
-// Dedicated WfP provisioning logic lives in ../lib/provisioning.ts
+// Dedicated worker provisioning logic lives in ../lib/provisioning.ts
 function tenantToJson(row: any) {
   const trial = row.status === 'Trial';
   return {
@@ -455,7 +455,7 @@ adminApp.post('/schools/restore', async (c) => {
   return c.json({ success: true, message: 'विद्यालय को वापस सक्रिय कर दिया गया।' });
 });
 
-// POST /api/admin/schools/provision - dedicated WfP worker provision करें (control plane)
+// POST /api/admin/schools/provision - dedicated worker provision करें (control plane)
 adminApp.post('/schools/provision', async (c) => {
   const guard = await requireSuperAdmin(c);
   if (!guard.ok) return guard.error;
