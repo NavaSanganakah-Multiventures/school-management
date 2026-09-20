@@ -907,9 +907,11 @@ export function AdminConsoleScreen() {
                     value={addForm.planId}
                     onChange={(e) => {
                       const pId = e.target.value;
+                      const isTrial = pId === 'trial';
                       setAddForm(Object.assign({}, addForm, {
                         planId: pId,
-                        trialEndsAt: pId === 'trial' ? (addForm.trialEndsAt || default7Days()) : addForm.trialEndsAt,
+                        billingCycle: isTrial ? 'monthly' : 'annual',
+                        trialEndsAt: isTrial ? (addForm.trialEndsAt || default7Days()) : addForm.trialEndsAt,
                       }));
                     }}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white font-medium"
