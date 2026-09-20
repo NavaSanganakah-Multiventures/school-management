@@ -3,6 +3,7 @@ import { getDB, SUBSCRIPTION_PLANS, loadSubscriptionPlans, loadSubscriptionPlanB
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { provisionDedicatedWorker } from '../lib/provisioning';
 import { createRazorpayOrder, verifyRazorpaySignature } from '../lib/razorpay';
+import { checkSingleSchoolTrialStatus } from '../lib/trial-expiration';
 
 const billingApp = new Hono<{ Bindings: any }>();
 
@@ -68,8 +69,14 @@ billingApp.get('/subscription', async (c) => {
   const tenant = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
   const subscription = subToJson(subRow);
   const isDedicated = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+
+  // Verify trial status dynamically
+  const trialCheck = await checkSingleSchoolTrialStatus(db, c.env, tenant);
+  const isExpired = trialCheck.isExpired && !isDedicated;
+
   const planId = isDedicated ? 'enterprise' : (subscription && subscription.status === 'Trial' ? 'trial' : (subscription ? subscription.planId : (tenant ? tenant.plan_id : 'trial')));
   let planDetails = await loadSubscriptionPlanById(db, planId) || SUBSCRIPTION_PLANS[0];
+
   if (planId === 'enterprise' || isDedicated) {
     planDetails = Object.assign({}, planDetails, {
       modules: [
@@ -91,14 +98,26 @@ billingApp.get('/subscription', async (c) => {
         dedicatedWorker: true,
       }),
     });
+  } else if (isExpired) {
+    // If trial is expired, restrict modules to ONLY billing to prompt renewal
+    planDetails = Object.assign({}, planDetails, {
+      modules: ['billing'],
+    });
+    if (subscription) {
+      subscription.status = 'Expired';
+    }
   }
+
   return c.json({
     success: true,
-    school: tenant || { id: schoolId, schoolName: '', status: isDedicated ? 'Active' : 'Trial' },
+    school: tenant
+      ? Object.assign({}, tenant, { status: isExpired ? 'Suspended' : tenant.status })
+      : { id: schoolId, schoolName: '', status: isDedicated ? 'Active' : (isExpired ? 'Suspended' : 'Trial') },
     subscription,
-    planId,
+    planId: isExpired ? 'trial' : planId,
     planDetails,
-    trialEndsAt: subscription ? subscription.trialEndsAt : '',
+    trialEndsAt: trialCheck.trialEndsAt || (subscription ? subscription.trialEndsAt : ''),
+    isTrialExpired: isExpired,
   });
 });
 

@@ -71,15 +71,15 @@ jobs:
           command: deploy
           packageManager: npm
           postCommands: |
-            if [ -n "$RAZORPAY_KEY_ID" ]; then printf '%s' "$RAZORPAY_KEY_ID" | npx wrangler secret put RAZORPAY_KEY_ID --env=""; fi
-            if [ -n "$RAZORPAY_KEY_SECRET" ]; then printf '%s' "$RAZORPAY_KEY_SECRET" | npx wrangler secret put RAZORPAY_KEY_SECRET --env=""; fi
-            if [ -n "$AUTH_SECRET" ]; then printf '%s' "$AUTH_SECRET" | npx wrangler secret put AUTH_SECRET --env=""; fi
-            if [ -n "$PLATFORM_ADMIN_EMAIL" ]; then printf '%s' "$PLATFORM_ADMIN_EMAIL" | npx wrangler secret put PLATFORM_ADMIN_EMAIL --env=""; fi
-            if [ -n "$PLATFORM_ADMIN_PASSWORD" ]; then printf '%s' "$PLATFORM_ADMIN_PASSWORD" | npx wrangler secret put PLATFORM_ADMIN_PASSWORD --env=""; fi
-            if [ -n "$FCM_SERVICE_ACCOUNT_JSON" ]; then printf '%s' "$FCM_SERVICE_ACCOUNT_JSON" | npx wrangler secret put FCM_SERVICE_ACCOUNT_JSON --env=""; fi
-            if [ -n "$WEB_PUSH_VAPID_PRIVATE_KEY" ]; then printf '%s' "$WEB_PUSH_VAPID_PRIVATE_KEY" | npx wrangler secret put WEB_PUSH_VAPID_PRIVATE_KEY --env=""; fi
-            if [ -n "$FIREBASE_WEB_CONFIG_JSON" ]; then printf '%s' "$FIREBASE_WEB_CONFIG_JSON" | npx wrangler secret put FIREBASE_WEB_CONFIG_JSON --env=""; fi
-            if [ -n "$PROVISIONING_GITHUB_TOKEN" ]; then printf '%s' "$PROVISIONING_GITHUB_TOKEN" | npx wrangler secret put GITHUB_TOKEN --env=""; fi
+            if [ -n "$RAZORPAY_KEY_ID" ]; then printf '%s' "$RAZORPAY_KEY_ID" | npx wrangler secret put RAZORPAY_KEY_ID; fi
+            if [ -n "$RAZORPAY_KEY_SECRET" ]; then printf '%s' "$RAZORPAY_KEY_SECRET" | npx wrangler secret put RAZORPAY_KEY_SECRET; fi
+            if [ -n "$AUTH_SECRET" ]; then printf '%s' "$AUTH_SECRET" | npx wrangler secret put AUTH_SECRET; fi
+            if [ -n "$PLATFORM_ADMIN_EMAIL" ]; then printf '%s' "$PLATFORM_ADMIN_EMAIL" | npx wrangler secret put PLATFORM_ADMIN_EMAIL; fi
+            if [ -n "$PLATFORM_ADMIN_PASSWORD" ]; then printf '%s' "$PLATFORM_ADMIN_PASSWORD" | npx wrangler secret put PLATFORM_ADMIN_PASSWORD; fi
+            if [ -n "$FCM_SERVICE_ACCOUNT_JSON" ]; then printf '%s' "$FCM_SERVICE_ACCOUNT_JSON" | npx wrangler secret put FCM_SERVICE_ACCOUNT_JSON; fi
+            if [ -n "$WEB_PUSH_VAPID_PRIVATE_KEY" ]; then printf '%s' "$WEB_PUSH_VAPID_PRIVATE_KEY" | npx wrangler secret put WEB_PUSH_VAPID_PRIVATE_KEY; fi
+            if [ -n "$FIREBASE_WEB_CONFIG_JSON" ]; then printf '%s' "$FIREBASE_WEB_CONFIG_JSON" | npx wrangler secret put FIREBASE_WEB_CONFIG_JSON; fi
+            if [ -n "$PROVISIONING_GITHUB_TOKEN" ]; then printf '%s' "$PROVISIONING_GITHUB_TOKEN" | npx wrangler secret put GITHUB_TOKEN; fi
         env:
           RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
           RAZORPAY_KEY_SECRET: ${{ secrets.RAZORPAY_KEY_SECRET }}

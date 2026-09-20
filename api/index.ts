@@ -26,6 +26,7 @@ import lmsApp from './lms';
 import emailApp from './email';
 import internalApp from './internal';
 import featuresApp from './features';
+import { processTrialExpirations } from './lib/trial-expiration';
 
 const app = new Hono<{ Bindings: any }>().basePath('/api');
 
@@ -105,4 +106,21 @@ app.route('/email', emailApp);
 app.route('/internal', internalApp);
 app.route('/features', featuresApp);
 
-export default app;
+const worker = {
+  fetch: (request: Request, env: any, ctx: any) => app.fetch(request, env, ctx),
+  scheduled: async (event: any, env: any, ctx: any) => {
+    try {
+      const task = processTrialExpirations(env);
+      if (ctx && typeof ctx.waitUntil === 'function') {
+        ctx.waitUntil(task);
+      } else {
+        await task;
+      }
+    } catch (e) {
+      console.error('[Scheduled] processTrialExpirations error:', e);
+    }
+  },
+};
+
+export default worker;
+export { app };
