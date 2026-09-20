@@ -110,6 +110,26 @@ authApp.post('/login', async (c) => {
   const ok = await verifyPassword(password, user.password_hash);
   if (!ok) return c.json({ success: false, message: 'अमान्य पासवर्ड।' }, 401);
 
+  // 3) School approval gate: block login until Super Admin approves the school.
+  if (user.school_id) {
+    const tenant = await db.prepare('SELECT status, registration_status, deleted_at FROM school_tenants WHERE id = ?').bind(user.school_id).first();
+    if (tenant) {
+      const regStatus = String(tenant.registration_status || '');
+      if (tenant.deleted_at) {
+        return c.json({ success: false, message: 'यह स्कूल हटा दिया गया है। कृपया प्लेटफ़ॉर्म Super Admin से संपर्क करें।' }, 403);
+      }
+      if (regStatus === 'Pending_Approval') {
+        return c.json({ success: false, message: 'आपका स्कूल अभी Super Admin द्वारा अनुमोदित (approve) नहीं हुआ है। कृपया अनुमोदन की प्रतीक्षा करें।' }, 403);
+      }
+      if (regStatus === 'Rejected') {
+        return c.json({ success: false, message: 'आपका स्कूल पंजीकरण अस्वीकृत (rejected) कर दिया गया है। कृपया प्लेटफ़ॉर्म Super Admin से संपर्क करें।' }, 403);
+      }
+      if (regStatus === 'Deleted') {
+        return c.json({ success: false, message: 'यह स्कूल हटा दिया गया है। कृपया प्लेटफ़ॉर्म Super Admin से संपर्क करें।' }, 403);
+      }
+    }
+  }
+
   await db.prepare('UPDATE system_users SET last_login = ? WHERE id = ?').bind(new Date().toISOString(), user.id).run();
 
   const schoolId = user.school_id || 'school-01';
