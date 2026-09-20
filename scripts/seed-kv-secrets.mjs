@@ -38,11 +38,23 @@ const SECRET_KEYS = [
   'DEDICATED_SECRETS_JSON',
 ];
 
+function serializeSecretValue(val) {
+  if (val === null || val === undefined) return null;
+  if (typeof val === 'object') return JSON.stringify(val);
+  return String(val);
+}
+
 function parseArgs(argv) {
   const args = { file: null, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--file') args.file = argv[++i];
-    else if (argv[i] === '--dry-run') args.dryRun = true;
+    if (argv[i] === '--file') {
+      if (!argv[i + 1] || argv[i + 1].startsWith('--')) {
+        throw new Error('--file flag requires a file path argument');
+      }
+      args.file = argv[++i];
+    } else if (argv[i] === '--dry-run') {
+      args.dryRun = true;
+    }
   }
   return args;
 }
@@ -73,15 +85,20 @@ async function main() {
   let fileValues = {};
   if (file) {
     if (!fs.existsSync(file)) throw new Error('File not found: ' + file);
-    fileValues = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    try {
+      fileValues = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch (err) {
+      throw new Error(`Failed to parse JSON secrets file "${file}": ${err.message}`);
+    }
   }
 
   const uploaded = [];
   const skipped = [];
   for (const key of SECRET_KEYS) {
-    const value = file && fileValues[key] !== undefined
-      ? String(fileValues[key])
-      : (process.env[key] !== undefined ? String(process.env[key]) : null);
+    const rawValue = file && fileValues[key] !== undefined
+      ? fileValues[key]
+      : (process.env[key] !== undefined ? process.env[key] : null);
+    const value = serializeSecretValue(rawValue);
     if (value === null || value === '') {
       skipped.push(key);
       continue;

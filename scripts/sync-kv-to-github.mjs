@@ -70,8 +70,14 @@ async function main() {
   const synced = [];
   const missing = [];
 
-  for (const key of SECRET_KEYS) {
-    const value = await fetchKV(namespaceId, key, token, accountId);
+  const kvEntries = await Promise.all(
+    SECRET_KEYS.map(async (key) => {
+      const value = await fetchKV(namespaceId, key, token, accountId);
+      return { key, value };
+    })
+  );
+
+  for (const { key, value } of kvEntries) {
     if (value === null || value === '') {
       missing.push(key);
       continue;
