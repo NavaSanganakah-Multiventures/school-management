@@ -24,13 +24,26 @@ aiApp.post('/chat', async (c) => {
       return c.json({ success: false, message: 'प्रॉम्प्ट (Prompt) या फ़ाइल आवश्यक है।' }, 400);
     }
 
-    // Check if plugin is active
-    const pluginCheck = await db.prepare(
-      `SELECT status FROM school_plugins WHERE school_id = ? AND plugin_id = 'plugin-ai-assistant'`
-    ).bind(schoolId).first();
-    
-    if (!pluginCheck || pluginCheck.status !== 'active') {
-      return c.json({ success: false, message: 'AI Assistant प्लगइन एक्टिव नहीं है।' }, 403);
+    // Helper to check Enterprise plan or dedicated worker
+    let isEnterprise = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+    if (!isEnterprise) {
+      try {
+        const sub = await db.prepare('SELECT plan_id FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+        const tenant = await db.prepare('SELECT plan_id FROM school_tenants WHERE id = ?').bind(schoolId).first();
+        const planId = String((sub && sub.plan_id) || (tenant && tenant.plan_id) || '').toLowerCase();
+        if (planId === 'enterprise') isEnterprise = true;
+      } catch (_) {}
+    }
+
+    // Check if plugin is active (Enterprise schools have all plugins included)
+    if (!isEnterprise) {
+      const pluginCheck = await db.prepare(
+        `SELECT status FROM school_plugins WHERE school_id = ? AND plugin_id = 'plugin-ai-assistant'`
+      ).bind(schoolId).first();
+      
+      if (!pluginCheck || pluginCheck.status !== 'active') {
+        return c.json({ success: false, message: 'AI Assistant प्लगइन एक्टिव नहीं है।' }, 403);
+      }
     }
 
     // Get school settings for custom api key and credits
@@ -259,12 +272,24 @@ aiApp.post('/report-analysis', async (c) => {
     const className = body.className || null;
     const subject = body.subject || null;
 
-    // Paid plugin gate: AI Report Analyzer must be active for this school.
-    const pluginCheck = await db.prepare(
-      "SELECT status FROM school_plugins WHERE school_id = ? AND plugin_id = 'plugin-ai-reports'"
-    ).bind(schoolId).first();
-    if (!pluginCheck || pluginCheck.status !== 'active') {
-      return c.json({ success: false, message: 'AI Report Analyzer प्लगइन एक्टिव नहीं है।' }, 403);
+    // Paid plugin gate: AI Report Analyzer must be active (Enterprise schools have all plugins included)
+    let isEnterprise = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+    if (!isEnterprise) {
+      try {
+        const sub = await db.prepare('SELECT plan_id FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+        const tenant = await db.prepare('SELECT plan_id FROM school_tenants WHERE id = ?').bind(schoolId).first();
+        const planId = String((sub && sub.plan_id) || (tenant && tenant.plan_id) || '').toLowerCase();
+        if (planId === 'enterprise') isEnterprise = true;
+      } catch (_) {}
+    }
+
+    if (!isEnterprise) {
+      const pluginCheck = await db.prepare(
+        "SELECT status FROM school_plugins WHERE school_id = ? AND plugin_id = 'plugin-ai-reports'"
+      ).bind(schoolId).first();
+      if (!pluginCheck || pluginCheck.status !== 'active') {
+        return c.json({ success: false, message: 'AI Report Analyzer प्लगइन एक्टिव नहीं है।' }, 403);
+      }
     }
 
     // Resolve exam: explicit examId first, otherwise latest active exam, otherwise any exam.

@@ -144,9 +144,13 @@ export function PluginMarketplaceScreen() {
                     {plugin.id.includes('ai') ? <Sparkles className="h-5 w-5" /> : <Blocks className="h-5 w-5" />}
                   </div>
                   {isActive && (
-                    <span className="flex items-center gap-1 bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">
+                    <span className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                      subscription?.isEnterpriseIncluded || plugin.isEnterpriseIncluded
+                        ? 'bg-indigo-100 text-indigo-800'
+                        : 'bg-emerald-100 text-emerald-700'
+                    }`}>
                       <CheckCircle2 className="h-3 w-3" />
-                      Installed
+                      {subscription?.isEnterpriseIncluded || plugin.isEnterpriseIncluded ? '⚡ शामिल (Enterprise)' : 'Installed'}
                     </span>
                   )}
                 </div>
@@ -161,7 +165,9 @@ export function PluginMarketplaceScreen() {
                 <div className="flex items-end justify-between pt-4">
                   <div>
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Price / Year</span>
-                    {plugin.price > 0 ? (
+                    {subscription?.isEnterpriseIncluded || plugin.isEnterpriseIncluded ? (
+                      <span className="font-black text-indigo-600 text-lg">एंटरप्राइज में मुफ़्त (शामिल)</span>
+                    ) : plugin.price > 0 ? (
                       <span className="font-black text-slate-900 text-lg">₹{plugin.price}</span>
                     ) : (
                       <span className="font-black text-emerald-600 text-lg">Free</span>
@@ -169,7 +175,12 @@ export function PluginMarketplaceScreen() {
                   </div>
                 </div>
 
-                {isActive ? (
+                {subscription?.isEnterpriseIncluded || plugin.isEnterpriseIncluded ? (
+                  <div className="w-full py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold text-xs text-center flex items-center justify-center gap-1.5 shadow-2xs">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    <span>एंटरप्राइज में स्वतः सक्रिय</span>
+                  </div>
+                ) : isActive ? (
                   <button 
                     onClick={() => handleUnsubscribe(plugin.id)}
                     disabled={actionLoading === plugin.id}
