@@ -5,7 +5,7 @@ import {
   ShieldCheck, RefreshCw, CheckCircle2, XCircle, School, IndianRupee,
   Loader2, Plus, Trash2, RotateCcw, Pencil, Tag, Boxes, Eye, EyeOff,
   Search, ToggleLeft, ToggleRight, Sparkles, Globe, Lock, Check, Store, Mail,
-  MessageSquarePlus, Clock, ExternalLink, Calendar
+  MessageSquarePlus, Clock, ExternalLink, Calendar, CreditCard, Bell, Send
 } from 'lucide-react';
 
 interface SchoolRow {
@@ -83,6 +83,32 @@ interface PlanRow {
   sortOrder: number;
 }
 
+interface TransactionRow {
+  id: string;
+  invoiceNumber: string;
+  schoolId: string;
+  schoolName: string;
+  subdomain: string;
+  contactEmail: string;
+  description: string;
+  planName: string;
+  billingCycle: string;
+  subtotal: number;
+  gstPercent: number;
+  gstAmount: number;
+  totalAmount: number;
+  paymentStatus: string;
+  paymentMethod: string;
+  transactionId: string;
+  invoiceDate: string;
+  paidAt: string;
+  razorpayOrderId: string;
+  razorpayPaymentId: string;
+  razorpayPaymentLinkId: string;
+  razorpayPaymentLinkUrl: string;
+  webhookReceivedAt: string;
+}
+
 interface PluginItem {
   id: string;
   name: string;
@@ -109,6 +135,24 @@ interface PluginSubscription {
   plugin_price: number;
 }
 
+interface PluginTrialItem {
+  id: string;
+  school_id: string;
+  plugin_id: string;
+  status: string;
+  valid_until?: string | null;
+  trial_ends_at?: string | null;
+  trial_granted_by?: string | null;
+  trial_granted_at?: string | null;
+  payment_status: string;
+  price_per_cycle?: number | null;
+  billing_cycle?: string | null;
+  next_billing_date?: string | null;
+  school_name: string;
+  plugin_name: string;
+  plugin_price: number;
+}
+
 const MODULE_OPTIONS = ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'principal', 'settings', 'billing'];
 const FLAG_OPTIONS = [
   { key: 'reportCards', label: 'रिपोर्ट कार्ड' },
@@ -128,8 +172,19 @@ const emptyPluginForm = { id: '', name: '', description: '', type: 'global' as '
 const emptyAssignForm = { schoolId: '', pluginId: '', status: 'active' as 'active' | 'inactive' };
 
 export function AdminConsoleScreen() {
-  const [activeTab, setActiveTab] = useState<'schools' | 'plugins' | 'plans' | 'requests'>('schools');
+  const [activeTab, setActiveTab] = useState<'schools' | 'transactions' | 'plugins' | 'plans' | 'requests' | 'subscriptions'>('schools');
   const [schools, setSchools] = useState<SchoolRow[]>([]);
+  const [transactions, setTransactions] = useState<TransactionRow[]>([]);
+  const [txnSummary, setTxnSummary] = useState<any>(null);
+  const [txnLoading, setTxnLoading] = useState(false);
+  const [txnStatusFilter, setTxnStatusFilter] = useState('All');
+  const [payLinkSchool, setPayLinkSchool] = useState<SchoolRow | null>(null);
+  const [payLinkPlanId, setPayLinkPlanId] = useState('starter');
+  const [payLinkCycle, setPayLinkCycle] = useState('annual');
+  const [payLinkBusy, setPayLinkBusy] = useState(false);
+  const [notifySchool, setNotifySchool] = useState<SchoolRow | null>(null);
+  const [notifyForm, setNotifyForm] = useState({ title: '', body: '', targetRole: 'Director', priority: 'high' });
+  const [notifyBusy, setNotifyBusy] = useState(false);
   const [registrations, setRegistrations] = useState<SchoolRow[]>([]);
   const [featureRequests, setFeatureRequests] = useState<FeatureRequestRow[]>([]);
   const [approvalPlans, setApprovalPlans] = useState<Record<string, string>>({});
@@ -137,6 +192,14 @@ export function AdminConsoleScreen() {
   const [plans, setPlans] = useState<PlanRow[]>([]);
   const [plugins, setPlugins] = useState<PluginItem[]>([]);
   const [subscriptions, setSubscriptions] = useState<PluginSubscription[]>([]);
+  const [pluginTrials, setPluginTrials] = useState<PluginTrialItem[]>([]);
+  const [pluginTrialsLoading, setPluginTrialsLoading] = useState(false);
+  const [recurringSubs, setRecurringSubs] = useState<any[]>([]);
+  const [recurringSubsLoading, setRecurringSubsLoading] = useState(false);
+  const [trialModal, setTrialModal] = useState<{ schoolId: string; schoolName: string } | null>(null);
+  const [trialForm, setTrialForm] = useState({ pluginId: '', trialDays: '7' });
+  const [pluginPaymentModal, setPluginPaymentModal] = useState<{ schoolId: string; schoolName: string; pluginId: string; pluginName: string } | null>(null);
+  const [pluginPaymentForm, setPluginPaymentForm] = useState({ billingCycle: 'monthly' });
   const [deletedSchools, setDeletedSchools] = useState<SchoolRow[]>([]);
 
   // Expiry Date Modal State
@@ -233,6 +296,89 @@ export function AdminConsoleScreen() {
   const post = async (url: string, body: any) => {
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     return await res.json();
+  };
+
+  // Transactions (all-schools payment history)
+  const loadTransactions = useCallback(async (statusFilter?: string) => {
+    setTxnLoading(true);
+    try {
+      const q = statusFilter && statusFilter !== 'All' ? `?status=${encodeURIComponent(statusFilter)}` : '';
+      const res = await fetch(`/api/admin/transactions${q}`).then((r) => r.json()).catch(() => ({}));
+      if (res.success) {
+        setTransactions(res.transactions || []);
+        setTxnSummary(res.summary || null);
+      } else {
+        setTransactions([]);
+        setTxnSummary(null);
+        if (res.message) setErrorMsg(res.message);
+      }
+    } catch (e) {
+      setErrorMsg('ट्रांज़ैक्शन लोड करने में त्रुटि।');
+    } finally {
+      setTxnLoading(false);
+    }
+  }, []);
+
+  // Plugin Trial Actions
+  const loadPluginTrials = useCallback(async () => {
+    setPluginTrialsLoading(true);
+    try {
+      const res = await fetch('/api/admin/plugins/trials').then((r) => r.json()).catch(() => ({}));
+      if (res.success) setPluginTrials(res.trials || []);
+    } catch (_) {} finally { setPluginTrialsLoading(false); }
+  }, []);
+
+  const loadRecurringSubs = useCallback(async () => {
+    setRecurringSubsLoading(true);
+    try {
+      const res = await fetch('/api/admin/subscriptions').then((r) => r.json()).catch(() => ({}));
+      if (res.success) setRecurringSubs(res.subscriptions || []);
+    } catch (_) {} finally { setRecurringSubsLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'transactions') loadTransactions(txnStatusFilter);
+    if (activeTab === 'plugins') loadPluginTrials();
+    if (activeTab === 'subscriptions') loadRecurringSubs();
+  }, [activeTab, txnStatusFilter, loadTransactions, loadPluginTrials, loadRecurringSubs]);
+
+  // Send Razorpay payment link to a school (email + FCM)
+  const sendPaymentLink = async () => {
+    if (!payLinkSchool) return;
+    setPayLinkBusy(true);
+    try {
+      const data = await post('/api/admin/schools/send-payment-link', {
+        schoolId: payLinkSchool.id,
+        planId: payLinkPlanId,
+        billingCycle: payLinkCycle,
+      });
+      if (data.success) {
+        flashSuccess(data.message || 'पेमेंट लिंक भेज दिया गया।' + (data.paymentLink ? `\n🔗 ${data.paymentLink}` : ''));
+        setPayLinkSchool(null);
+      } else setErrorMsg(data.message || 'पेमेंट लिंक भेजने में त्रुटि।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setPayLinkBusy(false); }
+  };
+
+  // Send manual FCM push notification to a school
+  const sendNotify = async () => {
+    if (!notifySchool) return;
+    setNotifyBusy(true);
+    try {
+      const data = await post('/api/admin/schools/notify', {
+        schoolId: notifySchool.id,
+        title: notifyForm.title,
+        body: notifyForm.body,
+        targetRole: notifyForm.targetRole,
+        priority: notifyForm.priority,
+      });
+      if (data.success) {
+        flashSuccess(data.message || 'नोटिफिकेशन भेजा गया।');
+        setNotifySchool(null);
+        setNotifyForm({ title: '', body: '', targetRole: 'Director', priority: 'high' });
+      } else setErrorMsg(data.message || 'नोटिफिकेशन भेजने में त्रुटि।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setNotifyBusy(false); }
   };
 
   // School actions
@@ -658,6 +804,95 @@ export function AdminConsoleScreen() {
     finally { setBusyId(null); }
   };
 
+  // Plugin Trial Actions
+  const grantPluginTrial = async () => {
+    if (!trialModal || !trialForm.pluginId) return;
+    setBusyId('grant-trial');
+    try {
+      const data = await post('/api/admin/plugins/grant-trial', {
+        schoolId: trialModal.schoolId,
+        pluginId: trialForm.pluginId,
+        trialDays: Number(trialForm.trialDays) || 7,
+      });
+      if (data.success) {
+        flashSuccess(data.message || 'ट्रायल दे दिया गया।');
+        setTrialModal(null);
+        setTrialForm({ pluginId: '', trialDays: '7' });
+        await loadPluginTrials();
+      } else setErrorMsg(data.message || 'ट्रायल विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
+  const revokePluginTrial = async (schoolId: string, pluginId: string) => {
+    setBusyId(`revoke-trial-${schoolId}-${pluginId}`);
+    try {
+      const data = await post('/api/admin/plugins/revoke-trial', { schoolId, pluginId });
+      if (data.success) { flashSuccess(data.message || 'ट्रायल रद्द।'); await loadPluginTrials(); }
+      else setErrorMsg(data.message || 'रद्दीकरण विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
+  const sendPluginPaymentLink = async () => {
+    if (!pluginPaymentModal) return;
+    setBusyId('send-plugin-link');
+    try {
+      const data = await post('/api/admin/plugins/send-payment-link', {
+        schoolId: pluginPaymentModal.schoolId,
+        pluginId: pluginPaymentModal.pluginId,
+        billingCycle: pluginPaymentForm.billingCycle,
+      });
+      if (data.success) {
+        flashSuccess(data.message || 'पेमेंट लिंक भेजा गया।' + (data.paymentLink ? ` लिंक: ${data.paymentLink}` : ''));
+        setPluginPaymentModal(null);
+        await loadPluginTrials();
+      } else setErrorMsg(data.message || 'लिंक भेजने में विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
+  const processPluginTrials = async () => {
+    setBusyId('process-plugin-trials');
+    try {
+      const data = await post('/api/admin/plugins/process-trials', {});
+      if (data.success) { flashSuccess(data.message || 'प्लगइन ट्रायल प्रोसेसिंग पूर्ण।'); await loadPluginTrials(); }
+      else setErrorMsg(data.message || 'प्रोसेसिंग विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
+  // Recurring Subscription Actions (admin)
+  const adminCancelSub = async (schoolId: string, cancelAtCycleEnd: boolean) => {
+    setBusyId(`cancel-sub-${schoolId}`);
+    try {
+      const data = await post('/api/admin/subscriptions/cancel', { schoolId, cancelAtCycleEnd });
+      if (data.success) { flashSuccess(data.message || 'सदस्यता रद्द।'); await loadRecurringSubs(); }
+      else setErrorMsg(data.message || 'रद्दीकरण विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
+  const adminPauseSub = async (schoolId: string) => {
+    setBusyId(`pause-sub-${schoolId}`);
+    try {
+      const data = await post('/api/admin/subscriptions/pause', { schoolId });
+      if (data.success) { flashSuccess(data.message || 'सदस्यता रोक दी गई।'); await loadRecurringSubs(); }
+      else setErrorMsg(data.message || 'विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
+  const adminResumeSub = async (schoolId: string) => {
+    setBusyId(`resume-sub-${schoolId}`);
+    try {
+      const data = await post('/api/admin/subscriptions/resume', { schoolId });
+      if (data.success) { flashSuccess(data.message || 'सदस्यता फिर से शुरू।'); await loadRecurringSubs(); }
+      else setErrorMsg(data.message || 'विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
   const todayStr = new Date().toISOString().split('T')[0];
   const isSchoolExpired = (s: SchoolRow) => {
     return (s.planId === 'trial' || s.status === 'Trial' || s.registrationStatus === 'Trial_Expired') &&
@@ -747,6 +982,16 @@ export function AdminConsoleScreen() {
         </button>
 
         <button
+          onClick={() => setActiveTab('transactions')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+            activeTab === 'transactions' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <CreditCard className="w-4 h-4" />
+          <span>लेन-देन (Transactions)</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('plugins')}
           className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
             activeTab === 'plugins' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -764,6 +1009,16 @@ export function AdminConsoleScreen() {
         >
           <Tag className="w-4 h-4" />
           <span>प्लान एवं मूल्य निर्धारण ({plans.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('subscriptions')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+            activeTab === 'subscriptions' ? 'bg-violet-600 text-white shadow-xs' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <RefreshCw className="w-4 h-4" />
+          <span>Recurring सदस्यता ({recurringSubs.length})</span>
         </button>
 
         <button
@@ -1296,6 +1551,22 @@ export function AdminConsoleScreen() {
                               <Mail className="w-3 h-3" />
                               <span>ईमेल</span>
                             </button>
+                            <button
+                              onClick={() => { setPayLinkSchool(s); setPayLinkPlanId(s.preferredPlanId && s.preferredPlanId !== 'trial' ? s.preferredPlanId : 'starter'); setPayLinkCycle('annual'); }}
+                              className="px-2.5 py-1 border border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-lg text-[11px] font-bold cursor-pointer flex items-center gap-1"
+                              title="स्कूल को Razorpay पेमेंट लिंक भेजें (ईमेल + FCM)"
+                            >
+                              <CreditCard className="w-3 h-3" />
+                              <span>पेमेंट लिंक</span>
+                            </button>
+                            <button
+                              onClick={() => { setNotifySchool(s); setNotifyForm({ title: '', body: '', targetRole: 'Director', priority: 'high' }); }}
+                              className="px-2.5 py-1 border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-lg text-[11px] font-bold cursor-pointer flex items-center gap-1"
+                              title="स्कूल को FCM पुश नोटिफिकेशन भेजें"
+                            >
+                              <Bell className="w-3 h-3" />
+                              <span>नोटिफिकेशन</span>
+                            </button>
                             <button onClick={() => startEdit(s)} className="px-2.5 py-1 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-[11px] font-bold cursor-pointer flex items-center gap-1">
                               <Pencil className="w-3 h-3" />
                               <span>एडिट</span>
@@ -1387,6 +1658,124 @@ export function AdminConsoleScreen() {
             </div>
           )}
         </>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 1b. TRANSACTIONS (लेन-देन) TAB                                            */}
+      {/* ========================================================================= */}
+      {activeTab === 'transactions' && (
+        <div className="space-y-5">
+          {/* Summary Metrics */}
+          {txnSummary && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs">
+                <div className="text-2xl font-black text-slate-900">{txnSummary.count || 0}</div>
+                <div className="text-xs font-semibold text-slate-500">कुल चालान</div>
+              </div>
+              <div className="p-4 rounded-2xl bg-white border border-emerald-200 shadow-2xs bg-emerald-50/30">
+                <div className="text-2xl font-black text-emerald-700">₹{(txnSummary.collected || 0).toLocaleString('en-IN')}</div>
+                <div className="text-xs font-semibold text-emerald-800">वसूल ({txnSummary.paidCount || 0})</div>
+              </div>
+              <div className="p-4 rounded-2xl bg-white border border-amber-200 shadow-2xs bg-amber-50/20">
+                <div className="text-2xl font-black text-amber-700">₹{(txnSummary.pending || 0).toLocaleString('en-IN')}</div>
+                <div className="text-xs font-semibold text-amber-800">लंबित (Processing)</div>
+              </div>
+              <div className="p-4 rounded-2xl bg-white border border-rose-200 shadow-2xs bg-rose-50/30">
+                <div className="text-2xl font-black text-rose-700">{txnSummary.failedCount || 0}</div>
+                <div className="text-xs font-semibold text-rose-800">विफल भुगतान</div>
+              </div>
+            </div>
+          )}
+
+          {/* Filter Bar */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {['All', 'Paid', 'Processing', 'Failed'].map((st) => (
+              <button
+                key={st}
+                onClick={() => setTxnStatusFilter(st)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  txnStatusFilter === st ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {st === 'All' ? 'सभी' : st === 'Paid' ? 'भुगतान हुए' : st === 'Processing' ? 'लंबित' : 'विफल'}
+              </button>
+            ))}
+            <button
+              onClick={() => loadTransactions(txnStatusFilter)}
+              disabled={txnLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${txnLoading ? 'animate-spin text-emerald-600' : ''}`} />
+              <span>रिफ्रेश</span>
+            </button>
+          </div>
+
+          {/* Transactions Table */}
+          {txnLoading ? (
+            <div className="flex items-center justify-center py-12 text-slate-400 gap-2">
+              <Loader2 className="w-5 h-5 animate-spin" /> लोड हो रहा है...
+            </div>
+          ) : transactions.length === 0 ? (
+            <div className="py-12 text-center text-slate-400 text-sm bg-white rounded-2xl border border-slate-200">
+              कोई लेन-देन रिकॉर्ड नहीं मिला।
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl bg-white border border-slate-200 shadow-2xs">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase font-bold text-slate-500">
+                    <th className="py-2.5 px-3">चालान #</th>
+                    <th className="py-2.5 px-3">स्कूल</th>
+                    <th className="py-2.5 px-3">प्लान</th>
+                    <th className="py-2.5 px-3">राशि (₹)</th>
+                    <th className="py-2.5 px-3">स्थिति</th>
+                    <th className="py-2.5 px-3">पेमेंट आईडी</th>
+                    <th className="py-2.5 px-3">तारीख</th>
+                    <th className="py-2.5 px-3">लिंक</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {transactions.map((t) => (
+                    <tr key={t.id} className="text-xs hover:bg-slate-50/50">
+                      <td className="py-3 px-3 font-mono text-slate-600">{t.invoiceNumber || '—'}</td>
+                      <td className="py-3 px-3">
+                        <div className="font-semibold text-slate-900">{t.schoolName || '—'}</div>
+                        {t.subdomain && <div className="text-[10px] text-slate-400">{t.subdomain}</div>}
+                      </td>
+                      <td className="py-3 px-3">
+                        <div className="font-medium text-slate-700">{t.planName || '—'}</div>
+                        <div className="text-[10px] text-slate-400">{t.billingCycle || ''}</div>
+                      </td>
+                      <td className="py-3 px-3">
+                        <div className="font-bold text-slate-900">₹{(t.totalAmount || 0).toLocaleString('en-IN')}</div>
+                        <div className="text-[10px] text-slate-400">+{t.gstPercent}% GST</div>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          t.paymentStatus === 'Paid' ? 'bg-emerald-100 text-emerald-700'
+                          : t.paymentStatus === 'Failed' ? 'bg-rose-100 text-rose-700'
+                          : 'bg-amber-100 text-amber-700'
+                        }`}>
+                          {t.paymentStatus === 'Paid' ? '✅ भुगतान हुआ' : t.paymentStatus === 'Failed' ? '❌ विफल' : '⏳ ' + t.paymentStatus}
+                        </span>
+                        {t.webhookReceivedAt && <div className="text-[9px] text-emerald-600 mt-0.5">webhook ✓</div>}
+                      </td>
+                      <td className="py-3 px-3 font-mono text-[10px] text-slate-500">{t.razorpayPaymentId || t.transactionId || '—'}</td>
+                      <td className="py-3 px-3 text-slate-600">{t.invoiceDate || '—'}</td>
+                      <td className="py-3 px-3">
+                        {t.razorpayPaymentLinkUrl ? (
+                          <a href={t.razorpayPaymentLinkUrl} target="_blank" rel="noreferrer" className="text-emerald-600 hover:underline inline-flex items-center gap-0.5 font-semibold">
+                            <span>लिंक</span><ExternalLink className="w-3 h-3" />
+                          </a>
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
 
       {/* ========================================================================= */}
@@ -1600,6 +1989,170 @@ export function AdminConsoleScreen() {
               </tbody>
             </table>
           </div>
+
+          {/* Plugin Trials Section */}
+          <div className="mt-8">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-amber-600" />
+                प्लगइन ट्रायल प्रबंधन
+              </h3>
+              <div className="flex gap-2">
+                <button
+                  onClick={processPluginTrials}
+                  disabled={busyId === 'process-plugin-trials'}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-2xs transition cursor-pointer disabled:opacity-50"
+                >
+                  {busyId === 'process-plugin-trials' ? 'प्रोसेसिंग...' : '🔄 ट्रायल प्रोसेस करें'}
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto bg-white rounded-xl border border-slate-200 shadow-xs">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr className="text-left text-[11px] uppercase tracking-wider text-slate-500">
+                    <th className="py-2.5 px-3 font-bold">स्कूल</th>
+                    <th className="py-2.5 px-3 font-bold">प्लगइन</th>
+                    <th className="py-2.5 px-3 font-bold">स्थिति</th>
+                    <th className="py-2.5 px-3 font-bold">ट्रायल समाप्ति</th>
+                    <th className="py-2.5 px-3 font-bold">भुगतान</th>
+                    <th className="py-2.5 px-3 font-bold">कार्रवाई</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pluginTrialsLoading && (
+                    <tr><td colSpan={6} className="py-8 text-center text-slate-400">लोड हो रहा है...</td></tr>
+                  )}
+                  {!pluginTrialsLoading && pluginTrials.length === 0 && (
+                    <tr><td colSpan={6} className="py-8 text-center text-slate-400">कोई प्लगइन ट्रायल नहीं मिला।</td></tr>
+                  )}
+                  {pluginTrials.map((t) => {
+                    const isTrial = t.payment_status === 'trial';
+                    const isExpired = t.payment_status === 'expired' || (t.trial_ends_at && t.trial_ends_at < todayStr);
+                    const isPaid = t.payment_status === 'active';
+                    return (
+                      <tr key={t.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                        <td className="py-3 pr-3 font-bold text-slate-900 text-xs">{t.school_name}</td>
+                        <td className="py-3 px-3">
+                          <span className="font-semibold text-indigo-900 text-xs">{t.plugin_name}</span>
+                        </td>
+                        <td className="py-3 px-3">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            isPaid ? 'bg-emerald-100 text-emerald-800' :
+                            isExpired ? 'bg-rose-100 text-rose-700' :
+                            isTrial ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {isPaid ? 'भुगतान सक्रिय' : isExpired ? 'समाप्त' : isTrial ? 'ट्रायल' : t.payment_status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-slate-600 text-[11px]">{t.trial_ends_at || '—'}</td>
+                        <td className="py-3 px-3 text-slate-600 text-[11px]">
+                          {t.price_per_cycle ? `₹${t.price_per_cycle}/${t.billing_cycle || 'mo'}` : '—'}
+                        </td>
+                        <td className="py-3 px-3">
+                          <div className="flex gap-1 flex-wrap">
+                            {!isPaid && (
+                              <button
+                                onClick={() => setPluginPaymentModal({ schoolId: t.school_id, schoolName: t.school_name, pluginId: t.plugin_id, pluginName: t.plugin_name })}
+                                className="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition cursor-pointer"
+                              >💳 लिंक</button>
+                            )}
+                            {isTrial && (
+                              <button
+                                onClick={() => revokePluginTrial(t.school_id, t.plugin_id)}
+                                disabled={busyId === `revoke-trial-${t.school_id}-${t.plugin_id}`}
+                                className="px-2 py-1 rounded-lg text-[10px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition cursor-pointer disabled:opacity-50"
+                              >रद्द</button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Grant Trial Quick Button - pick from schools list */}
+            <div className="mt-3">
+              <select
+                onChange={(e) => {
+                  const school = schools.find((s) => s.id === e.target.value);
+                  if (school) { setTrialModal({ schoolId: school.id, schoolName: school.schoolName }); setTrialForm({ pluginId: '', trialDays: '7' }); }
+                  e.target.value = '';
+                }}
+                value=""
+                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-white cursor-pointer hover:bg-slate-50"
+              >
+                <option value="">➕ स्कूल को ट्रायल दें...</option>
+                {schools.map((s) => <option key={s.id} value={s.id}>{s.schoolName}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Trial Grant Modal */}
+          {trialModal && (
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-200">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                  <h3 className="text-base font-black text-slate-900">प्लगइन ट्रायल दें — {trialModal.schoolName}</h3>
+                  <button onClick={() => setTrialModal(null)} className="text-slate-400 hover:text-slate-600 font-bold p-1">✕</button>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1 text-sm">प्लगइन चुनें *</label>
+                    <select
+                      value={trialForm.pluginId}
+                      onChange={(e) => setTrialForm(Object.assign({}, trialForm, { pluginId: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                    >
+                      <option value="">प्लगइन चुनें...</option>
+                      {plugins.filter((p) => p.price > 0).map((p) => <option key={p.id} value={p.id}>{p.name} (₹{p.price}/वर्ष)</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1 text-sm">ट्रायल अवधि (दिन)</label>
+                    <input type="number" min={1} max={365} value={trialForm.trialDays}
+                      onChange={(e) => setTrialForm(Object.assign({}, trialForm, { trialDays: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+                  </div>
+                  <button onClick={grantPluginTrial} disabled={busyId === 'grant-trial' || !trialForm.pluginId}
+                    className="w-full px-4 py-2.5 rounded-xl font-bold text-sm bg-indigo-600 hover:bg-indigo-700 text-white transition cursor-pointer disabled:opacity-50">
+                    {busyId === 'grant-trial' ? 'दे रहा है...' : '✅ ट्रायल दें'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Plugin Payment Link Modal */}
+          {pluginPaymentModal && (
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-200">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                  <h3 className="text-base font-black text-slate-900">प्लगइन पेमेंट लिंक — {pluginPaymentModal.schoolName}</h3>
+                  <button onClick={() => setPluginPaymentModal(null)} className="text-slate-400 hover:text-slate-600 font-bold p-1">✕</button>
+                </div>
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-600">प्लगइन: <b>{pluginPaymentModal.pluginName}</b></p>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1 text-sm">बिलिंग चक्र</label>
+                    <select value={pluginPaymentForm.billingCycle}
+                      onChange={(e) => setPluginPaymentForm({ billingCycle: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                      <option value="monthly">मासिक (Monthly)</option>
+                      <option value="annual">वार्षिक (Annual — 20% छूट)</option>
+                    </select>
+                  </div>
+                  <button onClick={sendPluginPaymentLink} disabled={busyId === 'send-plugin-link'}
+                    className="w-full px-4 py-2.5 rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-700 text-white transition cursor-pointer disabled:opacity-50">
+                    {busyId === 'send-plugin-link' ? 'भेज रहा है...' : '💳 पेमेंट लिंक भेजें'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Plugin Add/Edit Modal */}
           {showPluginModal && (
@@ -2011,6 +2564,116 @@ export function AdminConsoleScreen() {
         </div>
       )}
 
+      {activeTab === 'subscriptions' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+              <RefreshCw className="w-4 h-4 text-violet-600" />
+              <span>Recurring सदस्यता (Auto-Debit) — {recurringSubs.length}</span>
+            </h3>
+            <button onClick={loadRecurringSubs} disabled={recurringSubsLoading}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition cursor-pointer disabled:opacity-50">
+              {recurringSubsLoading ? 'लोड...' : '🔄 ताज़ा करें'}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="p-3 rounded-xl bg-violet-50 border border-violet-100">
+              <div className="text-xs font-bold text-violet-700">कुल सदस्यता</div>
+              <div className="text-xl font-black text-violet-900">{recurringSubs.length}</div>
+            </div>
+            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+              <div className="text-xs font-bold text-emerald-700">सक्रिय (Active)</div>
+              <div className="text-xl font-black text-emerald-900">{recurringSubs.filter((s) => s.status === 'Active').length}</div>
+            </div>
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-100">
+              <div className="text-xs font-bold text-rose-700">Past_Due / Canceled</div>
+              <div className="text-xl font-black text-rose-900">{recurringSubs.filter((s) => s.status === 'Past_Due' || s.status === 'Canceled').length}</div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto bg-white rounded-xl border border-slate-200 shadow-xs">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr className="text-left text-[11px] uppercase tracking-wider text-slate-500">
+                  <th className="py-2.5 px-3 font-bold">स्कूल</th>
+                  <th className="py-2.5 px-3 font-bold">प्लान</th>
+                  <th className="py-2.5 px-3 font-bold">स्थिति</th>
+                  <th className="py-2.5 px-3 font-bold">मैंडेट</th>
+                  <th className="py-2.5 px-3 font-bold">चक्र</th>
+                  <th className="py-2.5 px-3 font-bold">अगली बिलिंग</th>
+                  <th className="py-2.5 px-3 font-bold">कार्रवाई</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recurringSubsLoading && (
+                  <tr><td colSpan={7} className="py-8 text-center text-slate-400">लोड हो रहा है...</td></tr>
+                )}
+                {!recurringSubsLoading && recurringSubs.length === 0 && (
+                  <tr><td colSpan={7} className="py-8 text-center text-slate-400">कोई recurring सदस्यता नहीं है।</td></tr>
+                )}
+                {recurringSubs.map((s) => {
+                  const isActive = s.status === 'Active';
+                  const isPaused = !!s.paused_at;
+                  const isCanceled = s.status === 'Canceled';
+                  return (
+                    <tr key={s.school_id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                      <td className="py-3 pr-3 font-bold text-slate-900 text-xs">{s.school_name}</td>
+                      <td className="py-3 px-3 text-xs">
+                        <div className="font-semibold text-slate-800">{s.plan_name}</div>
+                        <div className="text-[10px] text-slate-400">{s.billing_cycle}</div>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          isActive ? 'bg-emerald-100 text-emerald-800' :
+                          isCanceled ? 'bg-slate-100 text-slate-500' :
+                          'bg-rose-100 text-rose-700'
+                        }`}>{s.status}</span>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          s.mandate_status === 'active' ? 'bg-emerald-100 text-emerald-800' :
+                          s.mandate_status === 'pending' ? 'bg-amber-100 text-amber-700' :
+                          'bg-slate-100 text-slate-500'
+                        }`}>{s.mandate_status || 'none'}</span>
+                      </td>
+                      <td className="py-3 px-3 text-xs text-slate-600">
+                        {s.remaining_cycles ?? '—'} / {s.total_cycles ?? '—'}
+                      </td>
+                      <td className="py-3 px-3 text-xs text-slate-500">{s.next_billing_date || '—'}</td>
+                      <td className="py-3 px-3">
+                        <div className="flex gap-1">
+                          {!isCanceled && (
+                            <>
+                              {isActive && !isPaused && (
+                                <button onClick={() => adminPauseSub(s.school_id)} disabled={busyId === `pause-sub-${s.school_id}`}
+                                  className="px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 transition cursor-pointer disabled:opacity-50">
+                                  रोक
+                                </button>
+                              )}
+                              {isPaused && (
+                                <button onClick={() => adminResumeSub(s.school_id)} disabled={busyId === `resume-sub-${s.school_id}`}
+                                  className="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition cursor-pointer disabled:opacity-50">
+                                  फिर शुरू
+                                </button>
+                              )}
+                              <button onClick={() => adminCancelSub(s.school_id, true)} disabled={busyId === `cancel-sub-${s.school_id}`}
+                                className="px-2 py-1 rounded-lg text-[10px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition cursor-pointer disabled:opacity-50">
+                                रद्द
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Quick Expiry Date Modal for Any School */}
       {expiryModalSchool && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in">
@@ -2097,6 +2760,141 @@ export function AdminConsoleScreen() {
               >
                 {expiryModalBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                 <span>{expiryModalBusy ? 'सहेजा जा रहा है...' : 'तिथि सहेजें'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Link Modal */}
+      {payLinkSchool && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-emerald-600" />
+                <span>पेमेंट लिंक भेजें</span>
+              </h3>
+              <button onClick={() => setPayLinkSchool(null)} className="text-slate-400 hover:text-slate-600 font-bold">×</button>
+            </div>
+            <div className="text-xs text-slate-600">
+              स्कूल: <span className="font-bold">{payLinkSchool.schoolName}</span>
+              {payLinkSchool.contactEmail && <div className="text-[10px] text-slate-400">{payLinkSchool.contactEmail}</div>}
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">प्लान</label>
+                <select
+                  value={payLinkPlanId}
+                  onChange={(e) => setPayLinkPlanId(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium bg-white"
+                >
+                  {nonTrialPlans.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name} — ₹{p.annualPrice || p.monthlyPrice || 0}/वर्ष</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">बिलिंग चक्र</label>
+                <select
+                  value={payLinkCycle}
+                  onChange={(e) => setPayLinkCycle(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium bg-white"
+                >
+                  <option value="monthly">मासिक (Monthly)</option>
+                  <option value="quarterly">त्रैमासिक (Quarterly)</option>
+                  <option value="annual">वार्षिक (Annual)</option>
+                </select>
+              </div>
+              <div className="text-[10px] text-slate-400 bg-slate-50 p-2 rounded-lg">
+                ईमेल + FCM पुश नोटिफिकेशन स्कूल को भेजा जाएगा। भुगतान होते ही प्लान स्वचालित सक्रिय (webhook द्वारा)।
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button onClick={() => setPayLinkSchool(null)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer">रद्द</button>
+              <button
+                onClick={sendPaymentLink}
+                disabled={payLinkBusy}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {payLinkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                <span>{payLinkBusy ? 'भेजा जा रहा है...' : 'लिंक भेजें'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notify (FCM) Modal */}
+      {notifySchool && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                <Bell className="w-4 h-4 text-blue-600" />
+                <span>FCM नोटिफिकेशन भेजें</span>
+              </h3>
+              <button onClick={() => setNotifySchool(null)} className="text-slate-400 hover:text-slate-600 font-bold">×</button>
+            </div>
+            <div className="text-xs text-slate-600">
+              स्कूल: <span className="font-bold">{notifySchool.schoolName}</span>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">शीर्षक (Title)</label>
+                <input
+                  value={notifyForm.title}
+                  onChange={(e) => setNotifyForm(Object.assign({}, notifyForm, { title: e.target.value }))}
+                  placeholder="उदा. 🔔 महत्वपूर्ण सूचना"
+                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-xs"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">संदेश (Body)</label>
+                <textarea
+                  value={notifyForm.body}
+                  onChange={(e) => setNotifyForm(Object.assign({}, notifyForm, { body: e.target.value }))}
+                  placeholder="नोटिफिकेशन का विवरण..."
+                  rows={3}
+                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-xs resize-none"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">श्रोता</label>
+                  <select
+                    value={notifyForm.targetRole}
+                    onChange={(e) => setNotifyForm(Object.assign({}, notifyForm, { targetRole: e.target.value }))}
+                    className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium bg-white"
+                  >
+                    <option value="Director">निदेशक (Director)</option>
+                    <option value="Principal">प्रधानाचार्य (Principal)</option>
+                    <option value="Staff">स्टाफ</option>
+                    <option value="All">सभी</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">प्राथमिकता</label>
+                  <select
+                    value={notifyForm.priority}
+                    onChange={(e) => setNotifyForm(Object.assign({}, notifyForm, { priority: e.target.value }))}
+                    className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium bg-white"
+                  >
+                    <option value="high">उच्च (High)</option>
+                    <option value="normal">सामान्य (Normal)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button onClick={() => setNotifySchool(null)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer">रद्द</button>
+              <button
+                onClick={sendNotify}
+                disabled={notifyBusy || !notifyForm.title || !notifyForm.body}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {notifyBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                <span>{notifyBusy ? 'भेजा जा रहा है...' : 'नोटिफिकेशन भेजें'}</span>
               </button>
             </div>
           </div>

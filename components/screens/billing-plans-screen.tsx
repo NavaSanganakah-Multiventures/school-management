@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { CreditCard, AlertTriangle, CheckCircle2, Loader2, ReceiptText, ShieldCheck } from 'lucide-react';
+import { CreditCard, AlertTriangle, CheckCircle2, Loader2, ReceiptText, ShieldCheck, RefreshCw } from 'lucide-react';
 
 interface Plan {
   id: string;
@@ -50,14 +50,17 @@ export function BillingPlansScreen(_props: { userRole: string; onOpenFcmModal?: 
   const [buying, setBuying] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [emailQuota, setEmailQuota] = useState<{ limit: number | null; used: number; remaining: number | null; resetAt: string } | null>(null);
+  const [autoPay, setAutoPay] = useState(false);
+  const [recurringStatus, setRecurringStatus] = useState<any>(null);
 
   const loadData = useCallback(async () => {
     try {
-      const [subRes, plansRes, invRes, quotaRes] = await Promise.all([
+      const [subRes, plansRes, invRes, quotaRes, recRes] = await Promise.all([
         fetch('/api/billing/subscription').then((r) => r.json()),
         fetch('/api/billing/plans').then((r) => r.json()),
         fetch('/api/billing/invoices').then((r) => r.json()),
         fetch('/api/email/quota').then((r) => r.json()).catch(() => ({})),
+        fetch('/api/billing/subscription-status').then((r) => r.json()).catch(() => ({})),
       ]);
       if (subRes.success) {
         setSubscription(subRes.subscription || null);
@@ -71,6 +74,7 @@ export function BillingPlansScreen(_props: { userRole: string; onOpenFcmModal?: 
       }
       if (invRes.success) setInvoices(invRes.invoices || []);
       if (quotaRes && quotaRes.success) setEmailQuota(quotaRes.quota || null);
+      if (recRes && recRes.success) setRecurringStatus(recRes.subscription || null);
     } catch (e) {
       setMessage({ type: 'error', text: 'बिलिंग डेटा लोड करने में समस्या हुई।' });
     } finally {
@@ -89,6 +93,36 @@ export function BillingPlansScreen(_props: { userRole: string; onOpenFcmModal?: 
   const startCheckout = async (plan: Plan) => {
     setBuying(true);
     setMessage(null);
+
+    // Auto-Pay (recurring) flow — create a Razorpay subscription with mandate
+    if (autoPay) {
+      try {
+        const res = await fetch('/api/billing/subscribe-recurring', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ planId: plan.id, billingCycle: cycle === 'annual' ? 'annual' : cycle }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          setMessage({ type: 'error', text: data.message || 'Recurring सदस्यता बनाने में समस्या।' });
+          return;
+        }
+        if (data.authUrl) {
+          setMessage({ type: 'success', text: 'Recurring सदस्यता बनी। मैंडेट अधिकृत करने के लिए लिंक पर क्लिक करें।' });
+          window.open(data.authUrl, '_blank');
+        } else {
+          setMessage({ type: 'success', text: data.message || 'Recurring सदस्यता बनी।' });
+        }
+        await loadData();
+      } catch (e) {
+        setMessage({ type: 'error', text: 'Recurring सदस्यता सेटअप में समस्या।' });
+      } finally {
+        setBuying(false);
+      }
+      return;
+    }
+
+    // One-time payment flow
     try {
       const res = await fetch('/api/billing/subscribe', {
         method: 'POST',
@@ -231,6 +265,63 @@ export function BillingPlansScreen(_props: { userRole: string; onOpenFcmModal?: 
             ))}
           </div>
 
+          {/* Auto-Pay toggle */}
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-violet-50 border border-violet-200">
+            <button
+              onClick={() => setAutoPay(!autoPay)}
+              className={'relative w-11 h-6 rounded-full transition cursor-pointer ' + (autoPay ? 'bg-violet-600' : 'bg-slate-300')}
+            >
+              <div className={'absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ' + (autoPay ? 'left-[22px]' : 'left-0.5')} />
+            </button>
+            <div>
+              <div className="text-sm font-bold text-violet-900 flex items-center gap-1.5">
+                <RefreshCw className="w-3.5 h-3.5" />
+                ऑटो-पे (Recurring Subscription)
+              </div>
+              <div className="text-xs text-violet-700">
+                {autoPay ? 'सक्रिय — हर चक्र पर राशि स्वचालित कटेगी (UPI/Card mandate)' : 'सक्रिय करें — हर माह/वर्ष स्वचालित भुगतान, मैन्युअल रिन्यूअल नहीं करना पड़ेगा'}
+              </div>
+            </div>
+          </div>
+
+          {/* Recurring subscription status */}
+          {recurringStatus && recurringStatus.razorpaySubscriptionId && (
+            <div className="p-4 rounded-2xl bg-violet-50 border border-violet-200">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <div className="text-sm font-bold text-violet-900 flex items-center gap-2">
+                    <RefreshCw className="w-4 h-4" />
+                    Recurring सदस्यता सक्रिय
+                  </div>
+                  <div className="text-xs text-violet-700 mt-1">
+                    {recurringStatus.planName} • {recurringStatus.billingCycle} • मैंडेट: {recurringStatus.mandateStatus}
+                    {recurringStatus.remainingCycles != null && ` • शेष चक्र: ${recurringStatus.remainingCycles}/${recurringStatus.totalCycles}`}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  {recurringStatus.status === 'Active' && (
+                    <button onClick={async () => {
+                      const r = await fetch('/api/billing/subscription/pause', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+                      const d = await r.json();
+                      setMessage({ type: d.success ? 'success' : 'error', text: d.message || 'विफल' });
+                      if (d.success) await loadData();
+                    }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 cursor-pointer">
+                      रोकें (Pause)
+                    </button>
+                  )}
+                  <button onClick={async () => {
+                    const r = await fetch('/api/billing/subscription/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cancelAtCycleEnd: true }) });
+                    const d = await r.json();
+                    setMessage({ type: d.success ? 'success' : 'error', text: d.message || 'विफल' });
+                    if (d.success) await loadData();
+                  }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 cursor-pointer">
+                    रद्द करें
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Plans */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {plans.map((plan) => {
@@ -251,7 +342,7 @@ export function BillingPlansScreen(_props: { userRole: string; onOpenFcmModal?: 
                     ))}
                   </ul>
                   <button onClick={() => startCheckout(plan)} disabled={buying || isCurrent} className={'mt-4 w-full py-2.5 rounded-xl text-sm font-bold transition cursor-pointer disabled:opacity-50 ' + (plan.recommended ? 'bg-blue-700 hover:bg-blue-800 text-white' : 'bg-white border border-slate-300 hover:bg-slate-50 text-slate-800')}>
-                    {isCurrent ? 'वर्तमान प्लान' : buying ? 'प्रोसेस हो रहा है...' : 'खरीदें / अपग्रेड करें'}
+                    {isCurrent ? 'वर्तमान प्लान' : buying ? 'प्रोसेस हो रहा है...' : autoPay ? '🔁 ऑटो-पे सेट करें' : 'खरीदें / अपग्रेड करें'}
                   </button>
                 </div>
               );

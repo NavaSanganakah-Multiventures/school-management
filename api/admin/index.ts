@@ -2,7 +2,10 @@ import { Hono } from 'hono';
 import { getDB, loadSubscriptionPlans, loadSubscriptionPlanById, makeUniqueUsername } from '../db';
 import { getAuthUser, hashPassword } from '../lib/auth';
 import { sanitizeSlug, isSlugValid, provisionDedicatedWorker, deprovisionDedicatedWorker } from '../lib/provisioning';
-import { processTrialExpirations } from '../lib/trial-expiration';
+import { processTrialExpirations, processPluginTrialExpirations } from '../lib/trial-expiration';
+import { createRazorpayPaymentLink, cancelRazorpaySubscription, pauseRazorpaySubscription, resumeRazorpaySubscription, fetchRazorpaySubscription } from '../lib/razorpay';
+import { sendNotificationEmail } from '../lib/email';
+import { broadcastAlert } from '../notifications';
 
 const adminApp = new Hono<{ Bindings: any }>();
 
@@ -358,6 +361,24 @@ adminApp.post('/trial/process', async (c) => {
   } catch (err: any) {
     console.error('[Admin] processTrialExpirations failed:', err);
     return c.json({ success: false, message: err?.message || 'ट्रायल प्रोसेसिंग विफल रही।' }, 500);
+  }
+});
+
+// POST /api/admin/plugins/process-trials - प्लगइन ट्रायल प्रोसेसिंग मैन्युअली ट्रिगर
+adminApp.post('/plugins/process-trials', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  try {
+    const result = await processPluginTrialExpirations(c.env, db);
+    return c.json({
+      success: true,
+      message: `प्लगइन ट्रायल जांच पूर्ण: ${result.checkedCount} जांचे गए, ${result.remindersSent} स्मरण, ${result.expirationsProcessed} समाप्त।`,
+      result,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, message: err?.message || 'प्लगइन ट्रायल प्रोसेसिंग विफल।' }, 500);
   }
 });
 
@@ -1092,6 +1113,7 @@ adminApp.get('/plugins/subscriptions', async (c) => {
     JOIN school_tenants s ON sp.school_id = s.id
     JOIN plugins p ON sp.plugin_id = p.id
     ORDER BY sp.updated_at DESC
+    LIMIT 500
   `).all();
 
   return c.json({ success: true, subscriptions: subscriptions || [] });
@@ -1145,6 +1167,582 @@ adminApp.post('/plugins/revoke', async (c) => {
   `).bind(schoolId, pluginId).run();
 
   return c.json({ success: true, message: 'प्लगइन सफलतापूर्वक निष्क्रिय (Revoke) कर दिया गया।' });
+});
+
+// ==========================================
+// Plugin Trial Management (Admin grants N-day trial to a school)
+// ==========================================
+
+// GET /api/admin/plugins/trials - सभी स्कूलों के प्लगइन ट्रायल की स्थिति
+adminApp.get('/plugins/trials', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  try {
+    const rows = await db.prepare(`
+      SELECT sp.id, sp.school_id, sp.plugin_id, sp.status, sp.valid_until,
+             sp.trial_ends_at, sp.trial_granted_by, sp.trial_granted_at, sp.payment_status,
+             sp.price_per_cycle, sp.billing_cycle, sp.next_billing_date,
+             s.school_name, p.name AS plugin_name, p.price AS plugin_price
+      FROM school_plugins sp
+      JOIN school_tenants s ON sp.school_id = s.id
+      JOIN plugins p ON sp.plugin_id = p.id
+      ORDER BY sp.updated_at DESC
+      LIMIT 500
+    `).all();
+    return c.json({ success: true, trials: rows.results || [] });
+  } catch (e: any) {
+    return c.json({ success: true, trials: [] });
+  }
+});
+
+// POST /api/admin/plugins/grant-trial - स्कूल को प्लगइन का N-दिन ट्रायल दें
+adminApp.post('/plugins/grant-trial', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  const pluginId = String(body.pluginId || '').trim();
+  const trialDays = Math.max(1, Math.min(365, Number(body.trialDays) || 7));
+
+  if (!schoolId || !pluginId) {
+    return c.json({ success: false, message: 'schoolId और pluginId आवश्यक हैं।' }, 400);
+  }
+
+  const school = await db.prepare('SELECT id, school_name FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  if (!school) return c.json({ success: false, message: 'स्कूल नहीं मिला।' }, 404);
+  const plugin = await db.prepare('SELECT id, name, price FROM plugins WHERE id = ?').bind(pluginId).first();
+  if (!plugin) return c.json({ success: false, message: 'प्लगइन नहीं मिला।' }, 404);
+
+  // Guard: don't overwrite an existing paid subscription with a trial
+  const existing = await db.prepare('SELECT payment_status FROM school_plugins WHERE school_id = ? AND plugin_id = ?').bind(schoolId, pluginId).first();
+  if (existing && existing.payment_status === 'active') {
+    return c.json({ success: false, message: 'यह प्लगइन इस स्कूल के लिए पहले से भुगतान सक्रिय है। ट्रायल देना आवश्यक नहीं है।' }, 400);
+  }
+
+  const now = new Date();
+  const trialEndsAt = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const nowIso = now.toISOString();
+  const id = `sp-${crypto.randomUUID()}`;
+
+  await db.prepare(`
+    INSERT INTO school_plugins (id, school_id, plugin_id, status, valid_until, trial_ends_at, trial_granted_by, trial_granted_at, payment_status, trial_reminder_sent_at, updated_at)
+    VALUES (?, ?, ?, 'active', ?, ?, ?, ?, 'trial', NULL, CURRENT_TIMESTAMP)
+    ON CONFLICT(school_id, plugin_id) DO UPDATE SET
+      status = 'active',
+      valid_until = excluded.valid_until,
+      trial_ends_at = excluded.trial_ends_at,
+      trial_granted_by = excluded.trial_granted_by,
+      trial_granted_at = excluded.trial_granted_at,
+      payment_status = 'trial',
+      trial_reminder_sent_at = NULL,
+      updated_at = CURRENT_TIMESTAMP
+  `).bind(id, schoolId, pluginId, trialEndsAt, trialEndsAt, guard.authUser.sub, nowIso).run();
+
+  return c.json({
+    success: true,
+    message: `"${school.school_name}" को "${plugin.name}" प्लगइन का ${trialDays}-दिन ट्रायल दे दिया गया (समाप्ति: ${trialEndsAt})।`,
+    trialEndsAt,
+    trialDays,
+  });
+});
+
+// POST /api/admin/plugins/revoke-trial - स्कूल का प्लगइन ट्रायल रद्द करें
+adminApp.post('/plugins/revoke-trial', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  const pluginId = String(body.pluginId || '').trim();
+  if (!schoolId || !pluginId) {
+    return c.json({ success: false, message: 'schoolId और pluginId आवश्यक हैं।' }, 400);
+  }
+
+  await db.prepare(`
+    UPDATE school_plugins SET status = 'inactive', payment_status = 'expired', trial_ends_at = NULL, updated_at = CURRENT_TIMESTAMP
+    WHERE school_id = ? AND plugin_id = ? AND payment_status = 'trial'
+  `).bind(schoolId, pluginId).run();
+
+  return c.json({ success: true, message: 'प्लगइन ट्रायल रद्द कर दिया गया।' });
+});
+
+// POST /api/admin/plugins/send-payment-link - प्लगइन के लिए पेमेंट लिंक भेजें (ट्रायल के बाद)
+adminApp.post('/plugins/send-payment-link', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  const pluginId = String(body.pluginId || '').trim();
+  const billingCycle = ['monthly', 'annual'].indexOf(String(body.billingCycle || 'monthly')) !== -1 ? String(body.billingCycle) : 'monthly';
+  if (!schoolId || !pluginId) {
+    return c.json({ success: false, message: 'schoolId और pluginId आवश्यक हैं।' }, 400);
+  }
+
+  const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  if (!school) return c.json({ success: false, message: 'स्कूल नहीं मिला।' }, 404);
+  const plugin = await db.prepare('SELECT * FROM plugins WHERE id = ?').bind(pluginId).first();
+  if (!plugin) return c.json({ success: false, message: 'प्लगइन नहीं मिला।' }, 404);
+
+  const basePrice = Number(plugin.price) || 0;
+  if (basePrice <= 0) return c.json({ success: false, message: 'इस प्लगइन की राशि अमान्य है।' }, 400);
+  const annualPrice = billingCycle === 'annual' ? +(basePrice * 12 * 0.8).toFixed(2) : basePrice;
+  const gst = +(annualPrice * 0.18).toFixed(2);
+  const total = +(annualPrice + gst).toFixed(2);
+
+  const referenceId = 'VSPLG' + Date.now().toString(36) + (crypto.randomUUID().split('-').join('').slice(0, 6));
+  const linkResult = await createRazorpayPaymentLink(c, {
+    amountINR: total,
+    description: plugin.name + ' प्लगइन (' + billingCycle + ') — ' + school.school_name,
+    referenceId,
+    customerName: school.school_name,
+    customerEmail: school.contact_email,
+    customerContact: school.contact_phone,
+    notes: { school_id: schoolId, plugin_id: pluginId, billing_cycle: billingCycle, type: 'plugin' },
+  });
+
+  if (linkResult.error) return c.json({ success: false, message: linkResult.error }, 400);
+
+  const now = new Date().toISOString();
+  await db.prepare(`
+    UPDATE school_plugins SET payment_status = 'pending', razorpay_payment_link_id = ?,
+      billing_cycle = ?, price_per_cycle = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE school_id = ? AND plugin_id = ?
+  `).bind(linkResult.id, billingCycle, annualPrice, schoolId, pluginId).run().catch(() => {});
+
+  // Send email + FCM
+  let emailStatus = 'skipped_no_email';
+  if (school.contact_email) {
+    const emailRes = await sendNotificationEmail(c.env, {
+      to: school.contact_email,
+      subject: `💳 विद्या सेतु — "${plugin.name}" प्लगइन पेमेंट लिंक`,
+      title: `पेमेंट लिंक: ${plugin.name}`,
+      badge: `${plugin.name} • ${billingCycle} • ₹${total}`,
+      message: `नमस्ते,\n\nआपके विद्यालय "${school.school_name}" के लिए "${plugin.name}" प्लगइन का पेमेंट लिंक तैयार है।\n\nराशि: ₹${annualPrice} + 18% GST = ₹${total}\n\nकृपया नीचे दिए बटन पर क्लिक करके भुगतान पूरा करें। भुगतान होते ही प्लगइन स्वचालित सक्रिय हो जाएगा।`,
+      buttonText: '🟢 भुगतान करें (Pay Now) →',
+      buttonUrl: linkResult.shortUrl || '',
+    });
+    emailStatus = emailRes.sent ? 'sent' : (emailRes.error || 'failed');
+  }
+  let pushStatus = 'skipped';
+  try {
+    const pr = await broadcastAlert(db, c.env, {
+      title: `💳 पेमेंट लिंक: ${plugin.name} प्लगइन`,
+      body: `"${school.school_name}" के लिए ${plugin.name} प्लगइन का भुगतान लिंक भेजा गया है।`,
+      schoolId, targetRole: 'Director', priority: 'high',
+      data: { type: 'plugin_payment_link', actionUrl: linkResult.shortUrl || '', pluginId },
+    });
+    pushStatus = pr.payload && pr.payload.success ? 'sent' : 'failed';
+  } catch (_) { pushStatus = 'error'; }
+
+  return c.json({
+    success: true,
+    message: `${plugin.name} प्लगइन का पेमेंट लिंक "${school.school_name}" को भेज दिया गया।`,
+    paymentLink: linkResult.shortUrl, paymentLinkId: linkResult.id,
+    emailStatus, pushStatus, totalAmount: total,
+  });
+});
+
+// ==========================================
+// Super Admin Transactions / Payment Links / Notifications
+// ==========================================
+
+// GET /api/admin/transactions - सभी स्कूलों के बिलिंग लेन-देन (transactions)
+adminApp.get('/transactions', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const status = c.req.query('status');
+  const schoolId = c.req.query('schoolId');
+  const from = c.req.query('from');
+  const to = c.req.query('to');
+
+  let sql = 'SELECT bi.id, bi.invoice_number, bi.school_id, bi.description, bi.plan_name, bi.billing_cycle, '
+    + 'bi.subtotal, bi.gst_percent, bi.gst_amount, bi.total_amount, bi.payment_status, bi.payment_method, '
+    + 'bi.transaction_id, bi.invoice_date, bi.paid_at, bi.razorpay_order_id, bi.razorpay_payment_id, '
+    + 'bi.razorpay_payment_link_id, bi.razorpay_payment_link_url, bi.webhook_received_at, '
+    + 's.school_name, s.subdomain, s.contact_email '
+    + 'FROM billing_invoices bi '
+    + 'JOIN school_tenants s ON s.id = bi.school_id WHERE 1=1';
+  const binds: any[] = [];
+  if (status && status !== 'All') {
+    sql += ' AND bi.payment_status = ?';
+    binds.push(status);
+  }
+  if (schoolId) {
+    sql += ' AND bi.school_id = ?';
+    binds.push(schoolId);
+  }
+  if (from) {
+    sql += ' AND bi.invoice_date >= ?';
+    binds.push(from);
+  }
+  if (to) {
+    sql += ' AND bi.invoice_date <= ?';
+    binds.push(to);
+  }
+  sql += ' ORDER BY bi.invoice_date DESC, bi.id DESC LIMIT 500';
+
+  let rows: any[] = [];
+  try {
+    const stmt = binds.length ? db.prepare(sql).bind(...binds) : db.prepare(sql);
+    const result = await stmt.all();
+    rows = result.results || [];
+  } catch (e: any) {
+    // Fallback: older schema without the new columns
+    try {
+      const fallbackSql = 'SELECT bi.id, bi.invoice_number, bi.school_id, bi.description, bi.plan_name, bi.billing_cycle, '
+        + 'bi.subtotal, bi.gst_percent, bi.gst_amount, bi.total_amount, bi.payment_status, bi.payment_method, '
+        + 'bi.transaction_id, bi.invoice_date, bi.paid_at, bi.razorpay_order_id, bi.razorpay_payment_id, '
+        + 's.school_name, s.subdomain, s.contact_email '
+        + 'FROM billing_invoices bi JOIN school_tenants s ON s.id = bi.school_id ORDER BY bi.invoice_date DESC LIMIT 500';
+      const result = await db.prepare(fallbackSql).all();
+      rows = result.results || [];
+    } catch (_) {
+      rows = [];
+    }
+  }
+
+  const invoices = rows.map((r: any) => ({
+    id: r.id,
+    invoiceNumber: r.invoice_number,
+    schoolId: r.school_id,
+    schoolName: r.school_name,
+    subdomain: r.subdomain,
+    contactEmail: r.contact_email,
+    description: r.description,
+    planName: r.plan_name,
+    billingCycle: r.billing_cycle,
+    subtotal: r.subtotal,
+    gstPercent: r.gst_percent,
+    gstAmount: r.gst_amount,
+    totalAmount: r.total_amount,
+    paymentStatus: r.payment_status,
+    paymentMethod: r.payment_method,
+    transactionId: r.transaction_id,
+    invoiceDate: r.invoice_date,
+    paidAt: r.paid_at,
+    razorpayOrderId: r.razorpay_order_id,
+    razorpayPaymentId: r.razorpay_payment_id,
+    razorpayPaymentLinkId: r.razorpay_payment_link_id || '',
+    razorpayPaymentLinkUrl: r.razorpay_payment_link_url || '',
+    webhookReceivedAt: r.webhook_received_at || '',
+  }));
+
+  const totalAmount = invoices.reduce((acc: number, inv: any) => acc + (inv.totalAmount || 0), 0);
+  const collected = invoices.filter((inv: any) => inv.paymentStatus === 'Paid').reduce((acc: number, inv: any) => acc + (inv.totalAmount || 0), 0);
+  const pending = invoices.filter((inv: any) => inv.paymentStatus === 'Processing' || inv.paymentStatus === 'Pending').reduce((acc: number, inv: any) => acc + (inv.totalAmount || 0), 0);
+  const failed = invoices.filter((inv: any) => inv.paymentStatus === 'Failed').length;
+
+  return c.json({
+    success: true,
+    transactions: invoices,
+    summary: {
+      count: invoices.length,
+      paidCount: invoices.filter((inv: any) => inv.paymentStatus === 'Paid').length,
+      totalAmount: +totalAmount.toFixed(2),
+      collected: +collected.toFixed(2),
+      pending: +pending.toFixed(2),
+      failedCount: failed,
+    },
+  });
+});
+
+// GET /api/admin/webhook-events - हाल के Razorpay webhook इवेंट्स (audit)
+adminApp.get('/webhook-events', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  try {
+    const rows = await db.prepare('SELECT id, event_id, event_type, entity_id, school_id, processed, processed_at, received_at FROM razorpay_webhook_events ORDER BY received_at DESC LIMIT 100').all();
+    return c.json({ success: true, events: rows.results || [] });
+  } catch (e: any) {
+    return c.json({ success: true, events: [] });
+  }
+});
+
+// POST /api/admin/schools/send-payment-link - स्कूल को Razorpay पेमेंट लिंक भेजें (email + FCM)
+adminApp.post('/schools/send-payment-link', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  const planId = String(body.planId || 'starter').trim();
+  const billingCycle = ['monthly', 'quarterly', 'annual'].indexOf(String(body.billingCycle || 'annual')) !== -1 ? String(body.billingCycle) : 'annual';
+
+  if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
+
+  const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  if (!school) return c.json({ success: false, message: 'स्कूल नहीं मिला।' }, 404);
+
+  const plan = await loadSubscriptionPlanById(db, planId);
+  if (!plan || plan.isTrial) return c.json({ success: false, message: 'कृपया कोई भुगतान (non-trial) प्लान चुनें।' }, 400);
+
+  const basePrice = billingCycle === 'monthly' ? (plan.monthlyPrice || 0)
+    : billingCycle === 'quarterly' ? (plan.quarterlyPrice || 0)
+    : (plan.annualPrice || 0);
+  if (basePrice <= 0) return c.json({ success: false, message: 'इस प्लान की राशि अमान्य है।' }, 400);
+
+  const gst = +(basePrice * 0.18).toFixed(2);
+  const total = +(basePrice + gst).toFixed(2);
+
+  const referenceId = 'VS-' + schoolId + '-' + Date.now();
+  const linkResult = await createRazorpayPaymentLink(c, {
+    amountINR: total,
+    description: plan.name + ' सदस्यता (' + billingCycle + ') — ' + school.school_name,
+    referenceId,
+    customerName: school.school_name,
+    customerEmail: school.contact_email,
+    customerContact: school.contact_phone,
+    notes: { school_id: schoolId, plan_id: plan.id, billing_cycle: billingCycle },
+  });
+
+  if (linkResult.error) {
+    return c.json({ success: false, message: linkResult.error }, 400);
+  }
+
+  const invoiceNumber = 'VS-INV-' + Date.now() + '-' + (crypto.randomUUID().split('-').join('').slice(0, 8));
+  const now = new Date().toISOString();
+  const invoiceId = 'binv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+
+  // Store the invoice with the payment link reference so the webhook can resolve it.
+  try {
+    await db.prepare(
+      'INSERT INTO billing_invoices (id, school_id, invoice_number, description, plan_name, billing_cycle, subtotal, gst_percent, gst_amount, total_amount, payment_status, payment_method, transaction_id, invoice_date, due_date, paid_at, razorpay_payment_link_id, razorpay_payment_link_url) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    ).bind(
+      invoiceId, schoolId, invoiceNumber, plan.name + ' सदस्यता', plan.name, billingCycle,
+      basePrice, 18, gst, total, 'Processing', 'Razorpay', '',
+      now.split('T')[0], now.split('T')[0], '', linkResult.id || '', linkResult.shortUrl || ''
+    ).run();
+  } catch (e: any) {
+    // Fallback for older schema without payment link columns.
+    await db.prepare(
+      'INSERT INTO billing_invoices (id, school_id, invoice_number, description, plan_name, billing_cycle, subtotal, gst_percent, gst_amount, total_amount, payment_status, payment_method, transaction_id, invoice_date, due_date, paid_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    ).bind(
+      invoiceId, schoolId, invoiceNumber, plan.name + ' सदस्यता', plan.name, billingCycle,
+      basePrice, 18, gst, total, 'Processing', 'Razorpay', '',
+      now.split('T')[0], now.split('T')[0], ''
+    ).run();
+  }
+
+  // Send branded email with the payment link button.
+  let emailStatus = 'skipped_no_email';
+  if (school.contact_email) {
+    const emailRes = await sendNotificationEmail(c.env, {
+      to: school.contact_email,
+      subject: `💳 विद्या सेतु — "${school.school_name}" के लिए ${plan.name} सदस्यता पेमेंट लिंक`,
+      title: `पेमेंट लिंक: ${plan.name} प्लान`,
+      badge: `${plan.name} • ${billingCycle} • ₹${total}`,
+      message: `नमस्ते,\n\nआपके विद्यालय "${school.school_name}" के लिए ${plan.name} प्लान की सदस्यता (${billingCycle}) का पेमेंट लिंक तैयार है।\n\nराशि: ₹${basePrice} + 18% GST = ₹${total}\n\nकृपया नीचे दिए बटन पर क्लिक करके सुरक्षित Razorpay पेज पर भुगतान पूरा करें। भुगतान होते ही आपका प्लान स्वचालित सक्रिय हो जाएगा।`,
+      buttonText: '🟢 सुरक्षित भुगतान करें (Pay Now) →',
+      buttonUrl: linkResult.shortUrl || '',
+    });
+    emailStatus = emailRes.sent ? 'sent' : (emailRes.error || 'failed');
+  }
+
+  // Send FCM push notification to the school's Director.
+  let pushStatus = 'skipped';
+  try {
+    const pr = await broadcastAlert(db, c.env, {
+      title: `💳 पेमेंट लिंक: ${plan.name} सदस्यता`,
+      body: `"${school.school_name}" के लिए ${plan.name} प्लान का भुगतान लिंक भेजा गया है। भुगतान पूरा करने के लिए क्लिक करें।`,
+      schoolId,
+      targetRole: 'Director',
+      priority: 'high',
+      data: { type: 'payment_link', actionUrl: linkResult.shortUrl || '', planId: plan.id },
+    });
+    pushStatus = pr.payload && pr.payload.success ? 'sent' : (pr.payload && pr.payload.message || 'failed');
+  } catch (pushErr) {
+    pushStatus = 'error';
+    console.error('[admin/send-payment-link] push failed:', pushErr);
+  }
+
+  return c.json({
+    success: true,
+    message: `पेमेंट लिंक "${school.school_name}" को भेज दिया गया।`,
+    paymentLink: linkResult.shortUrl,
+    paymentLinkId: linkResult.id,
+    invoiceId,
+    emailStatus,
+    pushStatus,
+    planName: plan.name,
+    totalAmount: total,
+  });
+});
+
+// POST /api/admin/schools/notify - किसी स्कूल को मैन्युअल FCM पुश नोटिफिकेशन भेजें
+adminApp.post('/schools/notify', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  const title = String(body.title || '').trim();
+  const notifBody = String(body.body || '').trim();
+  const priority = String(body.priority || 'high') === 'normal' ? 'normal' : 'high';
+  const targetRole = String(body.targetRole || 'Director');
+
+  if (!schoolId || !title || !notifBody) {
+    return c.json({ success: false, message: 'schoolId, title और body आवश्यक हैं।' }, 400);
+  }
+
+  const school = await db.prepare('SELECT id, school_name FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  if (!school) return c.json({ success: false, message: 'स्कूल नहीं मिला।' }, 404);
+
+  const result = await broadcastAlert(db, c.env, {
+    title,
+    body: notifBody,
+    schoolId,
+    targetRole,
+    priority,
+    data: { type: 'admin_manual', actionUrl: body.actionUrl || '' },
+  });
+
+  return c.json({ success: true, message: 'नोटिफिकेशन भेजा गया।', result: result.payload });
+});
+
+// ==========================================
+// Recurring Subscription Lifecycle (Admin)
+// ==========================================
+
+// GET /api/admin/subscriptions - सभी recurring सदस्यताओं की सूची
+adminApp.get('/subscriptions', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  try {
+    const rows = await db.prepare(`
+      SELECT ss.school_id, ss.plan_id, ss.plan_name, ss.billing_cycle, ss.status,
+             ss.auto_pay_enabled, ss.mandate_id, ss.mandate_status,
+             ss.razorpay_subscription_id, ss.razorpay_plan_id,
+             ss.total_cycles, ss.remaining_cycles,
+             ss.current_cycle_start, ss.current_cycle_end, ss.next_billing_date,
+             ss.paused_at, ss.updated_at,
+             s.school_name, s.status AS school_status, s.contact_email
+      FROM school_subscriptions ss
+      JOIN school_tenants s ON ss.school_id = s.id
+      WHERE ss.razorpay_subscription_id IS NOT NULL
+      ORDER BY ss.updated_at DESC
+      LIMIT 500
+    `).all();
+    return c.json({ success: true, subscriptions: rows.results || [] });
+  } catch (e: any) {
+    return c.json({ success: true, subscriptions: [] });
+  }
+});
+
+// POST /api/admin/subscriptions/cancel - admin किसी स्कूल की recurring सदस्यता रद्द करें
+adminApp.post('/subscriptions/cancel', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  const cancelAtCycleEnd = !!body.cancelAtCycleEnd;
+  if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक।' }, 400);
+
+  const sub = await db.prepare('SELECT razorpay_subscription_id FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+  if (!sub || !sub.razorpay_subscription_id) return c.json({ success: false, message: 'कोई recurring सदस्यता नहीं।' }, 400);
+
+  const result = await cancelRazorpaySubscription(c.env, sub.razorpay_subscription_id, cancelAtCycleEnd);
+  if (result.error) return c.json({ success: false, message: result.error }, 400);
+
+  await db.prepare("UPDATE school_subscriptions SET status = 'Canceled', mandate_status = 'revoked', updated_at = ? WHERE school_id = ?")
+    .bind(new Date().toISOString(), schoolId).run().catch(() => {});
+  return c.json({ success: true, message: cancelAtCycleEnd ? 'सदस्यता चक्र के अंत में रद्द होगी।' : 'सदस्यता रद्द कर दी गई।' });
+});
+
+// POST /api/admin/subscriptions/pause - admin सदस्यता रोकें
+adminApp.post('/subscriptions/pause', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक।' }, 400);
+
+  const sub = await db.prepare('SELECT razorpay_subscription_id FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+  if (!sub || !sub.razorpay_subscription_id) return c.json({ success: false, message: 'कोई recurring सदस्यता नहीं।' }, 400);
+
+  const result = await pauseRazorpaySubscription(c.env, sub.razorpay_subscription_id);
+  if (result.error) return c.json({ success: false, message: result.error }, 400);
+
+  await db.prepare("UPDATE school_subscriptions SET paused_at = ?, updated_at = ? WHERE school_id = ?")
+    .bind(new Date().toISOString(), new Date().toISOString(), schoolId).run().catch(() => {});
+  return c.json({ success: true, message: 'सदस्यता रोक दी गई।' });
+});
+
+// POST /api/admin/subscriptions/resume - admin सदस्यता फिर से शुरू करें
+adminApp.post('/subscriptions/resume', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक।' }, 400);
+
+  const sub = await db.prepare('SELECT razorpay_subscription_id FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+  if (!sub || !sub.razorpay_subscription_id) return c.json({ success: false, message: 'कोई recurring सदस्यता नहीं।' }, 400);
+
+  const result = await resumeRazorpaySubscription(c.env, sub.razorpay_subscription_id);
+  if (result.error) return c.json({ success: false, message: result.error }, 400);
+
+  await db.prepare("UPDATE school_subscriptions SET paused_at = NULL, status = 'Active', updated_at = ? WHERE school_id = ?")
+    .bind(new Date().toISOString(), schoolId).run().catch(() => {});
+  return c.json({ success: true, message: 'सदस्यता फिर से शुरू हो गई।' });
+});
+
+// GET /api/admin/subscriptions/detail - स्कूल की recurring सदस्यता का विस्तृत विवरण
+adminApp.get('/subscriptions/detail', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const schoolId = c.req.query('schoolId') || '';
+  if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक।' }, 400);
+
+  const sub = await db.prepare('SELECT * FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+  if (!sub) return c.json({ success: false, message: 'सदस्यता नहीं मिली।' }, 404);
+
+  let razorpayDetail: any = null;
+  if (sub.razorpay_subscription_id) {
+    razorpayDetail = await fetchRazorpaySubscription(c.env, sub.razorpay_subscription_id);
+  }
+
+  return c.json({
+    success: true,
+    subscription: {
+      planId: sub.plan_id, planName: sub.plan_name, billingCycle: sub.billing_cycle,
+      status: sub.status, autoPayEnabled: !!sub.auto_pay_enabled,
+      mandateStatus: sub.mandate_status, mandateId: sub.mandate_id,
+      razorpaySubscriptionId: sub.razorpay_subscription_id,
+      totalCycles: sub.total_cycles, remainingCycles: sub.remaining_cycles,
+      currentCycleStart: sub.current_cycle_start, currentCycleEnd: sub.current_cycle_end,
+      nextBillingDate: sub.next_billing_date, pausedAt: sub.paused_at,
+    },
+    razorpayDetail: razorpayDetail && !razorpayDetail.error ? razorpayDetail : null,
+  });
 });
 
 export default adminApp;

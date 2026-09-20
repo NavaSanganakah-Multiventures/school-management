@@ -2,8 +2,9 @@ import { Hono } from 'hono';
 import { getDB, SUBSCRIPTION_PLANS, loadSubscriptionPlans, loadSubscriptionPlanById, BillingCycle } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { provisionDedicatedWorker } from '../lib/provisioning';
-import { createRazorpayOrder, verifyRazorpaySignature } from '../lib/razorpay';
+import { createRazorpayOrder, verifyRazorpaySignature, createRazorpayPlan, createRazorpaySubscription, createRazorpayCustomer, fetchRazorpaySubscription, cancelRazorpaySubscription, pauseRazorpaySubscription, resumeRazorpaySubscription } from '../lib/razorpay';
 import { checkSingleSchoolTrialStatus } from '../lib/trial-expiration';
+import { activateSubscriptionFromPayment } from '../lib/billing-activation';
 
 const billingApp = new Hono<{ Bindings: any }>();
 
@@ -203,46 +204,27 @@ billingApp.post('/razorpay/verify', async (c) => {
     return c.json({ success: true, message: 'यह भुगतान पहले ही सत्यापित हो चुका है।' });
   }
 
-  const VALID_CYCLES = ['monthly', 'quarterly', 'annual'];
-  const billingCycle = VALID_CYCLES.indexOf(invoice.billing_cycle) !== -1 ? invoice.billing_cycle : 'annual';
-  const allPlans = await loadSubscriptionPlans(db);
-  // Identify the plan from what was actually ordered (invoice.plan_name), not the request body.
-  let plan = allPlans.find((p) => p.name === invoice.plan_name && !p.isTrial);
-  if (!plan) plan = allPlans.find((p) => body.planId && p.id === body.planId && !p.isTrial);
-  if (!plan) plan = allPlans.find((p) => !p.isTrial);
-  if (!plan) plan = SUBSCRIPTION_PLANS[1];
-  // price_per_cycle must reflect what was paid (the stored subtotal), preventing upgrade fraud.
-  const amount = Number.isFinite(invoice.subtotal) && invoice.subtotal > 0 ? invoice.subtotal : priceForPlan(plan, billingCycle);
-  const now = new Date().toISOString();
+  const result = await activateSubscriptionFromPayment({
+    db,
+    env: c.env,
+    schoolId,
+    razorpay_order_id,
+    razorpay_payment_id,
+    razorpay_signature,
+  });
 
-  // Atomically activate subscription + tenant + invoice so a partial failure can't leave a paid
-  // school in an inconsistent (Active subscription, Suspended tenant) state.
-  try {
-    await db.batch([
-      db.prepare('UPDATE school_subscriptions SET plan_id=?, plan_name=?, billing_cycle=?, price_per_cycle=?, status=?, razorpay_order_id=?, razorpay_payment_id=?, razorpay_signature=?, trial_ends_at=?, updated_at=? WHERE school_id=?')
-        .bind(plan.id, plan.name, billingCycle, amount, 'Active', razorpay_order_id, razorpay_payment_id, razorpay_signature, '', now, schoolId),
-      db.prepare('UPDATE school_tenants SET plan_id=?, status=?, registration_status=?, trial_ends_at=? WHERE id=?')
-        .bind(plan.id, 'Active', 'Approved', '', schoolId),
-      db.prepare('UPDATE billing_invoices SET payment_status=?, razorpay_payment_id=?, transaction_id=?, paid_at=? WHERE razorpay_order_id=?')
-        .bind('Paid', razorpay_payment_id, razorpay_payment_id, now.split('T')[0] + ' ' + now.split('T')[1].slice(0, 8), razorpay_order_id),
-    ]);
-  } catch (batchErr: any) {
-    console.error('[billing/verify] activation batch failed:', batchErr);
-    return c.json({ success: false, message: 'प्लान सक्रिय करते समय त्रुटि। कृपया सहायता से संपर्क करें।' }, 500);
+  if (!result.success) {
+    return c.json({ success: false, message: result.error || 'प्लान सक्रिय करते समय त्रुटि। कृपया सहायता से संपर्क करें।' }, 500);
   }
 
-  // Enterprise plan -> automatically provision a dedicated worker.
-  let provisioning: any = null;
-  if (plan.featureFlags && plan.featureFlags.dedicatedWorker) {
-    const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
-    if (school) provisioning = await provisionDedicatedWorker(c.env, db, school, {});
-  }
+  const plan = result.plan;
+  const provisioning = result.provisioning;
   const provisionMessage = provisioning && provisioning.status === 'started'
     ? ' Dedicated worker provisioning शुरू हो गई: ' + (provisioning.domain || '')
     : (provisioning && provisioning.status === 'error'
       ? ' (ध्यान दें: dedicated worker provisioning विफल — ' + (provisioning.error || '') + ')'
       : '');
-  return c.json({ success: true, message: 'पेमेंट सफल। ' + plan.name + ' सक्रिय हो गया।' + provisionMessage, provisioning });
+  return c.json({ success: true, message: 'पेमेंट सफल। ' + (plan ? plan.name : '') + ' सक्रिय हो गया।' + provisionMessage, provisioning });
 });
 
 // GET /api/billing/invoices - real invoices from D1
@@ -269,6 +251,255 @@ billingApp.get('/schools', async (c) => {
   const schoolId = getRequestSchoolId(c, authUser);
   const tenant = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
   return c.json({ success: true, schools: tenant ? [tenant] : [], currentSchoolId: schoolId });
+});
+
+// ==========================================
+// Recurring Subscriptions (auto-debit via Razorpay mandates)
+// ==========================================
+
+// POST /api/billing/subscribe-recurring - create a Razorpay subscription for auto-debit
+billingApp.post('/subscribe-recurring', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  if (authUser.role !== 'Director' && authUser.role !== 'SuperAdmin') {
+    return c.json({ success: false, message: 'केवल निदेशक या Super Admin सदस्यता ले सकते हैं।' }, 403);
+  }
+  const schoolId = authUser.role === 'SuperAdmin' ? getRequestSchoolId(c, authUser) : authUser.schoolId;
+  if (!schoolId) return c.json({ success: false, message: 'स्कूल पहचान नहीं हो सकी।' }, 400);
+
+  const body = await c.req.json().catch(() => ({}));
+  const planId = body.planId;
+  const billingCycle: BillingCycle = (body.billingCycle === 'monthly' || body.billingCycle === 'quarterly') ? body.billingCycle : 'annual';
+  const allPlans = await loadSubscriptionPlans(db);
+  const plan = allPlans.find((p) => p.id === planId && !p.isTrial);
+  if (!plan) return c.json({ success: false, message: 'अमान्य प्लान चयन।' }, 400);
+
+  const baseAmount = priceForPlan(plan, billingCycle);
+  if (baseAmount <= 0) return c.json({ success: false, message: 'प्लान की राशि अमान्य है।' }, 400);
+
+  const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  if (!school) return c.json({ success: false, message: 'स्कूल नहीं मिला।' }, 404);
+
+  // 1. Create or fetch cached Razorpay Plan
+  const period = billingCycle === 'annual' ? 'yearly' : 'monthly';
+  const interval = billingCycle === 'quarterly' ? 3 : 1;
+  const cyclesPerYear = billingCycle === 'monthly' ? 12 : (billingCycle === 'quarterly' ? 4 : 1);
+  const totalCycles = Math.max(1, Math.round((body.totalCycles || cyclesPerYear)));
+
+  let razorpayPlanId = '';
+  let razorpayItemId = '';
+  try {
+    const cached = await db.prepare('SELECT razorpay_plan_id, razorpay_item_id FROM razorpay_plans_cache WHERE platform_plan_id = ? AND period = ? AND amount = ?')
+      .bind(plan.id, period, Math.round(baseAmount * 100)).first();
+    if (cached) {
+      razorpayPlanId = cached.razorpay_plan_id;
+      razorpayItemId = cached.razorpay_item_id;
+    }
+  } catch (_) {}
+
+  if (!razorpayPlanId) {
+    const planResult = await createRazorpayPlan(c.env, {
+      period: period as 'monthly' | 'yearly',
+      interval,
+      amountINR: baseAmount,
+      name: plan.name + ' (' + billingCycle + ')',
+      description: plan.name + ' सदस्यता — विद्या सेतु',
+      notes: { platform_plan_id: plan.id, billing_cycle: billingCycle },
+    });
+    if (planResult.error) return c.json({ success: false, message: planResult.error }, 400);
+    razorpayPlanId = planResult.id || '';
+    razorpayItemId = planResult.itemId || '';
+
+    // Cache the plan
+    try {
+      const cacheId = 'rpc-' + Date.now();
+      await db.prepare('INSERT INTO razorpay_plans_cache (id, platform_plan_id, razorpay_plan_id, period, amount, razorpay_item_id, created_at) VALUES (?,?,?,?,?,?,?)')
+        .bind(cacheId, plan.id, razorpayPlanId, period, Math.round(baseAmount * 100), razorpayItemId, new Date().toISOString()).run();
+    } catch (_) {}
+  }
+
+  // 2. Create or reuse a Razorpay Customer
+  let customerId = '';
+  try {
+    const existingCustomer = await db.prepare('SELECT razorpay_customer_id FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+    if (existingCustomer && existingCustomer.razorpay_customer_id) {
+      customerId = existingCustomer.razorpay_customer_id;
+    }
+  } catch (_) {}
+
+  if (!customerId && school.contact_email) {
+    const custResult = await createRazorpayCustomer(c.env, {
+      name: school.school_name,
+      email: school.contact_email,
+      contact: school.contact_phone,
+      notes: { school_id: schoolId },
+    });
+    if (!custResult.error && custResult.id) customerId = custResult.id;
+  }
+
+  // 3. Create Razorpay Subscription
+  const subResult = await createRazorpaySubscription(c.env, {
+    planId: razorpayPlanId,
+    totalCycles,
+    customerId: customerId || undefined,
+    notes: { school_id: schoolId, plan_id: plan.id, billing_cycle: billingCycle, type: 'subscription' },
+  });
+  if (subResult.error) return c.json({ success: false, message: subResult.error }, 400);
+
+  // 4. Store subscription reference in DB
+  const now = new Date().toISOString();
+  try {
+    await db.prepare(`
+      UPDATE school_subscriptions SET
+        razorpay_plan_id = ?,
+        razorpay_subscription_id = ?,
+        razorpay_customer_id = ?,
+        total_cycles = ?,
+        remaining_cycles = ?,
+        mandate_status = 'pending',
+        auto_pay_enabled = 1,
+        updated_at = ?
+      WHERE school_id = ?
+    `).bind(razorpayPlanId, subResult.id, customerId, totalCycles, totalCycles, now, schoolId).run();
+  } catch (updErr: any) {
+    // If no subscription row exists yet, insert one
+    try {
+      const subId = 'sub-' + Date.now();
+      await db.prepare(`
+        INSERT INTO school_subscriptions (id, school_id, plan_id, plan_name, billing_cycle, price_per_cycle, status, auto_pay_enabled, razorpay_plan_id, razorpay_subscription_id, total_cycles, remaining_cycles, mandate_status, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `).bind(subId, schoolId, plan.id, plan.name, billingCycle, baseAmount, 'Active', 1, razorpayPlanId, subResult.id, totalCycles, totalCycles, 'pending', now).run();
+    } catch (_) {}
+  }
+
+  return c.json({
+    success: true,
+    message: 'Razorpay सदस्यता बन गई। कृपया मैंडेट अधिकृत करें (mandate authorization)।',
+    subscriptionId: subResult.id,
+    authUrl: subResult.shortUrl || subResult.paymentLinkUrl || '',
+    plan: { id: plan.id, name: plan.name },
+    billingCycle,
+    totalCycles,
+    amountPerCycle: baseAmount,
+  });
+});
+
+// GET /api/billing/subscription-status - check recurring subscription + mandate status
+billingApp.get('/subscription-status', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  if (authUser.role !== 'Director' && authUser.role !== 'SuperAdmin') {
+    return c.json({ success: false, message: 'केवल निदेशक या Super Admin सदस्यता विवरण देख सकते हैं।' }, 403);
+  }
+  const schoolId = getRequestSchoolId(c, authUser);
+
+  const sub = await db.prepare('SELECT * FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+  if (!sub) return c.json({ success: true, recurring: false });
+
+  // If we have a Razorpay subscription ID, fetch live status
+  let razorpayStatus: any = null;
+  if (sub.razorpay_subscription_id) {
+    razorpayStatus = await fetchRazorpaySubscription(c.env, sub.razorpay_subscription_id);
+  }
+
+  return c.json({
+    success: true,
+    recurring: !!(sub.razorpay_subscription_id),
+    subscription: {
+      planId: sub.plan_id,
+      planName: sub.plan_name,
+      billingCycle: sub.billing_cycle,
+      status: sub.status,
+      autoPayEnabled: !!sub.auto_pay_enabled,
+      mandateStatus: sub.mandate_status || 'none',
+      razorpaySubscriptionId: sub.razorpay_subscription_id || '',
+      totalCycles: sub.total_cycles,
+      remainingCycles: sub.remaining_cycles,
+      currentCycleStart: sub.current_cycle_start,
+      currentCycleEnd: sub.current_cycle_end,
+      nextBillingDate: sub.next_billing_date,
+    },
+    razorpayStatus: razorpayStatus && !razorpayStatus.error ? {
+      status: razorpayStatus.status,
+      currentStart: razorpayStatus.current_start,
+      currentEnd: razorpayStatus.current_end,
+      paidCount: razorpayStatus.paid_count,
+      remainingCount: razorpayStatus.remaining_count,
+      mandateId: razorpayStatus.mandate_id,
+      shortUrl: razorpayStatus.short_url,
+    } : null,
+  });
+});
+
+// POST /api/billing/subscription/cancel - cancel recurring subscription
+billingApp.post('/subscription/cancel', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  if (authUser.role !== 'Director' && authUser.role !== 'SuperAdmin') {
+    return c.json({ success: false, message: 'केवल निदेशक या Super Admin रद्द कर सकते हैं।' }, 403);
+  }
+  const schoolId = getRequestSchoolId(c, authUser);
+  const body = await c.req.json().catch(() => ({}));
+  const cancelAtCycleEnd = !!body.cancelAtCycleEnd;
+
+  const sub = await db.prepare('SELECT razorpay_subscription_id FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+  if (!sub || !sub.razorpay_subscription_id) {
+    return c.json({ success: false, message: 'कोई recurring सदस्यता नहीं है।' }, 400);
+  }
+
+  const result = await cancelRazorpaySubscription(c.env, sub.razorpay_subscription_id, cancelAtCycleEnd);
+  if (result.error) return c.json({ success: false, message: result.error }, 400);
+
+  const now = new Date().toISOString();
+  await db.prepare(`UPDATE school_subscriptions SET status = 'Canceled', mandate_status = 'revoked', updated_at = ? WHERE school_id = ?`).bind(now, schoolId).run().catch(() => {});
+
+  return c.json({ success: true, message: cancelAtCycleEnd ? 'सदस्यता वर्तमान चक्र के अंत में रद्द हो जाएगी।' : 'सदस्यता तुरंत रद्द कर दी गई।', razorpayStatus: result.status });
+});
+
+// POST /api/billing/subscription/pause - pause recurring subscription
+billingApp.post('/subscription/pause', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  if (authUser.role !== 'Director' && authUser.role !== 'SuperAdmin') {
+    return c.json({ success: false, message: 'केवल निदेशक या Super Admin रोक सकते हैं।' }, 403);
+  }
+  const schoolId = getRequestSchoolId(c, authUser);
+  const sub = await db.prepare('SELECT razorpay_subscription_id FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+  if (!sub || !sub.razorpay_subscription_id) return c.json({ success: false, message: 'कोई recurring सदस्यता नहीं है।' }, 400);
+
+  const result = await pauseRazorpaySubscription(c.env, sub.razorpay_subscription_id);
+  if (result.error) return c.json({ success: false, message: result.error }, 400);
+
+  await db.prepare(`UPDATE school_subscriptions SET paused_at = ?, updated_at = ? WHERE school_id = ?`).bind(new Date().toISOString(), new Date().toISOString(), schoolId).run().catch(() => {});
+  return c.json({ success: true, message: 'सदस्यता रोक दी गई (paused)।' });
+});
+
+// POST /api/billing/subscription/resume - resume paused subscription
+billingApp.post('/subscription/resume', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  if (authUser.role !== 'Director' && authUser.role !== 'SuperAdmin') {
+    return c.json({ success: false, message: 'केवल निदेशक या Super Admin फिर से शुरू कर सकते हैं।' }, 403);
+  }
+  const schoolId = getRequestSchoolId(c, authUser);
+  const sub = await db.prepare('SELECT razorpay_subscription_id FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+  if (!sub || !sub.razorpay_subscription_id) return c.json({ success: false, message: 'कोई recurring सदस्यता नहीं है।' }, 400);
+
+  const result = await resumeRazorpaySubscription(c.env, sub.razorpay_subscription_id);
+  if (result.error) return c.json({ success: false, message: result.error }, 400);
+
+  await db.prepare(`UPDATE school_subscriptions SET paused_at = NULL, status = 'Active', updated_at = ? WHERE school_id = ?`).bind(new Date().toISOString(), schoolId).run().catch(() => {});
+  return c.json({ success: true, message: 'सदस्यता फिर से शुरू हो गई (resumed)।' });
 });
 
 export default billingApp;
