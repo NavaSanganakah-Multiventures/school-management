@@ -2,10 +2,11 @@
  * VidyaSetu — ensure the wildcard DNS record for dedicated school subdomains exists (idempotent).
  *
  * Cloudflare Worker routes can only serve a hostname when a (proxied) DNS record exists
- * for it. The dispatcher worker deploys the "*.pragnya.nasven.com/*" route, but if the
- * "*.pragnya.nasven.com" DNS record is missing, requests to <slug>.pragnya.nasven.com
- * fail with DNS NXDOMAIN / Cloudflare error 1016 and the provisioning health check never
- * reports the dedicated worker as live (status stays "pending" / "deploy ho raha hai").
+ * for it. The shared worker and dedicated-school workers deploy direct routes on
+ * "*.pragnya.nasven.com", so if the "*.pragnya.nasven.com" DNS record is missing,
+ * requests to <slug>.pragnya.nasven.com fail with DNS NXDOMAIN / Cloudflare error 1016
+ * and the provisioning health check never reports the dedicated worker as live (status
+ * stays "pending" / "deploy ho raha hai").
  *
  * This script reads schools.json sharedWorker.domain (e.g. pragnya.nasven.com), derives the
  * Cloudflare zone (the parent domain, e.g. nasven.com), and creates a proxied wildcard A
