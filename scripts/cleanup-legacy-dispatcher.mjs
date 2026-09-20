@@ -96,12 +96,9 @@ async function main() {
   const routesRes = await cf(`${CF_API}/zones/${zoneId}/workers/routes`);
   if (routesRes.ok && Array.isArray(routesRes.result)) {
     const routes = routesRes.result;
-    const wildcardRoute = `*.${domain}/*`;
     for (const route of routes) {
-      // Only delete routes explicitly pointing to the legacy dispatcher script or the wildcard route assigned to it
-      const isDispatcherRoute =
-        route.script === 'school-management-dispatcher' ||
-        (route.pattern === wildcardRoute && route.script !== 'school-management');
+      // Only delete routes explicitly assigned to the legacy dispatcher worker
+      const isDispatcherRoute = route.script === 'school-management-dispatcher';
 
       if (isDispatcherRoute) {
         console.log(`[Cleanup] Deleting conflicting legacy route: ${route.pattern} -> ${route.script} (${route.id})`);
