@@ -221,25 +221,25 @@ export interface SubscriptionPlanDefinition {
 export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
   {
     id: 'trial',
-    name: '7-दिन फ्री ट्रायल',
-    tagline: 'नए स्कूल पंजीकरण हेतु निःशुल्क परीक्षण (Super Admin अप्रूवल के बाद 7 दिन)',
-    badge: 'फ्री',
+    name: '7-à¤¦à¤¿à¤¨ à¤«à¥à¤°à¥ à¤à¥à¤°à¤¾à¤¯à¤²',
+    tagline: 'à¤¨à¤ à¤¸à¥à¤à¥à¤² à¤ªà¤à¤à¥à¤à¤°à¤£ à¤¹à¥à¤¤à¥ à¤¨à¤¿à¤à¤¶à¥à¤²à¥à¤ à¤ªà¤°à¥à¤à¥à¤·à¤£ (Super Admin à¤à¤ªà¥à¤°à¥à¤µà¤² à¤à¥ à¤¬à¤¾à¤¦ 7 à¤¦à¤¿à¤¨)',
+    badge: 'à¤«à¥à¤°à¥',
     monthlyPrice: 0,
     quarterlyPrice: 0,
     annualPrice: 0,
-    maxStudents: '50 विद्यार्थी',
+    maxStudents: '50 à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤°à¥à¤¥à¥',
     maxStudentsLimit: 50,
     maxStaffLimit: 10,
     maxStaff: 10,
     emailQuotaLimit: 50,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'settings', 'billing'],
     features: [
-      'डैशबोर्ड व स्कूल प्रोफ़ाइल सेटअप',
-      'स्कॉलर रजिस्टर (अधिकतम 50 छात्र)',
-      'दैनिक छात्र उपस्थिति',
-      'स्टाफ निर्देशिका (अधिकतम 10 सदस्य)',
-      'नोटिस पट्ट व सूचना',
-      'बुनियादी फीस चालान',
+      'à¤¡à¥à¤¶à¤¬à¥à¤°à¥à¤¡ à¤µ à¤¸à¥à¤à¥à¤² à¤ªà¥à¤°à¥à¤«à¤¼à¤¾à¤à¤² à¤¸à¥à¤à¤à¤ª',
+      'à¤¸à¥à¤à¥à¤²à¤° à¤°à¤à¤¿à¤¸à¥à¤à¤° (à¤à¤§à¤¿à¤à¤¤à¤® 50 à¤à¤¾à¤¤à¥à¤°)',
+      'à¤¦à¥à¤¨à¤¿à¤ à¤à¤¾à¤¤à¥à¤° à¤à¤ªà¤¸à¥à¤¥à¤¿à¤¤à¤¿',
+      'à¤¸à¥à¤à¤¾à¤« à¤¨à¤¿à¤°à¥à¤¦à¥à¤¶à¤¿à¤à¤¾ (à¤à¤§à¤¿à¤à¤¤à¤® 10 à¤¸à¤¦à¤¸à¥à¤¯)',
+      'à¤¨à¥à¤à¤¿à¤¸ à¤ªà¤à¥à¤ à¤µ à¤¸à¥à¤à¤¨à¤¾',
+      'à¤¬à¥à¤¨à¤¿à¤¯à¤¾à¤¦à¥ à¤«à¥à¤¸ à¤à¤¾à¤²à¤¾à¤¨',
     ],
     featureFlags: { reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false },
     active: true,
@@ -248,24 +248,24 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
   },
   {
     id: 'starter',
-    name: 'स्टार्टर प्लान (Starter)',
-    tagline: 'प्राथमिक विद्यालयों (500 छात्रों तक) के लिए उपयुक्त',
-    monthlyPrice: 2499,
-    quarterlyPrice: 7122,
-    annualPrice: 23988,
-    maxStudents: '500 विद्यार्थी',
+    name: 'à¤¸à¥à¤à¤¾à¤°à¥à¤à¤° à¤ªà¥à¤²à¤¾à¤¨ (Starter)',
+    tagline: 'à¤ªà¥à¤°à¤¾à¤¥à¤®à¤¿à¤ à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤²à¤¯à¥à¤ (500 à¤à¤¾à¤¤à¥à¤°à¥à¤ à¤¤à¤) à¤à¥ à¤²à¤¿à¤ à¤à¤ªà¤¯à¥à¤à¥à¤¤',
+    monthlyPrice: 201,
+    quarterlyPrice: 573,
+    annualPrice: 1932,
+    maxStudents: '500 à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤°à¥à¤¥à¥',
     maxStudentsLimit: 500,
     maxStaffLimit: 25,
     maxStaff: 25,
     emailQuotaLimit: 500,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'settings', 'billing'],
     features: [
-      'डिजिटल स्कॉलर रजिस्टर (दाखिला-खारिज)',
-      'दैनिक छात्र उपस्थिति',
-      'निदेशक, प्रधानाचार्य व शिक्षक 3-रोल व्यवस्था',
-      'फीस रसीद व चालान निर्माण',
-      'सामान्य ईमेल सूचना सेवा',
-      'परीक्षा व अंक प्रविष्टि (बेसिक)',
+      'à¤¡à¤¿à¤à¤¿à¤à¤² à¤¸à¥à¤à¥à¤²à¤° à¤°à¤à¤¿à¤¸à¥à¤à¤° (à¤¦à¤¾à¤à¤¿à¤²à¤¾-à¤à¤¾à¤°à¤¿à¤)',
+      'à¤¦à¥à¤¨à¤¿à¤ à¤à¤¾à¤¤à¥à¤° à¤à¤ªà¤¸à¥à¤¥à¤¿à¤¤à¤¿',
+      'à¤¨à¤¿à¤¦à¥à¤¶à¤, à¤ªà¥à¤°à¤§à¤¾à¤¨à¤¾à¤à¤¾à¤°à¥à¤¯ à¤µ à¤¶à¤¿à¤à¥à¤·à¤ 3-à¤°à¥à¤² à¤µà¥à¤¯à¤µà¤¸à¥à¤¥à¤¾',
+      'à¤«à¥à¤¸ à¤°à¤¸à¥à¤¦ à¤µ à¤à¤¾à¤²à¤¾à¤¨ à¤¨à¤¿à¤°à¥à¤®à¤¾à¤£',
+      'à¤¸à¤¾à¤®à¤¾à¤¨à¥à¤¯ à¤à¤®à¥à¤² à¤¸à¥à¤à¤¨à¤¾ à¤¸à¥à¤µà¤¾',
+      'à¤ªà¤°à¥à¤à¥à¤·à¤¾ à¤µ à¤à¤à¤ à¤ªà¥à¤°à¤µà¤¿à¤·à¥à¤à¤¿ (à¤¬à¥à¤¸à¤¿à¤)',
     ],
     featureFlags: { reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false },
     active: true,
@@ -274,26 +274,26 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
   },
   {
     id: 'pro',
-    name: 'प्रोफेशनल प्लान (Professional)',
-    tagline: 'सीनियर सेकेंडरी व तेजी से बढ़ते विद्यालयों (1500 छात्रों तक) के लिए',
-    badge: 'सर्वाधिक लोकप्रिय',
+    name: 'à¤ªà¥à¤°à¥à¤«à¥à¤¶à¤¨à¤² à¤ªà¥à¤²à¤¾à¤¨ (Professional)',
+    tagline: 'à¤¸à¥à¤¨à¤¿à¤¯à¤° à¤¸à¥à¤à¥à¤à¤¡à¤°à¥ à¤µ à¤¤à¥à¤à¥ à¤¸à¥ à¤¬à¤¢à¤¼à¤¤à¥ à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤²à¤¯à¥à¤ (1500 à¤à¤¾à¤¤à¥à¤°à¥à¤ à¤¤à¤) à¤à¥ à¤²à¤¿à¤',
+    badge: 'à¤¸à¤°à¥à¤µà¤¾à¤§à¤¿à¤ à¤²à¥à¤à¤ªà¥à¤°à¤¿à¤¯',
     recommended: true,
-    monthlyPrice: 5999,
-    quarterlyPrice: 17097,
-    annualPrice: 57588,
-    maxStudents: '1500 विद्यार्थी',
+    monthlyPrice: 501,
+    quarterlyPrice: 1428,
+    annualPrice: 4812,
+    maxStudents: '1500 à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤°à¥à¤¥à¥',
     maxStudentsLimit: 1500,
     maxStaffLimit: 100,
     maxStaff: 100,
     emailQuotaLimit: 2000,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'principal', 'settings', 'billing'],
     features: [
-      'स्टार्टर की सभी सुविधाएं',
-      'विस्तृत रिपोर्ट कार्ड व परीक्षा परिणाम',
-      'प्रधानाचार्य नियुक्ति एवं इतिहास',
-      'ऑटो-पे रिकरिंग बिलिंग (UPI/e-NACH)',
-      'कस्टम डोमेन ईमेल ऐड-ऑन',
-      'प्राथमिकता तकनीकी सहायता',
+      'à¤¸à¥à¤à¤¾à¤°à¥à¤à¤° à¤à¥ à¤¸à¤­à¥ à¤¸à¥à¤µà¤¿à¤§à¤¾à¤à¤',
+      'à¤µà¤¿à¤¸à¥à¤¤à¥à¤¤ à¤°à¤¿à¤ªà¥à¤°à¥à¤ à¤à¤¾à¤°à¥à¤¡ à¤µ à¤ªà¤°à¥à¤à¥à¤·à¤¾ à¤ªà¤°à¤¿à¤£à¤¾à¤®',
+      'à¤ªà¥à¤°à¤§à¤¾à¤¨à¤¾à¤à¤¾à¤°à¥à¤¯ à¤¨à¤¿à¤¯à¥à¤à¥à¤¤à¤¿ à¤à¤µà¤ à¤à¤¤à¤¿à¤¹à¤¾à¤¸',
+      'à¤à¤à¥-à¤ªà¥ à¤°à¤¿à¤à¤°à¤¿à¤à¤ à¤¬à¤¿à¤²à¤¿à¤à¤ (UPI/e-NACH)',
+      'à¤à¤¸à¥à¤à¤® à¤¡à¥à¤®à¥à¤¨ à¤à¤®à¥à¤² à¤à¤¡-à¤à¤¨',
+      'à¤ªà¥à¤°à¤¾à¤¥à¤®à¤¿à¤à¤¤à¤¾ à¤¤à¤à¤¨à¥à¤à¥ à¤¸à¤¹à¤¾à¤¯à¤¤à¤¾',
     ],
     featureFlags: { reportCards: true, principalHistory: true, autopay: true, domainEmail: true, multiSchool: false, prioritySupport: true, customDomainIncluded: false },
     active: true,
@@ -302,25 +302,25 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
   },
   {
     id: 'enterprise',
-    name: 'एंटरप्राइज प्लान (Enterprise)',
-    tagline: 'बड़े संस्थानों, ट्रस्ट व बहु-शाखा ग्रुप ऑफ स्कूल्स के लिए',
-    badge: 'असीमित क्षमता',
-    monthlyPrice: 11999,
-    quarterlyPrice: 34197,
-    annualPrice: 115188,
-    maxStudents: 'असीमित विद्यार्थी',
+    name: 'à¤à¤à¤à¤°à¤ªà¥à¤°à¤¾à¤à¤ à¤ªà¥à¤²à¤¾à¤¨ (Enterprise)',
+    tagline: 'à¤¬à¤¡à¤¼à¥ à¤¸à¤à¤¸à¥à¤¥à¤¾à¤¨à¥à¤, à¤à¥à¤°à¤¸à¥à¤ à¤µ à¤¬à¤¹à¥-à¤¶à¤¾à¤à¤¾ à¤à¥à¤°à¥à¤ª à¤à¤« à¤¸à¥à¤à¥à¤²à¥à¤¸ à¤à¥ à¤²à¤¿à¤',
+    badge: 'à¤à¤¸à¥à¤®à¤¿à¤¤ à¤à¥à¤·à¤®à¤¤à¤¾',
+    monthlyPrice: 1001,
+    quarterlyPrice: 2853,
+    annualPrice: 9612,
+    maxStudents: 'à¤à¤¸à¥à¤®à¤¿à¤¤ à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤°à¥à¤¥à¥',
     maxStudentsLimit: null,
     maxStaffLimit: null,
     maxStaff: null,
     emailQuotaLimit: null,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'principal', 'settings', 'billing'],
     features: [
-      'प्रो की सभी सुविधाएं',
-      'कस्टम डोमेन ऑफिशियल ईमेल (शामिल)',
-      'मल्टी-स्कूल टेनेंसी मैनेजमेंट',
-      'GST इनवॉइसिंग व ऑडिट रिपोर्ट्स',
-      'डेडिकेटेड अकाउंट मैनेजर',
-      '99.9% अपटाइम SLA',
+      'à¤ªà¥à¤°à¥ à¤à¥ à¤¸à¤­à¥ à¤¸à¥à¤µà¤¿à¤§à¤¾à¤à¤',
+      'à¤à¤¸à¥à¤à¤® à¤¡à¥à¤®à¥à¤¨ à¤à¤«à¤¿à¤¶à¤¿à¤¯à¤² à¤à¤®à¥à¤² (à¤¶à¤¾à¤®à¤¿à¤²)',
+      'à¤®à¤²à¥à¤à¥-à¤¸à¥à¤à¥à¤² à¤à¥à¤¨à¥à¤à¤¸à¥ à¤®à¥à¤¨à¥à¤à¤®à¥à¤à¤',
+      'GST à¤à¤¨à¤µà¥à¤à¤¸à¤¿à¤à¤ à¤µ à¤à¤¡à¤¿à¤ à¤°à¤¿à¤ªà¥à¤°à¥à¤à¥à¤¸',
+      'à¤¡à¥à¤¡à¤¿à¤à¥à¤à¥à¤¡ à¤à¤à¤¾à¤à¤à¤ à¤®à¥à¤¨à¥à¤à¤°',
+      '99.9% à¤à¤ªà¤à¤¾à¤à¤® SLA',
     ],
     featureFlags: { reportCards: true, principalHistory: true, autopay: true, domainEmail: true, multiSchool: true, prioritySupport: true, customDomainIncluded: true, dedicatedWorker: true },
     active: true,
@@ -344,7 +344,7 @@ export function planRowToDefinition(row: any): SubscriptionPlanDefinition {
     monthlyPrice: Number(row.monthly_price) || 0,
     quarterlyPrice: Number(row.quarterly_price) || 0,
     annualPrice: Number(row.annual_price) || 0,
-    maxStudents: row.max_students_label || (maxStudentsLimit === null ? 'असीमित विद्यार्थी' : maxStudentsLimit + ' विद्यार्थी'),
+    maxStudents: row.max_students_label || (maxStudentsLimit === null ? 'à¤à¤¸à¥à¤®à¤¿à¤¤ à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤°à¥à¤¥à¥' : maxStudentsLimit + ' à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤°à¥à¤¥à¥'),
     features: parseJson(row.features, []),
     recommended: !!row.recommended,
     modules: parseJson(row.modules, []),
@@ -467,11 +467,11 @@ export interface SchoolFcmTopic {
 }
 
 export const generateSchoolTopics = (schoolId: string): SchoolFcmTopic[] => [
-  { id: 'top-' + schoolId + '-all', schoolId, topicKey: 'school_' + schoolId + '_all', displayName: 'संपूर्ण विद्यालय (सभी)', targetRole: 'All', subscriberCount: 0, description: 'आपातकालीन सूचना, अवकाश व सामान्य परिपत्र' },
-  { id: 'top-' + schoolId + '-parents', schoolId, topicKey: 'school_' + schoolId + '_parents', displayName: 'केवल अभिभावक', targetRole: 'Parents', subscriberCount: 0, description: 'पीटीएम व अभिभावक बैठक संदेश' },
-  { id: 'top-' + schoolId + '-students', schoolId, topicKey: 'school_' + schoolId + '_students', displayName: 'केवल विद्यार्थी', targetRole: 'Students', subscriberCount: 0, description: 'परीक्षा सारणी व शैक्षणिक सूचना' },
-  { id: 'top-' + schoolId + '-teachers', schoolId, topicKey: 'school_' + schoolId + '_teachers', displayName: 'शिक्षक एवं स्टाफ', targetRole: 'Teachers', subscriberCount: 0, description: 'स्टाफ बैठक व प्रशासनिक निर्देश' },
-  { id: 'top-' + schoolId + '-fees-due', schoolId, topicKey: 'school_' + schoolId + '_fees_due', displayName: 'शुल्क अनुस्मारक', targetRole: 'Parents', subscriberCount: 0, description: 'फीस देय तिथि अलर्ट' },
+  { id: 'top-' + schoolId + '-all', schoolId, topicKey: 'school_' + schoolId + '_all', displayName: 'à¤¸à¤à¤ªà¥à¤°à¥à¤£ à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤²à¤¯ (à¤¸à¤­à¥)', targetRole: 'All', subscriberCount: 0, description: 'à¤à¤ªà¤¾à¤¤à¤à¤¾à¤²à¥à¤¨ à¤¸à¥à¤à¤¨à¤¾, à¤à¤µà¤à¤¾à¤¶ à¤µ à¤¸à¤¾à¤®à¤¾à¤¨à¥à¤¯ à¤ªà¤°à¤¿à¤ªà¤¤à¥à¤°' },
+  { id: 'top-' + schoolId + '-parents', schoolId, topicKey: 'school_' + schoolId + '_parents', displayName: 'à¤à¥à¤µà¤² à¤à¤­à¤¿à¤­à¤¾à¤µà¤', targetRole: 'Parents', subscriberCount: 0, description: 'à¤ªà¥à¤à¥à¤à¤® à¤µ à¤à¤­à¤¿à¤­à¤¾à¤µà¤ à¤¬à¥à¤ à¤ à¤¸à¤à¤¦à¥à¤¶' },
+  { id: 'top-' + schoolId + '-students', schoolId, topicKey: 'school_' + schoolId + '_students', displayName: 'à¤à¥à¤µà¤² à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤°à¥à¤¥à¥', targetRole: 'Students', subscriberCount: 0, description: 'à¤ªà¤°à¥à¤à¥à¤·à¤¾ à¤¸à¤¾à¤°à¤£à¥ à¤µ à¤¶à¥à¤à¥à¤·à¤£à¤¿à¤ à¤¸à¥à¤à¤¨à¤¾' },
+  { id: 'top-' + schoolId + '-teachers', schoolId, topicKey: 'school_' + schoolId + '_teachers', displayName: 'à¤¶à¤¿à¤à¥à¤·à¤ à¤à¤µà¤ à¤¸à¥à¤à¤¾à¤«', targetRole: 'Teachers', subscriberCount: 0, description: 'à¤¸à¥à¤à¤¾à¤« à¤¬à¥à¤ à¤ à¤µ à¤ªà¥à¤°à¤¶à¤¾à¤¸à¤¨à¤¿à¤ à¤¨à¤¿à¤°à¥à¤¦à¥à¤¶' },
+  { id: 'top-' + schoolId + '-fees-due', schoolId, topicKey: 'school_' + schoolId + '_fees_due', displayName: 'à¤¶à¥à¤²à¥à¤ à¤à¤¨à¥à¤¸à¥à¤®à¤¾à¤°à¤', targetRole: 'Parents', subscriberCount: 0, description: 'à¤«à¥à¤¸ à¤¦à¥à¤¯ à¤¤à¤¿à¤¥à¤¿ à¤à¤²à¤°à¥à¤' },
 ];
 
 // Empty fallback stores (no demo data). Real routes use D1.
@@ -491,7 +491,7 @@ export const notificationHistory: any[] = [];
 export const schoolTenants: SchoolTenant[] = [];
 export let currentSchoolId = 'school-01';
 export const setCurrentSchoolId = (id: string) => { currentSchoolId = id; };
-export const schoolSubscriptionStore: SchoolSubscription = { id: '', schoolId: 'school-01', planId: 'trial', planName: '7-दिन फ्री ट्रायल', billingCycle: 'monthly', pricePerCycle: 0, discountPercent: 0, status: 'Trial', autoPayEnabled: false, paymentMethod: '', mandateId: '', mandateBank: '', nextBillingDate: '', periodStart: '', periodEnd: '', updatedAt: '' };
+export const schoolSubscriptionStore: SchoolSubscription = { id: '', schoolId: 'school-01', planId: 'trial', planName: '7-à¤¦à¤¿à¤¨ à¤«à¥à¤°à¥ à¤à¥à¤°à¤¾à¤¯à¤²', billingCycle: 'monthly', pricePerCycle: 0, discountPercent: 0, status: 'Trial', autoPayEnabled: false, paymentMethod: '', mandateId: '', mandateBank: '', nextBillingDate: '', periodStart: '', periodEnd: '', updatedAt: '' };
 export const subscriptionAddonsStore: SubscriptionAddon[] = [];
 export const schoolCustomDomainStore: SchoolCustomDomain = { id: '', schoolId: 'school-01', domainName: '', spfRecordStatus: 'Pending', dkimRecordStatus: 'Pending', mxRecordStatus: 'Pending', dmarcRecordStatus: 'Pending', isActive: false, monthlySendingQuota: 10000, monthlySentCount: 0, configuredMailboxes: [], createdAt: '' };
 export const billingInvoicesStore: BillingInvoice[] = [];
