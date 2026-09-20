@@ -73,7 +73,7 @@ export function AnalyticsDashboard({ examId, className, section }: AnalyticsDash
       }
     };
     loadExams();
-  }, []);
+  }, [selectedExamId]);
 
   // Load analytics when exam changes
   useEffect(() => {

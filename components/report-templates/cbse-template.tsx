@@ -98,7 +98,7 @@ export function CBSETemplate({ data, schoolName, schoolCode, affiliationNo, scho
           <span className="text-sm font-bold text-slate-900">{data.rollNumber}</span>
         </div>
         <div className="flex items-start">
-          <span className="text-xs font-bold text-blue-900 w-32">Father's Name:</span>
+          <span className="text-xs font-bold text-blue-900 w-32">Father&apos;s Name:</span>
           <span className="text-sm font-semibold text-slate-800">{data.fatherName}</span>
         </div>
         <div className="flex items-start">
@@ -106,7 +106,7 @@ export function CBSETemplate({ data, schoolName, schoolCode, affiliationNo, scho
           <span className="text-sm font-semibold text-slate-800">{data.dob}</span>
         </div>
         <div className="flex items-start">
-          <span className="text-xs font-bold text-blue-900 w-32">Mother's Name:</span>
+          <span className="text-xs font-bold text-blue-900 w-32">Mother&apos;s Name:</span>
           <span className="text-sm font-semibold text-slate-800">{data.motherName}</span>
         </div>
         <div className="flex items-start">

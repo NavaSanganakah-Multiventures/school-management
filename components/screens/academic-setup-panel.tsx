@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BookOpen, CalendarRange, Plus, Loader2, Save, ClipboardList, Trash2, Settings } from 'lucide-react';
 
 export function AcademicSetupPanel() {
@@ -37,7 +37,7 @@ export function AcademicSetupPanel() {
   const [examSubjectType, setExamSubjectType] = useState('Theory');
   const [examSubjectOptional, setExamSubjectOptional] = useState(false);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [sRes, tRes, eRes] = await Promise.all([
@@ -67,7 +67,7 @@ export function AcademicSetupPanel() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const loadExamSubjects = async (examId: string) => {
     if (!examId) return;
@@ -84,7 +84,7 @@ export function AcademicSetupPanel() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   useEffect(() => {
     if (selectedExam) {

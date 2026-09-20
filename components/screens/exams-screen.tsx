@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Award,
   Calendar,
@@ -102,7 +102,7 @@ export function ExamsScreen() {
   };
 
   // Function to refresh data
-  const refreshData = async (force = false) => {
+  const refreshData = useCallback(async (force = false) => {
     if (refreshInProgress && !force) return;
     
     setRefreshInProgress(true);
@@ -136,7 +136,7 @@ export function ExamsScreen() {
     } finally {
       setRefreshInProgress(false);
     }
-  };
+  }, [refreshInProgress, selectedStudentId, reportCard]);
 
   // Auto-refresh effect
   useEffect(() => {
@@ -153,7 +153,7 @@ export function ExamsScreen() {
         clearInterval(refreshTimerRef.current);
       }
     };
-  }, [autoRefreshEnabled, refreshInterval, selectedStudentId]);
+  }, [autoRefreshEnabled, refreshInterval, selectedStudentId, refreshData]);
 
   // Listen for marks entry success
   useEffect(() => {
