@@ -61,6 +61,18 @@ function main() {
       '[[routes]]',
       'pattern = ' + JSON.stringify(routeDomain + '/*'),
       'zone_name = ' + JSON.stringify(zoneName),
+    ];
+
+    if (domain !== routeDomain && domain.endsWith('.' + zoneName)) {
+      lines.push(
+        '',
+        '[[routes]]',
+        'pattern = ' + JSON.stringify(domain + '/*'),
+        'zone_name = ' + JSON.stringify(zoneName),
+      );
+    }
+
+    lines.push(
       '',
       '# Static frontend (out/) — auto-served like the shared worker.',
       '[assets]',
@@ -90,7 +102,7 @@ function main() {
       '[[kv_namespaces]]',
       'binding = "CONFIG_KV"',
       'id = ' + JSON.stringify(school.kvNamespaceId || ''),
-    ];
+    );
     const toml = lines.join('\n') + '\n';
 
     fs.writeFileSync('wrangler-' + school.slug + '.toml', toml);

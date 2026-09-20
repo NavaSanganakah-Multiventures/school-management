@@ -32,7 +32,7 @@ export interface ResolvedTenant {
  * Extract domain, subdomain, slug, or explicit schoolId from request headers, URL, or query.
  */
 export function extractHostDetails(c: any): HostDetails {
-  const baseDomain = String((c.env && (c.env.BASE_DOMAIN)) || 'pragnya.nasven.com').toLowerCase();
+  const baseDomain = String((c.env && (c.env.BASE_DOMAIN || c.env.DISPATCH_BASE_DOMAIN)) || 'pragnya.nasven.com').toLowerCase();
 
   // Header priority: X-School-Domain > X-Forwarded-Host > Host > URL hostname
   const explicitDomain = c.req.header('X-School-Domain') || c.req.header('x-school-domain') || null;
@@ -87,7 +87,7 @@ export function extractHostDetails(c: any): HostDetails {
 export async function resolveTenantFromDB(db: any, host: HostDetails, env?: any): Promise<ResolvedTenant | null> {
   if (!db) return null;
 
-  const baseDomain = String((env && (env.BASE_DOMAIN)) || 'pragnya.nasven.com').toLowerCase();
+  const baseDomain = String((env && (env.BASE_DOMAIN || env.DISPATCH_BASE_DOMAIN)) || 'pragnya.nasven.com').toLowerCase();
 
   const searchId = host.schoolId || null;
   const searchSlug = host.slug ? host.slug.toLowerCase() : null;
@@ -161,7 +161,7 @@ export async function resolveTenantFromDB(db: any, host: HostDetails, env?: any)
 export async function resolveTenant(c: any): Promise<ResolvedTenant> {
   const env = c && c.env;
   const isDedicated = !!(env && (env.IS_DEDICATED_WORKER === 'true' || env.SCHOOL_ID));
-  const baseDomain = String((env && (env.BASE_DOMAIN)) || 'pragnya.nasven.com').toLowerCase();
+  const baseDomain = String((env && (env.BASE_DOMAIN || env.DISPATCH_BASE_DOMAIN)) || 'pragnya.nasven.com').toLowerCase();
 
   if (isDedicated && env.SCHOOL_ID) {
     const slug = env.SCHOOL_SLUG || '';
