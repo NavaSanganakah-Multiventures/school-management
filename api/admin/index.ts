@@ -272,17 +272,19 @@ adminApp.post('/registrations/approve', async (c) => {
   if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
 
   const selectedPlanId = String(body.planId || '').trim();
+  const customTrialEndsAt = String(body.trialEndsAt || '').trim();
   const now = new Date().toISOString();
 
   if (selectedPlanId && selectedPlanId !== 'trial') {
     const plan = await loadSubscriptionPlanById(db, selectedPlanId);
     if (!plan) return c.json({ success: false, message: 'अमान्य प्लान चयन।' }, 400);
 
+    const periodEnd = customTrialEndsAt || '';
     await db.prepare('UPDATE school_tenants SET status=?, registration_status=?, plan_id=?, trial_ends_at=?, approved_at=?, approved_by=? WHERE id=?')
-      .bind('Active', 'Approved', plan.id, '', now, guard.authUser.sub, schoolId).run();
+      .bind('Active', 'Approved', plan.id, periodEnd, now, guard.authUser.sub, schoolId).run();
 
     await db.prepare('UPDATE school_subscriptions SET plan_id=?, plan_name=?, status=?, trial_ends_at=?, updated_at=? WHERE school_id=?')
-      .bind(plan.id, plan.name, 'Active', '', now, schoolId).run();
+      .bind(plan.id, plan.name, 'Active', periodEnd, now, schoolId).run();
 
     let provisioning: any = null;
     let provisioningError: string | null = null;
@@ -308,13 +310,14 @@ adminApp.post('/registrations/approve', async (c) => {
     });
   }
 
-  // Default: 7-day trial
-  const trialEnds = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  await db.prepare('UPDATE school_tenants SET status=?, registration_status=?, trial_ends_at=?, approved_at=?, approved_by=? WHERE id=?')
-    .bind('Trial', 'Approved', trialEnds, now, guard.authUser.sub, schoolId).run();
-  await db.prepare('UPDATE school_subscriptions SET status=?, trial_ends_at=?, updated_at=? WHERE school_id=?')
-    .bind('Trial', trialEnds, now, schoolId).run();
-  return c.json({ success: true, message: 'स्कूल स्वीकृत। 7-दिन का फ्री ट्रायल शुरू हो गया।' });
+  // Default: 7-day trial (or custom trialEndsAt if set by SuperAdmin)
+  const defaultTrialEnds = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const trialEnds = customTrialEndsAt || defaultTrialEnds;
+  await db.prepare('UPDATE school_tenants SET status=?, registration_status=?, plan_id=?, trial_ends_at=?, trial_reminder_sent_at=NULL, trial_expired_sent_at=NULL, approved_at=?, approved_by=? WHERE id=?')
+    .bind('Trial', 'Approved', 'trial', trialEnds, now, guard.authUser.sub, schoolId).run();
+  await db.prepare('UPDATE school_subscriptions SET status=?, plan_id=?, plan_name=?, trial_ends_at=?, updated_at=? WHERE school_id=?')
+    .bind('Trial', 'trial', '7-दिन फ्री ट्रायल', trialEnds, now, schoolId).run();
+  return c.json({ success: true, message: `स्कूल स्वीकृत। ट्रायल समाप्ति तिथि ${trialEnds} निर्धारित की गई।`, trialEnds });
 });
 
 // POST /api/admin/registrations/reject
@@ -435,7 +438,6 @@ adminApp.post('/feature-requests/status', async (c) => {
   return c.json({ success: true, message: 'अनुरोध स्थिति सफलतापूर्वक अपडेट की गई।' });
 });
 
-
 // POST /api/admin/schools/create - Super Admin द्वारा नया स्कूल जोड़ें
 adminApp.post('/schools/create', async (c) => {
   const guard = await requireSuperAdmin(c);
@@ -463,16 +465,22 @@ adminApp.post('/schools/create', async (c) => {
   const subExists = await db.prepare('SELECT id FROM school_tenants WHERE subdomain = ?').bind(subdomain).first();
   if (subExists) return c.json({ success: false, message: 'यह सबडोमेन पहले से उपयोग में है।' }, 409);
 
-  const planId = body.planId || 'starter';
+  const planId = String(body.planId || 'starter').trim();
   const plan = await loadSubscriptionPlanById(db, planId);
-  if (!plan || plan.isTrial) return c.json({ success: false, message: 'अमान्य प्लान चयन।' }, 400);
+  if (!plan) return c.json({ success: false, message: 'अमान्य प्लान चयन।' }, 400);
+
+  const customTrialEndsAt = String(body.trialEndsAt || '').trim();
+  const defaultTrialEnds = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const isTrialPlan = plan.id === 'trial' || plan.isTrial;
+  const trialEndsAt = isTrialPlan ? (customTrialEndsAt || defaultTrialEnds) : (customTrialEndsAt || '');
+  const initialStatus = isTrialPlan ? 'Trial' : 'Active';
 
   const now = new Date().toISOString();
   const passwordHash = await hashPassword(password);
   const username = await makeUniqueUsername(db, email);
 
-  await db.prepare('INSERT INTO school_tenants (id, school_name, subdomain, custom_domain, contact_email, contact_phone, status, registration_status, plan_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
-    .bind(schoolId, schoolName, subdomain, body.customDomain || '', email, phone, 'Active', 'Approved', planId, now).run();
+  await db.prepare('INSERT INTO school_tenants (id, school_name, subdomain, custom_domain, contact_email, contact_phone, status, registration_status, plan_id, trial_ends_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(schoolId, schoolName, subdomain, body.customDomain || '', email, phone, initialStatus, 'Approved', plan.id, trialEndsAt, now).run();
 
   await db.prepare('INSERT INTO school_profile (id, school_name, affiliation_number, board_name, school_code, email, phone, alternate_phone, address, city, state, pincode, academic_session, director_name, principal_name, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .bind(schoolId, schoolName, body.affiliationNumber || '', body.boardName || 'CBSE', body.schoolCode || '', email, phone, body.alternatePhone || '', body.address || '-', body.city || '-', body.state || '-', body.pincode || '-', body.academicSession || '2026-2027', directorName, body.principalName || directorName, now.split('T')[0]).run();
@@ -480,10 +488,10 @@ adminApp.post('/schools/create', async (c) => {
   await db.prepare('INSERT INTO system_users (id, username, full_name, email, phone, role, designation, department, qualification, salary, status, school_id, password_hash, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .bind(userId, username, directorName, email, phone, 'Director', body.designation || 'स्कूल निदेशक (Director)', 'प्रबंधन एवं प्रशासन', body.qualification || '', 0, 'Active', schoolId, passwordHash, now).run();
 
-  await db.prepare('INSERT INTO school_subscriptions (id, school_id, plan_id, plan_name, billing_cycle, price_per_cycle, discount_percent, status, auto_pay_enabled, payment_method, mandate_id, next_billing_date, period_start, period_end, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind('sub-' + Date.now(), schoolId, plan.id, plan.name, body.billingCycle || 'annual', plan.annualPrice || 0, 0, 'Active', 1, 'Manual', '', now.split('T')[0], now.split('T')[0], now.split('T')[0], now).run();
+  await db.prepare('INSERT INTO school_subscriptions (id, school_id, plan_id, plan_name, billing_cycle, price_per_cycle, discount_percent, status, trial_ends_at, auto_pay_enabled, payment_method, mandate_id, next_billing_date, period_start, period_end, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind('sub-' + Date.now(), schoolId, plan.id, plan.name, body.billingCycle || (isTrialPlan ? 'monthly' : 'annual'), plan.annualPrice || 0, 0, initialStatus, trialEndsAt, 1, 'Manual', '', now.split('T')[0], now.split('T')[0], trialEndsAt || now.split('T')[0], now).run();
 
-    let provisioning: any = null;
+  let provisioning: any = null;
   if (plan.featureFlags && plan.featureFlags.dedicatedWorker) {
     const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
     if (school) provisioning = await provisionDedicatedWorker(c.env, db, school, {});
@@ -498,14 +506,22 @@ adminApp.post('/schools/plan', async (c) => {
   const db = getDB(c);
   const body = await c.req.json().catch(() => ({}));
   const schoolId = body.schoolId;
-  const planId = body.planId || 'starter';
+  const planId = String(body.planId || 'starter').trim();
   if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
   const plan = await loadSubscriptionPlanById(db, planId);
-  if (!plan || plan.isTrial) return c.json({ success: false, message: 'अमान्य प्लान। ट्रायल प्लान असाइन नहीं किया जा सकता।' }, 400);
-  await db.prepare('UPDATE school_subscriptions SET plan_id=?, plan_name=?, status=?, updated_at=? WHERE school_id=?')
-    .bind(plan.id, plan.name, 'Active', new Date().toISOString(), schoolId).run();
-  await db.prepare('UPDATE school_tenants SET plan_id=?, status=?, registration_status=?, trial_ends_at=? WHERE id=?')
-    .bind(plan.id, 'Active', 'Approved', '', schoolId).run();
+  if (!plan) return c.json({ success: false, message: 'अमान्य प्लान चयन।' }, 400);
+
+  const isTrial = plan.id === 'trial' || plan.isTrial;
+  const customTrialEndsAt = String(body.trialEndsAt || '').trim();
+  const defaultTrialEnds = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const trialEnds = isTrial ? (customTrialEndsAt || defaultTrialEnds) : (customTrialEndsAt || '');
+  const newStatus = isTrial ? 'Trial' : 'Active';
+  const nowIso = new Date().toISOString();
+
+  await db.prepare('UPDATE school_subscriptions SET plan_id=?, plan_name=?, status=?, trial_ends_at=?, updated_at=? WHERE school_id=?')
+    .bind(plan.id, plan.name, newStatus, trialEnds, nowIso, schoolId).run();
+  await db.prepare('UPDATE school_tenants SET plan_id=?, status=?, registration_status=?, trial_ends_at=?, trial_reminder_sent_at=NULL, trial_expired_sent_at=NULL WHERE id=?')
+    .bind(plan.id, newStatus, 'Approved', trialEnds, schoolId).run();
 
   let provisioning: any = null;
   const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
@@ -519,7 +535,61 @@ adminApp.post('/schools/plan', async (c) => {
       console.error('[Admin] deprovisionDedicatedWorker on plan downgrade error:', downgradeErr);
     }
   }
-  return c.json({ success: true, message: 'स्कूल का प्लान अपडेट कर दिया गया।', provisioning });
+  return c.json({ success: true, message: `स्कूल का प्लान "${plan.name}" में बदल दिया गया।`, provisioning, trialEnds });
+});
+
+// POST /api/admin/schools/expiry-date - किसी भी स्कूल (मौजूदा या नए) की समाप्ति तिथि तुरंत सेट करें
+adminApp.post('/schools/expiry-date', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  const expiryDate = String(body.expiryDate || body.trialEndsAt || '').trim();
+
+  if (!schoolId) return c.json({ success: false, message: 'schoolId अनिवार्य है।' }, 400);
+  if (!expiryDate || !/^\d{4}-\d{2}-\d{2}$/.test(expiryDate)) {
+    return c.json({ success: false, message: 'मान्य समाप्ति तिथि (YYYY-MM-DD) आवश्यक है।' }, 400);
+  }
+
+  const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  if (!school) return c.json({ success: false, message: 'विद्यालय नहीं मिला।' }, 404);
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const isFutureOrToday = expiryDate >= todayStr;
+  const nowIso = new Date().toISOString();
+
+  // If new date is in future or today and school was suspended/expired on trial, restore to Trial
+  const currentStatus = school.status;
+  const nextStatus = isFutureOrToday
+    ? (currentStatus === 'Suspended' && school.registration_status === 'Trial_Expired' ? 'Trial' : currentStatus)
+    : 'Suspended';
+  const nextRegStatus = isFutureOrToday
+    ? (school.registration_status === 'Trial_Expired' ? 'Approved' : school.registration_status)
+    : 'Trial_Expired';
+
+  await db.prepare(
+    `UPDATE school_tenants
+     SET trial_ends_at = ?, status = ?, registration_status = ?,
+         trial_reminder_sent_at = CASE WHEN ? >= ? THEN NULL ELSE trial_reminder_sent_at END,
+         trial_expired_sent_at = CASE WHEN ? >= ? THEN NULL ELSE trial_expired_sent_at END
+     WHERE id = ?`
+  ).bind(expiryDate, nextStatus, nextRegStatus, expiryDate, todayStr, expiryDate, todayStr, schoolId).run();
+
+  await db.prepare(
+    `UPDATE school_subscriptions
+     SET trial_ends_at = ?, status = ?, updated_at = ?
+     WHERE school_id = ?`
+  ).bind(expiryDate, nextStatus === 'Suspended' ? 'Expired' : (school.plan_id === 'trial' ? 'Trial' : 'Active'), nowIso, schoolId).run();
+
+  return c.json({
+    success: true,
+    message: `"${school.school_name}" की समाप्ति तिथि सफलतापूर्वक ${expiryDate} निर्धारित की गई।`,
+    expiryDate,
+    status: nextStatus,
+  });
 });
 
 // POST /api/admin/schools/update - edit any school profile
@@ -553,17 +623,36 @@ adminApp.post('/schools/update', async (c) => {
       schoolId
     ).run();
 
-  const tenant = await db.prepare('SELECT subdomain, custom_domain, status FROM school_tenants WHERE id = ?').bind(schoolId).first();
-  await db.prepare('UPDATE school_tenants SET school_name=?, contact_email=?, contact_phone=?, subdomain=?, custom_domain=?, status=? WHERE id=?')
+  const tenant = await db.prepare('SELECT subdomain, custom_domain, status, plan_id, trial_ends_at FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  const nextPlanId = body.planId !== undefined && body.planId !== null && String(body.planId).trim() !== ''
+    ? String(body.planId).trim()
+    : (tenant ? tenant.plan_id : 'starter');
+  const nextTrialEnds = body.trialEndsAt !== undefined && body.trialEndsAt !== null
+    ? String(body.trialEndsAt).trim()
+    : (tenant ? (tenant.trial_ends_at || '') : '');
+  const nextStatus = val('status', tenant ? tenant.status : 'Active');
+
+  await db.prepare('UPDATE school_tenants SET school_name=?, contact_email=?, contact_phone=?, subdomain=?, custom_domain=?, status=?, plan_id=?, trial_ends_at=? WHERE id=?')
     .bind(
       val('schoolName', existing.school_name),
       val('email', existing.email),
       val('phone', existing.phone),
       val('subdomain', tenant ? tenant.subdomain : ''),
       val('customDomain', tenant ? tenant.custom_domain : ''),
-      val('status', tenant ? tenant.status : 'Active'),
+      nextStatus,
+      nextPlanId,
+      nextTrialEnds,
       schoolId
     ).run();
+
+  // Also sync subscription plan & trial_ends_at if modified
+  if (body.planId || body.trialEndsAt !== undefined) {
+    const plan = await loadSubscriptionPlanById(db, nextPlanId);
+    const planName = plan ? plan.name : (nextPlanId === 'trial' ? '7-दिन फ्री ट्रायल' : nextPlanId);
+    const subStatus = nextStatus === 'Suspended' ? 'Past_Due' : (nextPlanId === 'trial' ? 'Trial' : 'Active');
+    await db.prepare('UPDATE school_subscriptions SET plan_id=?, plan_name=?, status=?, trial_ends_at=?, updated_at=? WHERE school_id=?')
+      .bind(nextPlanId, planName, subStatus, nextTrialEnds, new Date().toISOString(), schoolId).run();
+  }
 
   return c.json({ success: true, message: 'स्कूल की जानकारी अपडेट कर दी गई।' });
 });
