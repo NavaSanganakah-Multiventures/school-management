@@ -65,7 +65,10 @@ async function main() {
   const ghToken = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   if (!token || !accountId) throw new Error('CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set');
   if (!repo) throw new Error('GITHUB_REPOSITORY must be set (owner/repo)');
-  if (!ghToken) throw new Error('GH_TOKEN (or GITHUB_TOKEN) must be set — a PAT with repo/admin scope');
+  if (!ghToken) {
+    console.warn('⚠️ GH_TOKEN (or GITHUB_TOKEN) is not set — skipping secrets sync.');
+    return;
+  }
 
   const synced = [];
   const missing = [];
