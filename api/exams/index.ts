@@ -19,6 +19,7 @@ examsApp.get('/', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
 
   let rows = await db.prepare('SELECT * FROM exams WHERE school_id = ? ORDER BY start_date ASC').bind(schoolId).all();
@@ -95,6 +96,7 @@ examsApp.get('/marks', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   const studentId = c.req.query('studentId');
   const examId = c.req.query('examId');
@@ -237,6 +239,7 @@ examsApp.get('/report-card/:studentId', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   const studentId = c.req.param('studentId');
   const examId = c.req.query('examId');
@@ -378,6 +381,7 @@ examsApp.get('/:examId/subjects', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   const examId = c.req.param('examId');
 
@@ -432,6 +436,8 @@ examsApp.post('/:examId/subjects', async (c) => {
 examsApp.get('/templates', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
 
   const templates = await db.prepare(
     'SELECT * FROM report_card_templates WHERE is_active = 1 ORDER BY is_default DESC, template_name ASC'
@@ -445,6 +451,7 @@ examsApp.get('/school-preferences', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
 
   let prefs = await db.prepare('SELECT * FROM school_preferences WHERE school_id = ?').bind(schoolId).first();
@@ -515,6 +522,7 @@ examsApp.get('/analytics/:examId', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   const examId = c.req.param('examId');
   const dateRange = c.req.query('dateRange') || 'monthly';

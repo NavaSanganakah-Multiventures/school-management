@@ -64,6 +64,7 @@ billingApp.get('/subscription', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   const subRow = await db.prepare('SELECT * FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
   const tenant = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
@@ -147,13 +148,18 @@ billingApp.post('/subscribe', async (c) => {
   const order = await createRazorpayOrder(c, total, receipt);
   if (order.error) return c.json({ success: false, message: order.error }, 400);
 
-  const invoiceNumber = 'VS-INV-' + Date.now().toString().slice(-6);
+  const invoiceNumber = 'VS-INV-' + Date.now() + '-' + (crypto.randomUUID().split('-').join('').slice(0, 8));
   const now = new Date().toISOString();
 
-  await db.prepare('UPDATE school_subscriptions SET razorpay_order_id = ?, updated_at = ? WHERE school_id = ?').bind(order.id, now, schoolId).run();
-
-  await db.prepare('INSERT INTO billing_invoices (id, school_id, invoice_number, description, plan_name, billing_cycle, subtotal, gst_percent, gst_amount, total_amount, payment_status, payment_method, transaction_id, invoice_date, due_date, paid_at, razorpay_order_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind('binv-' + Date.now(), schoolId, invoiceNumber, plan.name + ' सदस्यता', plan.name, billingCycle, amount, 18, gst, total, 'Processing', 'Razorpay', '', now.split('T')[0], now.split('T')[0], '', order.id).run();
+  try {
+    await db.batch([
+      db.prepare('UPDATE school_subscriptions SET razorpay_order_id = ?, updated_at = ? WHERE school_id = ?').bind(order.id, now, schoolId),
+      db.prepare('INSERT INTO billing_invoices (id, school_id, invoice_number, description, plan_name, billing_cycle, subtotal, gst_percent, gst_amount, total_amount, payment_status, payment_method, transaction_id, invoice_date, due_date, paid_at, razorpay_order_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind('binv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), schoolId, invoiceNumber, plan.name + ' सदस्यता', plan.name, billingCycle, amount, 18, gst, total, 'Processing', 'Razorpay', '', now.split('T')[0], now.split('T')[0], '', order.id),
+    ]);
+  } catch (invErr: any) {
+    return c.json({ success: false, message: 'चालान बनाते समय त्रुटि। कृपया पुनः प्रयास करें।' }, 500);
+  }
 
   return c.json({
     success: true,
@@ -170,12 +176,11 @@ billingApp.post('/razorpay/verify', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const body = await c.req.json().catch(() => ({}));
   const razorpay_order_id = body.razorpay_order_id;
   const razorpay_payment_id = body.razorpay_payment_id;
   const razorpay_signature = body.razorpay_signature;
-  const planId = body.planId;
-  const billingCycle = body.billingCycle || 'annual';
 
   if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
     return c.json({ success: false, message: 'पेमेंट विवरण अधूरा है।' }, 400);
@@ -185,24 +190,46 @@ billingApp.post('/razorpay/verify', async (c) => {
   const ok = await verifyRazorpaySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature, secret);
   if (!ok) return c.json({ success: false, message: 'पेमेंट सिग्नेचर वेरिफिकेशन विफल।' }, 400);
 
-  const schoolId = authUser ? (authUser.role === 'SuperAdmin' ? getRequestSchoolId(c, authUser) : authUser.schoolId) : getRequestSchoolId(c, null);
-  const subRow = await db.prepare('SELECT * FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+  const schoolId = authUser.role === 'SuperAdmin' ? getRequestSchoolId(c, authUser) : authUser.schoolId;
+  if (!schoolId) return c.json({ success: false, message: 'स्कूल पहचान नहीं हो सकी।' }, 400);
+
+  // Bind the activation to the order actually created for this school (not a body-supplied plan).
+  const invoice = await db.prepare('SELECT * FROM billing_invoices WHERE razorpay_order_id = ? AND school_id = ?').bind(razorpay_order_id, schoolId).first();
+  if (!invoice) {
+    return c.json({ success: false, message: 'यह ऑर्डर इस स्कूल से संबंधित नहीं है।' }, 400);
+  }
+  // Idempotency: a paid order must not be re-activated (prevents replays).
+  if (invoice.payment_status === 'Paid') {
+    return c.json({ success: true, message: 'यह भुगतान पहले ही सत्यापित हो चुका है।' });
+  }
+
+  const VALID_CYCLES = ['monthly', 'quarterly', 'annual'];
+  const billingCycle = VALID_CYCLES.indexOf(invoice.billing_cycle) !== -1 ? invoice.billing_cycle : 'annual';
   const allPlans = await loadSubscriptionPlans(db);
-  let plan = allPlans.find((p) => p.id === planId && !p.isTrial);
-  if (!plan && subRow) plan = allPlans.find((p) => p.id === subRow.plan_id && !p.isTrial);
+  // Identify the plan from what was actually ordered (invoice.plan_name), not the request body.
+  let plan = allPlans.find((p) => p.name === invoice.plan_name && !p.isTrial);
+  if (!plan) plan = allPlans.find((p) => body.planId && p.id === body.planId && !p.isTrial);
   if (!plan) plan = allPlans.find((p) => !p.isTrial);
   if (!plan) plan = SUBSCRIPTION_PLANS[1];
-  const amount = priceForPlan(plan, billingCycle);
+  // price_per_cycle must reflect what was paid (the stored subtotal), preventing upgrade fraud.
+  const amount = Number.isFinite(invoice.subtotal) && invoice.subtotal > 0 ? invoice.subtotal : priceForPlan(plan, billingCycle);
   const now = new Date().toISOString();
 
-  await db.prepare('UPDATE school_subscriptions SET plan_id=?, plan_name=?, billing_cycle=?, price_per_cycle=?, status=?, razorpay_order_id=?, razorpay_payment_id=?, razorpay_signature=?, trial_ends_at=?, updated_at=? WHERE school_id=?')
-    .bind(plan.id, plan.name, billingCycle, amount, 'Active', razorpay_order_id, razorpay_payment_id, razorpay_signature, '', now, schoolId).run();
-
-  await db.prepare('UPDATE school_tenants SET plan_id=?, status=?, registration_status=?, trial_ends_at=? WHERE id=?')
-    .bind(plan.id, 'Active', 'Approved', '', schoolId).run();
-
-  await db.prepare('UPDATE billing_invoices SET payment_status=?, razorpay_payment_id=?, transaction_id=?, paid_at=? WHERE razorpay_order_id=?')
-    .bind('Paid', razorpay_payment_id, razorpay_payment_id, now.split('T')[0] + ' ' + now.split('T')[1].slice(0, 8), razorpay_order_id).run();
+  // Atomically activate subscription + tenant + invoice so a partial failure can't leave a paid
+  // school in an inconsistent (Active subscription, Suspended tenant) state.
+  try {
+    await db.batch([
+      db.prepare('UPDATE school_subscriptions SET plan_id=?, plan_name=?, billing_cycle=?, price_per_cycle=?, status=?, razorpay_order_id=?, razorpay_payment_id=?, razorpay_signature=?, trial_ends_at=?, updated_at=? WHERE school_id=?')
+        .bind(plan.id, plan.name, billingCycle, amount, 'Active', razorpay_order_id, razorpay_payment_id, razorpay_signature, '', now, schoolId),
+      db.prepare('UPDATE school_tenants SET plan_id=?, status=?, registration_status=?, trial_ends_at=? WHERE id=?')
+        .bind(plan.id, 'Active', 'Approved', '', schoolId),
+      db.prepare('UPDATE billing_invoices SET payment_status=?, razorpay_payment_id=?, transaction_id=?, paid_at=? WHERE razorpay_order_id=?')
+        .bind('Paid', razorpay_payment_id, razorpay_payment_id, now.split('T')[0] + ' ' + now.split('T')[1].slice(0, 8), razorpay_order_id),
+    ]);
+  } catch (batchErr: any) {
+    console.error('[billing/verify] activation batch failed:', batchErr);
+    return c.json({ success: false, message: 'प्लान सक्रिय करते समय त्रुटि। कृपया सहायता से संपर्क करें।' }, 500);
+  }
 
   // Enterprise plan -> automatically provision a dedicated worker.
   let provisioning: any = null;
@@ -223,6 +250,7 @@ billingApp.get('/invoices', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   const rows = await db.prepare('SELECT * FROM billing_invoices WHERE school_id = ? ORDER BY invoice_date DESC').bind(schoolId).all();
   return c.json({ success: true, invoices: rows.results || [] });
@@ -233,6 +261,7 @@ billingApp.get('/schools', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   if (authUser && authUser.role === 'SuperAdmin') {
     const rows = await db.prepare('SELECT id, school_name, status, plan_id, trial_ends_at FROM school_tenants ORDER BY created_at DESC').all();
     return c.json({ success: true, schools: rows.results || [], currentSchoolId: '' });

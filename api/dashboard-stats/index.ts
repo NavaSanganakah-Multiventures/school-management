@@ -8,6 +8,7 @@ dashboardStatsApp.get('/', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   const today = new Date().toISOString().split('T')[0];
 

@@ -58,7 +58,7 @@ export async function processTrialExpirations(env: any, passedDb?: any): Promise
       `SELECT s.id, s.school_name, s.subdomain, s.custom_domain, s.contact_email, s.contact_phone,
               s.status, s.registration_status, s.plan_id, s.trial_ends_at, s.trial_expired_sent_at
        FROM school_tenants s
-       WHERE (s.plan_id = 'trial' OR s.status = 'Trial' OR s.registration_status = 'Trial_Expired')
+       WHERE (s.plan_id = 'trial' OR s.status = 'Trial')
          AND s.trial_ends_at IS NOT NULL
          AND s.trial_ends_at != ''
          AND s.trial_ends_at < ?
@@ -69,18 +69,18 @@ export async function processTrialExpirations(env: any, passedDb?: any): Promise
     checkedCount += expiredSchools.length;
 
     for (const school of expiredSchools) {
-      // 1. Update status to Suspended and Trial_Expired in DB
-      await db.prepare(
-        `UPDATE school_tenants 
-         SET status = 'Suspended', registration_status = 'Trial_Expired'
-         WHERE id = ?`
-      ).bind(school.id).run();
-
-      await db.prepare(
-        `UPDATE school_subscriptions
-         SET status = 'Expired', updated_at = ?
-         WHERE school_id = ?`
-      ).bind(nowIso, school.id).run();
+      // 1. Update status to Suspended and Trial_Expired in DB (atomic pair)
+      // NOTE: school_subscriptions.status is CHECK-constrained to ('Active','Past_Due','Canceled','Trial'),
+      // so we use 'Past_Due' for a lapsed/expired trial (never 'Expired' — that throws a constraint violation).
+      try {
+        await db.batch([
+          db.prepare(`UPDATE school_tenants SET status = 'Suspended', registration_status = 'Trial_Expired' WHERE id = ?`).bind(school.id),
+          db.prepare(`UPDATE school_subscriptions SET status = 'Past_Due', updated_at = ? WHERE school_id = ?`).bind(nowIso, school.id),
+        ]);
+      } catch (updErr) {
+        console.error('[TrialProcessor] Failed to mark school expired:', school.id, updErr);
+        continue;
+      }
 
       // 2. Send notification if not already sent
       if (!school.trial_expired_sent_at) {
@@ -290,32 +290,26 @@ export async function checkSingleSchoolTrialStatus(
   if (!trialEndsAt) return { isExpired: false, trialEndsAt: '' };
 
   const todayStr = new Date().toISOString().split('T')[0];
-  const isPlanTrial = school.plan_id === 'trial' || school.status === 'Trial' || school.registration_status === 'Trial_Expired';
+  const isPlanTrial = school.plan_id === 'trial' || school.status === 'Trial';
 
   if (isPlanTrial && trialEndsAt < todayStr) {
     // School trial has expired
     const nowIso = new Date().toISOString();
 
-    // Mark as suspended / expired if not already done
+    // Mark as suspended / expired if not already done (single-school only — no global side effects on a read).
+    // Use 'Past_Due' for the subscription (CHECK-constrained; 'Expired' would throw).
     if (school.status !== 'Suspended' || school.registration_status !== 'Trial_Expired') {
       try {
-        await db.prepare(
-          `UPDATE school_tenants SET status = 'Suspended', registration_status = 'Trial_Expired' WHERE id = ?`
-        ).bind(school.id).run();
-
-        await db.prepare(
-          `UPDATE school_subscriptions SET status = 'Expired', updated_at = ? WHERE school_id = ?`
-        ).bind(nowIso, school.id).run();
+        await db.batch([
+          db.prepare(`UPDATE school_tenants SET status = 'Suspended', registration_status = 'Trial_Expired' WHERE id = ?`).bind(school.id),
+          db.prepare(`UPDATE school_subscriptions SET status = 'Past_Due', updated_at = ? WHERE school_id = ?`).bind(nowIso, school.id),
+        ]);
       } catch (e) {
         console.error('[checkSingleSchoolTrialStatus] update failed:', e);
       }
     }
 
-    // Trigger notification if not sent
-    if (!school.trial_expired_sent_at && env) {
-      // Run asynchronously so we do not block response
-      processTrialExpirations(env, db).catch((e) => console.error('[TrialAsync] failed:', e));
-    }
+    // Notification sending (emails/push/notices) is handled by the scheduled cron, not by this read path.
 
     return { isExpired: true, trialEndsAt };
   }

@@ -100,7 +100,13 @@ function camelToWrite(body: any) {
 }
 
 async function writeStudent(db: any, schoolId: any, id: any, v: any) {
-  await db.prepare('INSERT OR REPLACE INTO students (id, roll_number, first_name, last_name, class_id, class_name, section, gender, dob, parent_name, parent_phone, email, address, blood_group, avatar_url, admission_date, status, school_id, scholar_number, father_name, father_occupation, mother_name, category, religion, aadhaar_number, samagra_id, whatsapp_number, current_address, permanent_address, previous_school, previous_tc_no, bank_account_no, bank_name, ifsc_code, tc_issue_date, remarks, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+  // Use INSERT ... ON CONFLICT(id) DO UPDATE instead of INSERT OR REPLACE so that
+  // columns NOT listed here (created_at, missing_details) are preserved on edits
+  // instead of being wiped by a delete-then-insert.
+  await db.prepare(
+    'INSERT INTO students (id, roll_number, first_name, last_name, class_id, class_name, section, gender, dob, parent_name, parent_phone, email, address, blood_group, avatar_url, admission_date, status, school_id, scholar_number, father_name, father_occupation, mother_name, category, religion, aadhaar_number, samagra_id, whatsapp_number, current_address, permanent_address, previous_school, previous_tc_no, bank_account_no, bank_name, ifsc_code, tc_issue_date, remarks, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ' +
+    'ON CONFLICT(id) DO UPDATE SET roll_number=excluded.roll_number, first_name=excluded.first_name, last_name=excluded.last_name, class_id=excluded.class_id, class_name=excluded.class_name, section=excluded.section, gender=excluded.gender, dob=excluded.dob, parent_name=excluded.parent_name, parent_phone=excluded.parent_phone, email=excluded.email, address=excluded.address, blood_group=excluded.blood_group, avatar_url=excluded.avatar_url, admission_date=excluded.admission_date, status=excluded.status, school_id=excluded.school_id, scholar_number=excluded.scholar_number, father_name=excluded.father_name, father_occupation=excluded.father_occupation, mother_name=excluded.mother_name, category=excluded.category, religion=excluded.religion, aadhaar_number=excluded.aadhaar_number, samagra_id=excluded.samagra_id, whatsapp_number=excluded.whatsapp_number, current_address=excluded.current_address, permanent_address=excluded.permanent_address, previous_school=excluded.previous_school, previous_tc_no=excluded.previous_tc_no, bank_account_no=excluded.bank_account_no, bank_name=excluded.bank_name, ifsc_code=excluded.ifsc_code, tc_issue_date=excluded.tc_issue_date, remarks=excluded.remarks, updated_at=excluded.updated_at'
+  )
     .bind(id, v.rollNumber, v.first, v.last, v.classId, v.className, v.section, v.gender, v.dob, v.parentName, v.parentPhone, v.email, v.address, v.bloodGroup, '', v.admissionDate, v.status, schoolId, v.scholarNumber, v.fatherName, v.fatherOccupation, v.motherName, v.category, v.religion, v.aadhaarNumber, v.samagraId, v.whatsappNumber, v.currentAddress, v.permanentAddress, v.previousSchool, v.previousTcNo, v.bankAccountNo, v.bankName, v.ifscCode, v.tcIssueDate, v.remarks, new Date().toISOString())
     .run();
 }
@@ -110,6 +116,7 @@ studentsApp.get('/', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   const className = c.req.query('class');
   const status = c.req.query('status');
@@ -142,6 +149,7 @@ studentsApp.get('/:id', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   const id = c.req.param('id');
   const row = await db.prepare('SELECT * FROM students WHERE school_id = ? AND (id = ? OR scholar_number = ?)').bind(schoolId, id, id).first();

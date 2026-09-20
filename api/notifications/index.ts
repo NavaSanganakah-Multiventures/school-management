@@ -332,6 +332,10 @@ async function broadcastHandler(c: any) {
 
   const authUser = await getAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  // Broadcasts are an admin-level action: only Director/Principal/SuperAdmin may push school-wide alerts.
+  if (authUser.role !== 'Director' && authUser.role !== 'Principal' && authUser.role !== 'SuperAdmin') {
+    return c.json({ success: false, message: 'केवल निदेशक/प्रधानाचार्य ही स्कूल-व्यापी अलर्ट प्रेषित कर सकते हैं।' }, 403);
+  }
 
   const body = await c.req.json().catch(() => ({}));
   const title = body.title;
@@ -340,7 +344,9 @@ async function broadcastHandler(c: any) {
     return c.json({ success: false, message: 'शीर्षक और संदेश विवरण आवश्यक हैं।' }, 400);
   }
 
-  const activeSchoolId = body.schoolId || getRequestSchoolId(c, authUser);
+  // Do NOT trust a body-supplied schoolId (would allow cross-tenant broadcast). SuperAdmin can still
+  // target another school via the X-School-Id header, which getRequestSchoolId honors for SuperAdmin.
+  const activeSchoolId = getRequestSchoolId(c, authUser);
   const result = await broadcastAlert(db, c.env, {
     title: title,
     body: messageBody,
@@ -383,6 +389,7 @@ notificationsApp.get('/topics', async (c) => {
 notificationsApp.get('/history', async (c) => {
   const db = getDB(c);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   if (!db) return c.json({ success: false, history: [], message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
 
@@ -414,14 +421,17 @@ function safeJson(raw: string): any {
 notificationsApp.post('/register-token', async (c) => {
   const db = getDB(c);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const body = await c.req.json().catch(() => ({}));
   const token = body.token || body.deviceToken || body.fcmToken;
 
   if (!token) return c.json({ success: false, message: 'डिवाइस टोकन आवश्यक है।' }, 400);
 
-  const schoolId = body.schoolId || getRequestSchoolId(c, authUser) || 'school-01';
-  const role = body.role || (authUser && authUser.role) || 'Staff';
-  const userId = body.userId || (authUser && (authUser.sub || authUser.id || authUser.userId)) || 'anonymous';
+  // Derive identity from the authenticated session; never trust body-supplied school/role/user
+  // (otherwise a caller could register a device under another tenant / spoof a Director role).
+  const schoolId = getRequestSchoolId(c, authUser);
+  const role = authUser.role || 'Staff';
+  const userId = authUser.sub || authUser.id || authUser.userId || 'anonymous';
   const deviceType = body.deviceType || (body.platform === 'flutter' ? 'mobile_app' : 'web');
   const platform = body.platform || (deviceType === 'web' ? 'web' : 'flutter');
   const topics = Array.isArray(body.topics) && body.topics.length > 0
@@ -485,11 +495,12 @@ notificationsApp.post('/register-token', async (c) => {
 notificationsApp.post('/register-client', async (c) => {
   const db = getDB(c);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const body = await c.req.json().catch(() => ({}));
 
-  const schoolId = body.schoolId || getRequestSchoolId(c, authUser) || 'school-01';
-  const role = body.role || (authUser && authUser.role) || 'Staff';
-  const userId = body.userId || (authUser && (authUser.sub || authUser.id || authUser.userId)) || 'anonymous';
+  const schoolId = getRequestSchoolId(c, authUser);
+  const role = authUser.role || 'Staff';
+  const userId = authUser.sub || authUser.id || authUser.userId || 'anonymous';
   const deviceType = body.deviceType || 'web';
   const platform = body.platform || 'web';
   const topics = Array.isArray(body.topics) && body.topics.length > 0
@@ -547,6 +558,7 @@ notificationsApp.post('/register-client', async (c) => {
 notificationsApp.post('/register-web-push', async (c) => {
   const db = getDB(c);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const body = await c.req.json().catch(() => ({}));
 
   const subscription = body.subscription || {};
@@ -559,9 +571,9 @@ notificationsApp.post('/register-web-push', async (c) => {
     return c.json({ success: false, message: 'PushSubscription (endpoint, p256dh, auth) आवश्यक है।' }, 400);
   }
 
-  const schoolId = body.schoolId || getRequestSchoolId(c, authUser) || 'school-01';
-  const role = body.role || (authUser && authUser.role) || 'Staff';
-  const userId = body.userId || (authUser && (authUser.sub || authUser.id || authUser.userId)) || 'anonymous';
+  const schoolId = getRequestSchoolId(c, authUser);
+  const role = authUser.role || 'Staff';
+  const userId = authUser.sub || authUser.id || authUser.userId || 'anonymous';
   const topics = Array.isArray(body.topics) && body.topics.length > 0
     ? body.topics
     : derivedTopics(schoolId, role);
@@ -612,7 +624,11 @@ notificationsApp.post('/register-web-push', async (c) => {
 notificationsApp.get('/devices', async (c) => {
   const db = getDB(c);
   const authUser = await getAuthUser(c);
-  const schoolId = c.req.query('schoolId') || getRequestSchoolId(c, authUser) || 'school-01';
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  if (authUser.role !== 'Director' && authUser.role !== 'Principal' && authUser.role !== 'SuperAdmin') {
+    return c.json({ success: false, message: 'अनधिकृत पहुँच।' }, 403);
+  }
+  const schoolId = getRequestSchoolId(c, authUser);
 
   if (!db) {
     return c.json({ success: true, schoolId, totalCount: 0, webCount: 0, mobileCount: 0, devices: [] });

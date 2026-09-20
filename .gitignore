@@ -10,3 +10,4 @@ out/
 .wrangler/
 wrangler-*.toml
 wrangler-*.secrets.json
+.dev.vars

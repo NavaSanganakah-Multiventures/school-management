@@ -30,6 +30,7 @@ feesApp.get('/', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   const status = c.req.query('status');
   const search = (c.req.query('q') || '').toLowerCase();
@@ -72,7 +73,19 @@ feesApp.post('/pay', async (c) => {
   const row = await db.prepare('SELECT * FROM fee_invoices WHERE school_id = ? AND id = ?').bind(schoolId, invoiceId).first();
   if (!row) return c.json({ success: false, message: 'चालान नहीं मिला।' }, 404);
 
-  const payAmt = Number(body.amount) || (row.total_amount - row.paid_amount);
+  const remaining = row.total_amount - row.paid_amount;
+  let payAmt: number;
+  if (body.amount === undefined || body.amount === null || body.amount === '') {
+    payAmt = remaining;
+  } else {
+    payAmt = Number(body.amount);
+  }
+  if (!Number.isFinite(payAmt) || payAmt <= 0) {
+    return c.json({ success: false, message: 'भुगतान राशि धनात्मक संख्या होनी चाहिए।' }, 400);
+  }
+  if (payAmt > remaining + 1e-9) {
+    return c.json({ success: false, message: 'भुगतान राशि शेष राशि से अधिक नहीं हो सकती (शेष: ₹' + remaining.toLocaleString('en-IN') + ')।' }, 400);
+  }
   const newPaid = Math.min(row.total_amount, row.paid_amount + payAmt);
   const newStatus = newPaid >= row.total_amount ? 'Paid' : 'Partial';
   const method = body.paymentMethod || 'Cash';
@@ -95,8 +108,12 @@ feesApp.post('/create-invoice', async (c) => {
   const schoolId = getRequestSchoolId(c, authUser);
   const body = await c.req.json().catch(() => ({}));
 
-  if (!body.studentName || !body.totalAmount || !body.title) {
-    return c.json({ success: false, message: 'छात्र का नाम, शीर्षक और कुल राशि अनिवार्य हैं।' }, 400);
+  if (!body.studentName || !body.title) {
+    return c.json({ success: false, message: 'छात्र का नाम और शीर्षक अनिवार्यक हैं।' }, 400);
+  }
+  const totalAmount = Number(body.totalAmount);
+  if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+    return c.json({ success: false, message: 'कुल राशि धनात्मक संख्या होनी चाहिए।' }, 400);
   }
 
   let scholarNumber = body.scholarNumber || '';
@@ -137,8 +154,11 @@ feesApp.post('/create-bulk', async (c) => {
   const totalAmount = Number(body.totalAmount);
   const dueDate = body.dueDate || new Date().toISOString().split('T')[0];
 
-  if (!className || !title || !totalAmount) {
-    return c.json({ success: false, message: 'कक्षा, शीर्षक एवं राशि अनिवार्य हैं।' }, 400);
+  if (!className || !title) {
+    return c.json({ success: false, message: 'कक्षा और शीर्षक अनिवार्यक हैं।' }, 400);
+  }
+  if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+    return c.json({ success: false, message: 'राशि धनात्मक संख्या होनी चाहिए।' }, 400);
   }
 
   const studentsResult = await db.prepare(

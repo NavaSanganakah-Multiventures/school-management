@@ -193,6 +193,10 @@ lmsApp.post('/courses/:id/lessons', async (c) => {
 
   if (!title) return c.json({ success: false, message: 'पाठ का शीर्षक अनिवार्य है।' }, 400);
 
+  // Verify the course belongs to this school before attaching a lesson to it.
+  const course = await db.prepare('SELECT id FROM lms_courses WHERE id = ? AND school_id = ?').bind(courseId, schoolId).first();
+  if (!course) return c.json({ success: false, message: 'कोर्स नहीं मिला।' }, 404);
+
   const lessonId = `lsn-${crypto.randomUUID()}`;
 
   try {
@@ -238,6 +242,10 @@ lmsApp.post('/courses/:id/assignments', async (c) => {
   if (!title || !dueDate) {
     return c.json({ success: false, message: 'असाइनमेंट शीर्षक एवं अंतिम तिथि अनिवार्य हैं।' }, 400);
   }
+
+  // Verify the course belongs to this school before attaching an assignment to it.
+  const course = await db.prepare('SELECT id FROM lms_courses WHERE id = ? AND school_id = ?').bind(courseId, schoolId).first();
+  if (!course) return c.json({ success: false, message: 'कोर्स नहीं मिला।' }, 404);
 
   const assignmentId = `asg-${crypto.randomUUID()}`;
   const parsedTargetType = targetType || 'all';
@@ -309,6 +317,10 @@ lmsApp.post('/assignments/:id/submit', async (c) => {
 
   const body = await c.req.json().catch(() => ({}));
   const { submissionText, attachmentUrl, studentName } = body;
+
+  // Verify the assignment belongs to this school before accepting a submission.
+  const assignment = await db.prepare('SELECT id FROM lms_assignments WHERE id = ? AND school_id = ?').bind(assignmentId, schoolId).first();
+  if (!assignment) return c.json({ success: false, message: 'असाइनमेंट नहीं मिला।' }, 404);
 
   const submissionId = `subm-${crypto.randomUUID()}`;
 

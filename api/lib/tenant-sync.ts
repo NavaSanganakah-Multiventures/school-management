@@ -147,12 +147,17 @@ export async function syncTenantFromPlatform(c: any, targetSchoolId?: string): P
     }
 
     // 3) Sync school_tenants (if present in payload)
+    // Use ON CONFLICT upsert limited to synced columns so that local provisioning
+    // metadata (deleted_at, dedicated_slug/domain, d1_database_id, r2_bucket_name,
+    // kv_namespace_id, provisioned_at, provisioning_status/error, trial_reminder_sent_at,
+    // trial_expired_sent_at, estimated_*, preferred_plan_id, custom_requirements) is preserved.
     if (data.tenant) {
       const t = data.tenant;
       try {
         await db.prepare(
-          'INSERT OR REPLACE INTO school_tenants (id, school_name, subdomain, custom_domain, contact_email, contact_phone, status, registration_status, plan_id, trial_ends_at, approved_at, approved_by, created_at) '
-          + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO school_tenants (id, school_name, subdomain, custom_domain, contact_email, contact_phone, status, registration_status, plan_id, trial_ends_at, approved_at, approved_by, created_at) '
+          + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+          + 'ON CONFLICT(id) DO UPDATE SET school_name=excluded.school_name, subdomain=excluded.subdomain, custom_domain=excluded.custom_domain, contact_email=excluded.contact_email, contact_phone=excluded.contact_phone, status=excluded.status, registration_status=excluded.registration_status, plan_id=excluded.plan_id, trial_ends_at=excluded.trial_ends_at, approved_at=excluded.approved_at, approved_by=excluded.approved_by'
         ).bind(
           t.id || schoolId,
           t.school_name || env.SCHOOL_NAME || '',
@@ -174,12 +179,15 @@ export async function syncTenantFromPlatform(c: any, targetSchoolId?: string): P
     }
 
     // 4) Sync school_subscriptions (if present in payload)
+    // ON CONFLICT upsert preserves razorpay_order_id/payment_id/signature and email_quota_*
+    // columns that would otherwise be wiped by INSERT OR REPLACE.
     if (data.subscription) {
       const s = data.subscription;
       try {
         await db.prepare(
-          'INSERT OR REPLACE INTO school_subscriptions (id, school_id, plan_id, plan_name, billing_cycle, price_per_cycle, discount_percent, status, auto_pay_enabled, payment_method, mandate_id, next_billing_date, period_start, period_end, trial_ends_at, updated_at) '
-          + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO school_subscriptions (id, school_id, plan_id, plan_name, billing_cycle, price_per_cycle, discount_percent, status, auto_pay_enabled, payment_method, mandate_id, next_billing_date, period_start, period_end, trial_ends_at, updated_at) '
+          + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+          + 'ON CONFLICT(id) DO UPDATE SET plan_id=excluded.plan_id, plan_name=excluded.plan_name, billing_cycle=excluded.billing_cycle, price_per_cycle=excluded.price_per_cycle, discount_percent=excluded.discount_percent, status=excluded.status, auto_pay_enabled=excluded.auto_pay_enabled, payment_method=excluded.payment_method, mandate_id=excluded.mandate_id, next_billing_date=excluded.next_billing_date, period_start=excluded.period_start, period_end=excluded.period_end, trial_ends_at=excluded.trial_ends_at, updated_at=excluded.updated_at'
         ).bind(
           s.id || ('sub-' + Date.now()),
           schoolId,

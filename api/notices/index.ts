@@ -34,6 +34,7 @@ noticesApp.get('/', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   const category = c.req.query('category');
   const rows = await db.prepare('SELECT * FROM notices WHERE school_id = ? ORDER BY published_date DESC').bind(schoolId).all();

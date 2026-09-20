@@ -14,12 +14,12 @@ leaveApp.get('/', async (c) => {
   const schoolId = getRequestSchoolId(c, authUser);
 
   const leaves = await db.prepare(
-    `SELECT l.*, s.first_name, s.last_name, s.class_name, s.section, s.roll_number 
-     FROM leave_applications l 
-     JOIN students s ON l.student_id = s.id 
-     WHERE l.school_id = ? 
+    `SELECT l.*, s.first_name, s.last_name, s.class_name, s.section, s.roll_number
+     FROM leave_applications l
+     JOIN students s ON l.student_id = s.id
+     WHERE l.school_id = ? AND s.school_id = ?
      ORDER BY l.created_at DESC`
-  ).bind(schoolId).all();
+  ).bind(schoolId, schoolId).all();
 
   return c.json({ success: true, leaveApplications: leaves.results || [] });
 });
@@ -34,6 +34,12 @@ leaveApp.post('/', async (c) => {
 
   if (!body.studentId || !body.startDate || !body.endDate || !body.reason) {
     return c.json({ success: false, message: 'छात्र ID, दिनांक और कारण आवश्यक हैं।' }, 400);
+  }
+
+  // Verify the student belongs to this school before referencing it (prevents cross-tenant references).
+  const student = await db.prepare('SELECT id FROM students WHERE id = ? AND school_id = ?').bind(body.studentId, schoolId).first();
+  if (!student) {
+    return c.json({ success: false, message: 'छात्र आपके स्कूल में नहीं मिला।' }, 404);
   }
 
   const id = `lv-${crypto.randomUUID()}`;

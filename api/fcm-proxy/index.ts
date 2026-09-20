@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { isFcmConfigured, sendFcmMessage, isRealFcmToken, type FcmMessage, type FcmSendResult } from '../lib/fcm';
 import { isWebPushConfigured, sendWebPushNotification } from '../lib/webpush';
+import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 
 const app = new Hono<{ Bindings: any }>();
 
@@ -29,6 +30,9 @@ app.post('/register-token', async (c) => {
   console.log('[FCM] Register token request received');
 
   try {
+    const authUser = await getAuthUser(c);
+    if (!authUser) return c.json({ error: 'लॉगिन आवश्यक है।' }, 401);
+
     let requestBody;
     try {
       requestBody = await c.req.json();
@@ -41,10 +45,13 @@ app.post('/register-token', async (c) => {
       }, 400);
     }
 
-    const { userId, deviceInfo } = requestBody;
+    const { deviceInfo } = requestBody;
     const rawToken = requestBody.fcmToken || requestBody.token || requestBody.deviceToken;
-    const schoolId = requestBody.schoolId || 'school-01';
-    const role = requestBody.role || 'Staff';
+    // Identity must come from the authenticated session, not the request body, to prevent
+    // cross-tenant token registration / role spoofing.
+    const schoolId = getRequestSchoolId(c, authUser);
+    const role = authUser.role || 'Staff';
+    const userId = authUser.sub || authUser.id || requestBody.userId || '';
     const deviceType = requestBody.deviceType || (requestBody.platform === 'flutter' ? 'mobile_app' : 'web');
     const platform = requestBody.platform || (deviceType === 'web' ? 'web' : 'flutter');
     const topics = Array.isArray(requestBody.topics) && requestBody.topics.length > 0
@@ -216,10 +223,19 @@ app.post('/register-token', async (c) => {
  */
 app.post('/test-notification', async (c) => {
   try {
-    const { userId, title, body } = await c.req.json();
+    const authUser = await getAuthUser(c);
+    if (!authUser) return c.json({ error: 'लॉगिन आवश्यक है।' }, 401);
+    const schoolId = getRequestSchoolId(c, authUser);
 
-    if (!userId) {
+    const { userId: bodyUserId, title, body } = await c.req.json();
+
+    // Only the caller may test their own device, or a Director/Principal may test any user in their school.
+    const targetUserId = bodyUserId || authUser.sub || authUser.id || '';
+    if (!targetUserId) {
       return c.json({ error: 'userId required' }, 400);
+    }
+    if (targetUserId !== (authUser.sub || authUser.id) && authUser.role !== 'Director' && authUser.role !== 'Principal' && authUser.role !== 'SuperAdmin') {
+      return c.json({ error: 'आप केवल अपना ही डिवाइस टेस्ट कर सकते हैं।' }, 403);
     }
 
     const fcmConfigured = isFcmConfigured(c.env);
@@ -234,21 +250,21 @@ app.post('/test-notification', async (c) => {
 
     const db = c.env.DB;
 
-    // 1. Find real FCM mobile tokens for this user
+    // 1. Find real FCM mobile tokens for this user (scoped to the caller's school)
     let tokens: any = db ? await db.prepare(
       "SELECT device_token FROM user_notification_tokens " +
-      "WHERE user_id = ? AND platform = 'web' " +
+      "WHERE user_id = ? AND school_id = ? AND platform = 'web' " +
       "ORDER BY updated_at DESC " +
       "LIMIT 5"
-    ).bind(String(userId)).all().catch(() => ({ results: [] })) : { results: [] };
+    ).bind(String(targetUserId), schoolId).all().catch(() => ({ results: [] })) : { results: [] };
 
     if (!tokens.results || tokens.results.length === 0) {
       tokens = db ? await db.prepare(
         "SELECT device_token FROM fcm_device_tokens " +
-        "WHERE user_id = ? AND is_active = 1 " +
+        "WHERE user_id = ? AND school_id = ? AND is_active = 1 " +
         "ORDER BY last_seen_at DESC " +
         "LIMIT 5"
-      ).bind(String(userId)).all().catch(() => ({ results: [] })) : { results: [] };
+      ).bind(String(targetUserId), schoolId).all().catch(() => ({ results: [] })) : { results: [] };
     }
 
     const realTokens = (tokens.results || [])
@@ -259,10 +275,10 @@ app.post('/test-notification', async (c) => {
     if (realTokens.length === 0) {
       const webSubs = db ? await db.prepare(
         "SELECT id, endpoint, p256dh, auth FROM web_push_subscriptions " +
-        "WHERE user_id = ? AND is_active = 1 " +
+        "WHERE user_id = ? AND school_id = ? AND is_active = 1 " +
         "ORDER BY last_seen_at DESC " +
         "LIMIT 5"
-      ).bind(String(userId)).all().catch(() => ({ results: [] })) : { results: [] };
+      ).bind(String(targetUserId), schoolId).all().catch(() => ({ results: [] })) : { results: [] };
 
       if ((webSubs.results || []).length > 0) {
         if (!webPushConfigured) {
@@ -283,7 +299,7 @@ app.post('/test-notification', async (c) => {
               title: title || '🔔 Test Notification (Web Push)',
               body: body || 'Native Web Push पूरी तरह काम कर रहा है!',
             },
-            data: { test: 'true', userId: String(userId), timestamp: new Date().toISOString() },
+            data: { test: 'true', userId: String(targetUserId), timestamp: new Date().toISOString() },
           });
           results.push(r);
         }
@@ -306,7 +322,7 @@ app.post('/test-notification', async (c) => {
         }, 404);
       }
 
-      const testTopic = 'school_school-01_all';
+      const testTopic = 'school_' + schoolId + '_all';
       const topicMsg: FcmMessage = {
         topic: testTopic,
         notification: {
@@ -315,7 +331,7 @@ app.post('/test-notification', async (c) => {
         },
         data: {
           test: 'true',
-          userId: String(userId),
+          userId: String(targetUserId),
           timestamp: new Date().toISOString()
         }
       };
