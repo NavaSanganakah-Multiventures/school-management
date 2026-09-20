@@ -48,7 +48,9 @@ async function cf(url, { method = 'GET', body } = {}) {
 
   if (!response.ok || json.success === false) {
     const status = response.status;
-    const detail = (json.errors || []).concat(json.messages || []);
+    const errors = Array.isArray(json.errors) ? json.errors : [];
+    const messages = Array.isArray(json.messages) ? json.messages : [];
+    const detail = errors.concat(messages);
     return { ok: false, status, errors: detail, result: null };
   }
   return { ok: true, status: response.status, result: json.result };
@@ -76,13 +78,17 @@ async function main() {
   const zoneName = process.env.CLOUDFLARE_ZONE_NAME || deriveZoneName(domain);
   console.log(`[Cleanup] Checking for legacy dispatcher routes in zone "${zoneName}"...`);
 
-  // 1. Resolve Zone ID
+  // 1. Resolve Zone ID (exact match required)
   const zoneRes = await cf(`${CF_API}/zones?name=${encodeURIComponent(zoneName)}&status=active`);
   if (!zoneRes.ok || !Array.isArray(zoneRes.result) || zoneRes.result.length === 0) {
     console.warn(`[Cleanup] ⚠️ Zone "${zoneName}" not found or token lacks zone permissions. Skipping route cleanup.`);
     return;
   }
-  const zone = zoneRes.result.find((z) => z.name === zoneName) || zoneRes.result[0];
+  const zone = zoneRes.result.find((z) => z.name === zoneName);
+  if (!zone) {
+    console.warn(`[Cleanup] ⚠️ Exact zone "${zoneName}" not found in Cloudflare account. Skipping route cleanup.`);
+    return;
+  }
   const zoneId = zone.id;
   console.log(`[Cleanup] Zone resolved: ${zone.name} (${zoneId})`);
 
@@ -90,10 +96,12 @@ async function main() {
   const routesRes = await cf(`${CF_API}/zones/${zoneId}/workers/routes`);
   if (routesRes.ok && Array.isArray(routesRes.result)) {
     const routes = routesRes.result;
+    const wildcardRoute = `*.${domain}/*`;
     for (const route of routes) {
+      // Only delete routes explicitly pointing to the legacy dispatcher script or the wildcard route assigned to it
       const isDispatcherRoute =
         route.script === 'school-management-dispatcher' ||
-        (route.pattern?.includes(domain) && route.script !== 'school-management');
+        (route.pattern === wildcardRoute && route.script !== 'school-management');
 
       if (isDispatcherRoute) {
         console.log(`[Cleanup] Deleting conflicting legacy route: ${route.pattern} -> ${route.script} (${route.id})`);
@@ -139,6 +147,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('[Cleanup] Fatal error during cleanup:', err.message);
-  // Do not exit with 1 — allow pipeline to attempt deploy
+  console.error('[Cleanup] Fatal error during cleanup:', err);
+  process.exit(1);
 });
