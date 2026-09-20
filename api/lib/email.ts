@@ -90,6 +90,9 @@ export interface NotificationEmailInput {
   subject: string;
   title?: string;
   message: string;
+  buttonText?: string;
+  buttonUrl?: string;
+  badge?: string;
 }
 
 export async function sendNotificationEmail(env: any, input: NotificationEmailInput): Promise<EmailSendResult> {
@@ -104,32 +107,47 @@ export async function sendNotificationEmail(env: any, input: NotificationEmailIn
   }
 
   const title = input.title || 'महत्वपूर्ण सूचना';
+  const badgeHtml = input.badge
+    ? '<span style="display:inline-block;padding:4px 10px;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:9999px;font-size:11px;font-weight:bold;margin-bottom:12px;">' + input.badge + '</span>'
+    : '';
+
+  const buttonHtml = input.buttonText && input.buttonUrl
+    ? '<p style="text-align:center;margin:28px 0;"><a href="' + input.buttonUrl + '" style="background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 26px;border-radius:10px;font-weight:bold;font-size:14px;display:inline-block;box-shadow:0 2px 4px rgba(79,70,229,0.25);">' + input.buttonText + '</a></p>'
+    : '';
+
   const html = [
-    '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1e293b;line-height:1.6">',
-    '<h1 style="font-size:20px;color:#e11d48;margin:0 0 16px;">Pragnya Mitra Alerts</h1>',
-    '<h2 style="font-size:16px;margin:0 0 12px;">' + title + '</h2>',
-    '<p style="font-size:14px;margin:0 0 24px;white-space:pre-wrap;">' + input.message + '</p>',
-    '<p style="font-size:12px;color:#cbd5e1;margin:0;border-top:1px solid #e2e8f0;padding-top:12px;">यह एक स्वचालित ईमेल है, कृपया इसका उत्तर न दें।</p>',
+    '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1e293b;line-height:1.6;border:1px solid #e2e8f0;border-radius:16px;background:#ffffff;">',
+    '<div style="margin-bottom:16px;border-bottom:1px solid #f1f5f9;padding-bottom:12px;">',
+    badgeHtml,
+    '<h1 style="font-size:20px;color:#4f46e5;margin:0 0 6px;">विद्या सेतु — स्कूल प्रबंधन</h1>',
+    '<h2 style="font-size:16px;margin:0;color:#0f172a;">' + title + '</h2>',
+    '</div>',
+    '<div style="font-size:14px;margin:0 0 20px;white-space:pre-wrap;color:#334155;">' + input.message + '</div>',
+    buttonHtml,
+    '<p style="font-size:12px;color:#94a3b8;margin:24px 0 0;border-top:1px solid #f1f5f9;padding-top:12px;">यह एक स्वचालित संदेश है। किसी भी सहायता के लिए संपर्क करें: pragnya@navasanganakah.com</p>',
     '</div>'
   ].join('');
 
-  const text = [
-    'Pragnya Mitra Alerts',
-    '',
+  const textLines = [
+    'विद्या सेतु — स्कूल प्रबंधन',
+    '----------------------------------------',
     title,
     '',
     input.message,
-    '',
-    'यह एक स्वचालित ईमेल है, कृपया इसका उत्तर न दें।'
-  ].join('\n');
+    ''
+  ];
+  if (input.buttonText && input.buttonUrl) {
+    textLines.push(input.buttonText + ': ' + input.buttonUrl, '');
+  }
+  textLines.push('यह एक स्वचालित संदेश है। सहायता: pragnya@navasanganakah.com');
 
   try {
     await binding.send({
       to: input.to,
-      from: { email: 'pragnya@navasanganakah.com', name: 'Pragnya Mitra Alerts' },
+      from: { email: 'pragnya@navasanganakah.com', name: 'VidyaSetu Alerts' },
       subject: input.subject,
       html: html,
-      text: text
+      text: textLines.join('\n')
     });
     return { sent: true };
   } catch (e: any) {

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getDB, loadSubscriptionPlans, loadSubscriptionPlanById, makeUniqueUsername } from '../db';
 import { getAuthUser, hashPassword } from '../lib/auth';
 import { sanitizeSlug, isSlugValid, provisionDedicatedWorker, deprovisionDedicatedWorker } from '../lib/provisioning';
+import { processTrialExpirations } from '../lib/trial-expiration';
 
 const adminApp = new Hono<{ Bindings: any }>();
 
@@ -326,6 +327,65 @@ adminApp.post('/registrations/reject', async (c) => {
   if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
   await db.prepare('UPDATE school_tenants SET status=?, registration_status=? WHERE id=?').bind('Suspended', 'Rejected', schoolId).run();
   return c.json({ success: true, message: 'स्कूल रजिस्ट्रेशन अस्वीकृत कर दिया गया।' });
+});
+
+// POST /api/admin/trial/process - सभी स्कूलों के ट्रायल समाप्ति व स्मरण ईमेल की त्वरित जांच
+adminApp.post('/trial/process', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  try {
+    const result = await processTrialExpirations(c.env, db);
+    return c.json({
+      success: true,
+      message: `ट्रायल जांच पूर्ण: ${result.checkedCount} स्कूल जांचे गए, ${result.remindersSent} स्मरण ईमेल भेजे गए, ${result.expirationsProcessed} समाप्त ट्रायल प्रोसेस किए गए।`,
+      result,
+    });
+  } catch (err: any) {
+    console.error('[Admin] processTrialExpirations failed:', err);
+    return c.json({ success: false, message: err?.message || 'ट्रायल प्रोसेसिंग विफल रही।' }, 500);
+  }
+});
+
+// POST /api/admin/trial/extend - स्कूल का ट्रायल +N दिन बढ़ाएं
+adminApp.post('/trial/extend', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  const days = Math.max(1, Math.min(60, Number(body.days) || 7));
+  if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
+
+  const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  if (!school) return c.json({ success: false, message: 'विद्यालय नहीं मिला।' }, 404);
+
+  const newTrialEnds = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const nowIso = new Date().toISOString();
+
+  await db.prepare(
+    `UPDATE school_tenants
+     SET status = 'Trial', registration_status = 'Approved', plan_id = 'trial',
+         trial_ends_at = ?, trial_reminder_sent_at = NULL, trial_expired_sent_at = NULL
+     WHERE id = ?`
+  ).bind(newTrialEnds, schoolId).run();
+
+  await db.prepare(
+    `UPDATE school_subscriptions
+     SET status = 'Trial', plan_id = 'trial', plan_name = '7-दिन फ्री ट्रायल',
+         trial_ends_at = ?, updated_at = ?
+     WHERE school_id = ?`
+  ).bind(newTrialEnds, nowIso, schoolId).run();
+
+  return c.json({
+    success: true,
+    message: `"${school.school_name}" का ट्रायल ${days} दिन बढ़ाकर ${newTrialEnds} कर दिया गया है।`,
+    newTrialEnds,
+  });
 });
 
 // GET /api/admin/feature-requests - सभी स्कूलों से प्राप्त विशेष आवश्यकताएं व फीचर अनुरोध

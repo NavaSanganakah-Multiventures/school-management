@@ -33,6 +33,10 @@ id = "393901911be84d558822c78070a82e94"
 [[send_email]]
 name = "SEND_EMAIL"
 
+# Scheduled Cron Trigger (Daily at 03:00 UTC / 08:30 AM IST for trial expiration processing)
+[triggers]
+crons = ["0 3 * * *"]
+
 [vars]
 ENVIRONMENT = "production"
 # FCM project id is derived from FCM_SERVICE_ACCOUNT_JSON.project_id (see api/lib/fcm.ts).

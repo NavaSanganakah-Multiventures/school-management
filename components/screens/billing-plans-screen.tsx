@@ -44,6 +44,7 @@ export function BillingPlansScreen(_props: { userRole: string; onOpenFcmModal?: 
   const [subscription, setSubscription] = useState<any>(null);
   const [planId, setPlanId] = useState('trial');
   const [trialEndsAt, setTrialEndsAt] = useState('');
+  const [isTrialExpired, setIsTrialExpired] = useState(false);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [buying, setBuying] = useState(false);
@@ -62,6 +63,7 @@ export function BillingPlansScreen(_props: { userRole: string; onOpenFcmModal?: 
         setSubscription(subRes.subscription || null);
         setPlanId(subRes.planId || 'trial');
         setTrialEndsAt(subRes.trialEndsAt || '');
+        setIsTrialExpired(!!subRes.isTrialExpired);
       }
       if (plansRes.success) {
         setPlans((plansRes.plans || []).filter((p: Plan) => p.id !== 'trial'));
@@ -148,7 +150,12 @@ export function BillingPlansScreen(_props: { userRole: string; onOpenFcmModal?: 
     }
   };
 
-  const statusLabel = subscription && subscription.status === 'Active' ? 'सक्रिय (पेड प्लान)' : 'ट्रायल';
+  const isExpired = isTrialExpired || (subscription && subscription.status === 'Expired');
+  const statusLabel = subscription && subscription.status === 'Active'
+    ? 'सक्रिय (पेड प्लान)'
+    : isExpired
+    ? '⚠️ ट्रायल समाप्त (Expired)'
+    : 'ट्रायल';
 
   return (
     <div className="space-y-6">
@@ -161,12 +168,30 @@ export function BillingPlansScreen(_props: { userRole: string; onOpenFcmModal?: 
         <div className={'p-3 rounded-xl border text-xs ' + (message.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-700')}>{message.text}</div>
       )}
 
+      {isExpired && (
+        <div className="p-4 rounded-2xl bg-rose-50 border-2 border-rose-300 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-rose-100 text-rose-700 shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-rose-950">
+                ⚠️ आपके स्कूल का 7-दिन का फ्री ट्रायल समाप्त हो गया है!
+              </div>
+              <div className="text-xs text-rose-800 mt-0.5 leading-relaxed">
+                छात्र, उपस्थिति, फीस और अन्य सभी शैक्षणिक सेवाएं अस्थायी रूप से रुकी हुई हैं। आपका समस्त स्कूल डेटा पूरी तरह सुरक्षित है। स्कूल का संचालन तुरंत बहाल करने के लिए कृपया नीचे दिया गया कोई एक प्लान चुनें और भुगतान पूरा करें।
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-16 text-slate-400 gap-2"><Loader2 className="w-5 h-5 animate-spin" /> लोड हो रहा है...</div>
       ) : (
         <>
           {/* Current subscription card */}
-          <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs">
+          <div className={'p-5 rounded-2xl bg-white border shadow-xs ' + (isExpired ? 'border-rose-300 ring-1 ring-rose-300' : 'border-slate-200')}>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <div className="text-xs font-bold text-slate-500 uppercase">वर्तमान सदस्यता</div>

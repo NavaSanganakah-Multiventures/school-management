@@ -41,6 +41,8 @@ interface SchoolRow {
   estimatedStaff?: number;
   preferredPlanId?: string;
   customRequirements?: string;
+  trialReminderSentAt?: string;
+  trialExpiredSentAt?: string;
 }
 
 interface FeatureRequestRow {
@@ -149,7 +151,7 @@ export function AdminConsoleScreen() {
 
   // School Search & Filter
   const [schoolSearch, setSchoolSearch] = useState('');
-  const [schoolStatusFilter, setSchoolStatusFilter] = useState<'all' | 'Active' | 'Trial' | 'Suspended'>('all');
+  const [schoolStatusFilter, setSchoolStatusFilter] = useState<'all' | 'Active' | 'Trial' | 'Suspended' | 'Expired'>('all');
   const [schoolDeliveryFilter, setSchoolDeliveryFilter] = useState<'all' | 'shared' | 'dedicated'>('all');
 
   // School Add & Edit Forms
@@ -322,6 +324,30 @@ export function AdminConsoleScreen() {
   };
 
   // Dedicated Worker provisioning actions
+  const runTrialProcess = async () => {
+    setBusyId('trial-process');
+    try {
+      const data = await post('/api/admin/trial/process', {});
+      if (data.success) {
+        flashSuccess(data.message || 'ट्रायल प्रोसेसिंग सफलतापूर्वक पूर्ण हुई।');
+        await loadData();
+      } else setErrorMsg(data.message || 'ट्रायल प्रोसेसिंग विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
+  const extendTrial = async (schoolId: string, days: number = 7) => {
+    setBusyId('extend-' + schoolId);
+    try {
+      const data = await post('/api/admin/trial/extend', { schoolId, days });
+      if (data.success) {
+        flashSuccess(data.message || 'ट्रायल सफलतापूर्वक बढ़ा दिया गया।');
+        await loadData();
+      } else setErrorMsg(data.message || 'ट्रायल विस्तार विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
   const startProvision = (s: SchoolRow) => {
     if (s.planId !== 'enterprise') {
       setErrorMsg(`"${s.schoolName}" वर्तमान में ${s.planName || s.planId} पर है। डेडीकेटेड वर्कर केवल एंटरप्राइज (Enterprise) प्लान के लिए उपलब्ध है। कृपया पहले स्कूल का प्लान 'एंटरप्राइज' में बदलें।`);
@@ -598,6 +624,12 @@ export function AdminConsoleScreen() {
     finally { setBusyId(null); }
   };
 
+  const todayStr = new Date().toISOString().split('T')[0];
+  const isSchoolExpired = (s: SchoolRow) => {
+    return (s.planId === 'trial' || s.status === 'Trial' || s.registrationStatus === 'Trial_Expired') &&
+      Boolean(s.trialEndsAt && s.trialEndsAt < todayStr);
+  };
+
   // Filtered Schools
   const filteredSchools = schools.filter((s) => {
     const matchesSearch = !schoolSearch.trim() ||
@@ -607,7 +639,13 @@ export function AdminConsoleScreen() {
       (s.subdomain && s.subdomain.toLowerCase().includes(schoolSearch.toLowerCase())) ||
       (s.dedicatedSlug && s.dedicatedSlug.toLowerCase().includes(schoolSearch.toLowerCase()));
 
-    const matchesStatus = schoolStatusFilter === 'all' || s.status === schoolStatusFilter;
+    const expired = isSchoolExpired(s);
+    const matchesStatus = schoolStatusFilter === 'all'
+      ? true
+      : schoolStatusFilter === 'Expired'
+      ? expired
+      : s.status === schoolStatusFilter;
+
     const isDedicated = s.planId === 'enterprise' || (s.provisioningStatus && s.provisioningStatus !== 'none');
     const matchesDelivery = schoolDeliveryFilter === 'all' ||
       (schoolDeliveryFilter === 'dedicated' && isDedicated) ||
@@ -620,14 +658,24 @@ export function AdminConsoleScreen() {
   const totalShared = schools.length - totalDedicated;
   const totalActive = schools.filter((s) => s.status === 'Active').length;
   const totalTrial = schools.filter((s) => s.status === 'Trial').length;
+  const totalExpired = schools.filter(isSchoolExpired).length;
   const totalActivePlugins = plugins.filter((p) => !!p.is_active).length;
   const totalActiveSubs = subscriptions.filter((s) => s.status === 'active').length;
 
-  const statusBadge = (status: string) => (
-    <span className={'px-2 py-0.5 rounded-full text-[10px] font-bold ' + (status === 'Active' ? 'bg-emerald-100 text-emerald-700' : status === 'Trial' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600')}>
-      {status === 'Active' ? 'सक्रिय' : status === 'Trial' ? 'ट्रायल' : status}
-    </span>
-  );
+  const statusBadge = (status: string, school?: SchoolRow) => {
+    if (school && isSchoolExpired(school)) {
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 whitespace-nowrap">
+          ⚠️ ट्रायल समाप्त (Expired)
+        </span>
+      );
+    }
+    return (
+      <span className={'px-2 py-0.5 rounded-full text-[10px] font-bold ' + (status === 'Active' ? 'bg-emerald-100 text-emerald-700' : status === 'Trial' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600')}>
+        {status === 'Active' ? 'सक्रिय' : status === 'Trial' ? 'ट्रायल' : status}
+      </span>
+    );
+  };
 
   return (
     <div className="space-y-6 pb-12">
@@ -717,7 +765,7 @@ export function AdminConsoleScreen() {
       {activeTab === 'schools' && (
         <>
           {/* Metrics */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs">
               <div className="text-2xl font-black text-slate-900">{schools.length}</div>
               <div className="text-xs font-semibold text-slate-500">कुल पंजीकृत विद्यालय</div>
@@ -730,6 +778,10 @@ export function AdminConsoleScreen() {
               <div className="text-2xl font-black text-indigo-700">{totalDedicated}</div>
               <div className="text-xs font-semibold text-indigo-800">⚡ डेडीकेटेड वर्कर (Enterprise)</div>
             </div>
+            <div className="p-4 rounded-2xl bg-white border border-rose-200 shadow-2xs bg-rose-50/30">
+              <div className="text-2xl font-black text-rose-700">{totalExpired}</div>
+              <div className="text-xs font-semibold text-rose-800">⚠️ समाप्त ट्रायल (Expired)</div>
+            </div>
             <div className="p-4 rounded-2xl bg-white border border-amber-200 shadow-2xs bg-amber-50/20">
               <div className="text-2xl font-black text-amber-600">{registrations.length}</div>
               <div className="text-xs font-semibold text-amber-800">लंबित पंजीकरण अप्रूवल</div>
@@ -738,7 +790,7 @@ export function AdminConsoleScreen() {
 
           {/* Action Header & Search */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={() => { setShowAddForm(!showAddForm); setEditId(null); }}
                 className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
@@ -752,6 +804,15 @@ export function AdminConsoleScreen() {
               >
                 {showDeleted ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 <span>{showDeleted ? 'हटाए गए छिपाएं' : 'हटाए गए देखें'}</span>
+              </button>
+              <button
+                onClick={runTrialProcess}
+                disabled={busyId === 'trial-process'}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition cursor-pointer disabled:opacity-50 shadow-xs"
+                title="सभी स्कूलों के 2-दिन रिमाइंडर व समाप्त ट्रायल ईमेल तुरंत जांचें व भेजें"
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>{busyId === 'trial-process' ? 'जांच जारी...' : '⚡ ट्रायल समाप्ति जांचें व अलर्ट भेजें'}</span>
               </button>
             </div>
 
@@ -769,11 +830,12 @@ export function AdminConsoleScreen() {
               <select
                 value={schoolStatusFilter}
                 onChange={(e) => setSchoolStatusFilter(e.target.value as any)}
-                className="px-2.5 py-1.5 border border-slate-200 rounded-xl text-xs bg-white text-slate-700 cursor-pointer"
+                className="px-2.5 py-1.5 border border-slate-200 rounded-xl text-xs bg-white text-slate-700 cursor-pointer font-medium"
               >
                 <option value="all">सभी स्थितियाँ</option>
                 <option value="Active">सक्रिय (Active)</option>
                 <option value="Trial">ट्रायल (Trial)</option>
+                <option value="Expired">⚠️ ट्रायल समाप्त ({totalExpired})</option>
                 <option value="Suspended">निलंबित (Suspended)</option>
               </select>
               <select
@@ -1011,7 +1073,7 @@ export function AdminConsoleScreen() {
                         </div>
                       )}
                     </td>
-                    <td className="py-3 px-3">{statusBadge(s.status)}</td>
+                    <td className="py-3 px-3">{statusBadge(s.status, s)}</td>
                     <td className="py-3 px-3">
                       {editId === s.id ? null : (
                         <select
@@ -1084,6 +1146,19 @@ export function AdminConsoleScreen() {
                             {(s.provisioningStatus === 'pending' || s.provisioningStatus === 'provisioning') && (
                               <button onClick={() => checkProvision(s.id)} disabled={busyId === 'provision-check-' + s.id} className="px-2 py-1 border border-amber-200 text-amber-700 hover:bg-amber-50 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50">
                                 स्टेटस जाँचें
+                              </button>
+                            )}
+
+                            {/* Extend trial button for trial or expired schools */}
+                            {(s.planId === 'trial' || s.status === 'Trial' || s.registrationStatus === 'Trial_Expired') && (
+                              <button
+                                onClick={() => extendTrial(s.id, 7)}
+                                disabled={busyId === 'extend-' + s.id}
+                                className="px-2.5 py-1 border border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50 flex items-center gap-1"
+                                title="स्कूल का ट्रायल 7 दिन और आगे बढ़ाएं"
+                              >
+                                <Clock className="w-3 h-3" />
+                                <span>+7 दिन ट्रायल</span>
                               </button>
                             )}
 
