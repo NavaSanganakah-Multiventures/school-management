@@ -21,7 +21,7 @@
 import fs from 'fs';
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4/accounts';
-const DEFAULT_KV_NAMESPACE_ID = '393901911be84d55822c78070a82e94';
+const DEFAULT_KV_NAMESPACE_ID = '393901911be84d558822c78070a82e94';
 
 // KV keys = GitHub repo secret names used by .github/workflows/deploy.yml.
 // CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID stay as GitHub secrets (access creds).
