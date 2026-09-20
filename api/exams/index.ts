@@ -125,41 +125,78 @@ examsApp.post('/marks', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { examId, studentId, marks } = body;
 
+  // Enhanced validation
   if (!examId || !studentId || !Array.isArray(marks) || marks.length === 0) {
     return c.json({ success: false, message: 'परीक्षा आईडी, छात्र आईडी तथा प्राप्तांक सूची आवश्यक हैं।' }, 400);
   }
 
-  const st = await db.prepare('SELECT id, first_name, last_name FROM students WHERE school_id = ? AND id = ?').bind(schoolId, studentId).first();
+  // Verify exam exists
+  const exam = await db.prepare('SELECT id, exam_name FROM exams WHERE school_id = ? AND id = ?').bind(schoolId, examId).first();
+  if (!exam) {
+    return c.json({ success: false, message: 'परीक्षा रिकॉर्ड नहीं मिला। कृपया सही परीक्षा चुनें।' }, 404);
+  }
+
+  // Verify student exists
+  const st = await db.prepare('SELECT id, first_name, last_name, class_name, section FROM students WHERE school_id = ? AND id = ?').bind(schoolId, studentId).first();
   if (!st) {
     return c.json({ success: false, message: 'छात्र रिकॉर्ड नहीं मिला।' }, 404);
   }
 
-  // Upsert each subject mark
+  const studentName = (st.first_name || '') + (st.last_name ? ' ' + st.last_name : '');
+  const updatedSubjects: string[] = [];
+  const errors: string[] = [];
+
+  // Validate and upsert each subject mark
   for (const m of marks) {
-    if (!m.subject) continue;
+    if (!m.subject || !m.subject.trim()) {
+      errors.push('विषय का नाम खाली नहीं हो सकता।');
+      continue;
+    }
+
     const maxMarks = Number(m.maxMarks) || 100;
-    const marksObtained = Math.min(Number(m.marksObtained) || 0, maxMarks);
+    let marksObtained = Number(m.marksObtained);
+
+    // Validation: marks should be valid number
+    if (isNaN(marksObtained)) {
+      errors.push(`विषय "${m.subject}": अमान्य अंक।`);
+      continue;
+    }
+
+    // Validation: marks cannot exceed max marks
+    if (marksObtained > maxMarks) {
+      errors.push(`विषय "${m.subject}": प्राप्तांक (${marksObtained}) पूर्णांक (${maxMarks}) से अधिक नहीं हो सकते।`);
+      marksObtained = maxMarks;
+    }
+
+    // Validation: marks cannot be negative
+    if (marksObtained < 0) {
+      errors.push(`विषय "${m.subject}": अंक ऋणात्मक नहीं हो सकते।`);
+      continue;
+    }
+
     const percentage = maxMarks > 0 ? (marksObtained / maxMarks) * 100 : 0;
     const grade = m.grade || gradeFor(percentage);
     const remarks = m.remarks || '';
 
     const existing = await db.prepare(
       'SELECT id FROM exam_marks WHERE school_id = ? AND exam_id = ? AND student_id = ? AND subject = ?'
-    ).bind(schoolId, examId, studentId, m.subject).first();
+    ).bind(schoolId, examId, studentId, m.subject.trim()).first();
+
+    const timestamp = new Date().toISOString();
 
     if (existing) {
       await db.prepare(
-        'UPDATE exam_marks SET max_marks = ?, marks_obtained = ?, grade = ?, remarks = ? WHERE id = ?'
-      ).bind(maxMarks, marksObtained, grade, remarks, existing.id).run();
+        'UPDATE exam_marks SET max_marks = ?, marks_obtained = ?, grade = ?, remarks = ?, updated_at = ?, entered_by_user_id = ? WHERE id = ?'
+      ).bind(maxMarks, marksObtained, grade, remarks, timestamp, authUser.sub, existing.id).run();
     } else {
       const id = 'em-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
       await db.prepare(
-        'INSERT INTO exam_marks (id, exam_id, student_id, subject, max_marks, marks_obtained, grade, remarks, school_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-      ).bind(id, examId, studentId, m.subject, maxMarks, marksObtained, grade, remarks, schoolId).run();
+        'INSERT INTO exam_marks (id, exam_id, student_id, subject, max_marks, marks_obtained, grade, remarks, school_id, entered_by_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).bind(id, examId, studentId, m.subject.trim(), maxMarks, marksObtained, grade, remarks, schoolId, authUser.sub, timestamp, timestamp).run();
     }
-  }
 
-  const studentName = (st.first_name || '') + (st.last_name ? ' ' + st.last_name : '');
+    updatedSubjects.push(m.subject.trim());
+  }
 
   const actorName = await resolveActorName(db, authUser.sub, authUser.role);
   await logActivity(db, {
@@ -169,16 +206,19 @@ examsApp.post('/marks', async (c) => {
     userRole: authUser.role,
     actionType: 'MARKS_ENTRY',
     actionTitle: 'परीक्षा अंक प्रविष्टि',
-    description: `छात्र ${studentName} (कक्षा ${st.class_name || ''}) के लिए परीक्षा (ID: ${examId}) के विषय अंक दर्ज/अद्यतित किए गए।`,
+    description: `छात्र ${studentName} (कक्षा ${st.class_name || ''} - ${st.section || ''}) के लिए परीक्षा "${exam.exam_name}" के ${updatedSubjects.length} विषयों के अंक दर्ज/अद्यतित किए गए।`,
     entityType: 'exam',
     entityId: examId,
     className: st.class_name || undefined,
-    metadata: { studentId, studentName, examId, subjectCount: marks.length },
+    metadata: { studentId, studentName, examId, examName: exam.exam_name, subjects: updatedSubjects },
   });
 
   return c.json({
     success: true,
-    message: `${studentName} के लिए अंक सफलतापूर्वक प्रविष्ट/अद्यतित किए गए।`,
+    message: `${studentName} के लिए ${updatedSubjects.length} विषयों के अंक सफलतापूर्वक प्रविष्ट/अद्यतित किए गए।`,
+    updatedSubjects,
+    errors: errors.length > 0 ? errors : undefined,
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -192,38 +232,51 @@ examsApp.get('/report-card/:studentId', async (c) => {
   const examId = c.req.query('examId');
 
   const st = await db.prepare('SELECT * FROM students WHERE school_id = ? AND id = ?').bind(schoolId, studentId).first();
-  if (!st) return c.json({ success: false, message: 'छात्र रिपोर्ट कार्ड नहीं मिला' }, 404);
+  if (!st) return c.json({ success: false, message: 'छात्र रिकॉर्ड नहीं मिला।' }, 404);
 
-  let query = 'SELECT em.subject, em.max_marks, em.marks_obtained, em.grade, em.remarks, e.id as exam_id, e.exam_name, e.academic_year, e.term FROM exam_marks em LEFT JOIN exams e ON e.id = em.exam_id WHERE em.student_id = ? AND em.school_id = ?';
+  let query = 'SELECT em.subject, em.max_marks, em.marks_obtained, em.grade, em.remarks, em.updated_at, e.id as exam_id, e.exam_name, e.academic_year, e.term FROM exam_marks em LEFT JOIN exams e ON e.id = em.exam_id WHERE em.student_id = ? AND em.school_id = ?';
   const params: any[] = [studentId, schoolId];
   if (examId) {
     query += ' AND em.exam_id = ?';
     params.push(examId);
   }
+  query += ' ORDER BY em.subject ASC';
 
   const mRows = await db.prepare(query).bind(...params).all();
-  let marks = mRows.results || [];
+  const marks = mRows.results || [];
 
-  // If no marks exist yet for this student, provide standard default curriculum preview so report card is immediately visual & editable
+  // Real data validation: If no marks exist, return empty state with proper message
   if (marks.length === 0) {
-    const defaultSubjects = [
-      { subject: 'हिंदी (Hindi)', max_marks: 100, marks_obtained: 82, grade: 'A' },
-      { subject: 'अंग्रेजी (English)', max_marks: 100, marks_obtained: 78, grade: 'A' },
-      { subject: 'गणित (Mathematics)', max_marks: 100, marks_obtained: 88, grade: 'A+' },
-      { subject: 'विज्ञान (Science)', max_marks: 100, marks_obtained: 84, grade: 'A' },
-      { subject: 'सामाजिक विज्ञान (Social Science)', max_marks: 100, marks_obtained: 75, grade: 'A' },
-      { subject: 'संस्कृत / कंप्यूटर (Sanskrit/IT)', max_marks: 100, marks_obtained: 90, grade: 'A+' },
-    ];
-    marks = defaultSubjects;
+    const fullName = (st.first_name || '') + (st.last_name ? ' ' + st.last_name : '');
+    return c.json({
+      success: false,
+      message: 'इस छात्र के लिए कोई परीक्षा अंक प्रविष्ट नहीं हुए हैं। कृपया पहले अंक प्रविष्टि करें।',
+      hasData: false,
+      studentInfo: {
+        studentId,
+        studentName: fullName,
+        scholarNumber: st.scholar_number || st.roll_number || '',
+        rollNumber: st.roll_number || '',
+        className: st.class_name || '',
+        section: st.section || '',
+      },
+    });
   }
 
-  const subjects = marks.map((m: any) => ({
-    subject: m.subject,
-    marks: Number(m.marks_obtained) || 0,
-    maxMarks: Number(m.max_marks) || 100,
-    grade: m.grade || gradeFor(m.max_marks ? ((Number(m.marks_obtained) || 0) / Number(m.max_marks)) * 100 : 0),
-    remarks: m.remarks || '',
-  }));
+  // Calculate real-time statistics from actual marks
+  const subjects = marks.map((m: any) => {
+    const marksObtained = Number(m.marks_obtained) || 0;
+    const maxMarks = Number(m.max_marks) || 100;
+    const percentage = maxMarks > 0 ? (marksObtained / maxMarks) * 100 : 0;
+    return {
+      subject: m.subject,
+      marks: marksObtained,
+      maxMarks: maxMarks,
+      grade: m.grade || gradeFor(percentage),
+      remarks: m.remarks || '',
+      percentage: +percentage.toFixed(1),
+    };
+  });
 
   const totalMarks = subjects.reduce((a: number, s: any) => a + s.marks, 0);
   const maxTotal = subjects.reduce((a: number, s: any) => a + s.maxMarks, 0);
@@ -231,29 +284,50 @@ examsApp.get('/report-card/:studentId', async (c) => {
   const firstMark = marks[0] || {};
   const fullName = (st.first_name || '') + (st.last_name ? ' ' + st.last_name : '');
 
+  // Get latest update timestamp
+  const lastUpdated = marks.reduce((latest: string, m: any) => {
+    const updated = m.updated_at || m.created_at || '';
+    return updated > latest ? updated : latest;
+  }, '');
+
+  // Determine division
+  let division = '';
+  if (percentage >= 60) {
+    division = 'प्रथम श्रेणी (First Division)';
+  } else if (percentage >= 45) {
+    division = 'द्वितीय श्रेणी (Second Division)';
+  } else if (percentage >= 33) {
+    division = 'तृतीय श्रेणी (Third Division)';
+  } else {
+    division = 'अनुत्तीर्ण (Fail)';
+  }
+
   const reportCard = {
     studentId,
     studentName: fullName,
     scholarNumber: st.scholar_number || st.roll_number || '',
     rollNumber: st.roll_number || '',
-    className: st.class_name || '10वीं',
-    section: st.section || 'A',
+    className: st.class_name || '',
+    section: st.section || '',
     fatherName: st.father_name || st.parent_name || '',
     motherName: st.mother_name || '',
     dob: st.dob || '',
     admissionDate: st.admission_date || '',
-    term: firstMark.exam_name || firstMark.term || 'अर्धवार्षिक परीक्षा 2026-27',
+    term: firstMark.exam_name || firstMark.term || '',
     academicYear: firstMark.academic_year || '2026-27',
+    examId: firstMark.exam_id || examId || '',
     subjects,
     totalMarks,
     maxTotal,
     percentage,
     finalGrade: gradeFor(percentage),
     result: percentage >= 33 ? 'उत्तीर्ण (PASS)' : 'अनुत्तीर्ण (FAIL)',
-    division: percentage >= 60 ? 'प्रथम श्रेणी (First Division)' : percentage >= 45 ? 'द्वितीय श्रेणी (Second Division)' : 'तृतीय श्रेणी (Third Division)',
+    division,
+    lastUpdated,
+    hasData: true,
   };
 
-  return c.json({ success: true, reportCard });
+  return c.json({ success: true, reportCard, lastUpdated });
 });
 
 // GET /api/exams/terms - List exam terms
@@ -287,6 +361,263 @@ examsApp.post('/terms', async (c) => {
     .bind(id, schoolId, body.termName.trim(), parseFloat(body.weightagePercent) || 100).run();
 
   return c.json({ success: true, message: 'परीक्षा टर्म सफलतापूर्वक जोड़ा गया।', id });
+});
+
+// GET /api/exams/:examId/subjects - Get subjects configured for an exam
+examsApp.get('/:examId/subjects', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  const schoolId = getRequestSchoolId(c, authUser);
+  const examId = c.req.param('examId');
+
+  const subjects = await db.prepare(
+    'SELECT * FROM exam_subjects WHERE school_id = ? AND exam_id = ? ORDER BY subject_name ASC'
+  ).bind(schoolId, examId).all();
+
+  return c.json({ success: true, subjects: subjects.results || [] });
+});
+
+// POST /api/exams/:examId/subjects - Add subject to exam
+examsApp.post('/:examId/subjects', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser || (authUser.role !== 'Director' && authUser.role !== 'Principal')) {
+    return c.json({ success: false, message: 'केवल प्रधानाचार्य या निदेशक ही परीक्षा विषय जोड़ सकते हैं।' }, 403);
+  }
+  const schoolId = getRequestSchoolId(c, authUser);
+  const examId = c.req.param('examId');
+  const body = await c.req.json().catch(() => ({}));
+
+  if (!body.subjectName) {
+    return c.json({ success: false, message: 'विषय का नाम आवश्यक है।' }, 400);
+  }
+
+  const exam = await db.prepare('SELECT id FROM exams WHERE school_id = ? AND id = ?').bind(schoolId, examId).first();
+  if (!exam) {
+    return c.json({ success: false, message: 'परीक्षा नहीं मिली।' }, 404);
+  }
+
+  const id = 'exsub-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+  await db.prepare(
+    'INSERT INTO exam_subjects (id, school_id, exam_id, subject_id, subject_name, max_marks, passing_marks, subject_type, weightage_percent, is_optional) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(
+    id,
+    schoolId,
+    examId,
+    body.subjectId || `sub-${body.subjectName.toLowerCase().replace(/\s+/g, '-')}`,
+    body.subjectName,
+    Number(body.maxMarks) || 100,
+    Number(body.passingMarks) || 33,
+    body.subjectType || 'Theory',
+    Number(body.weightagePercent) || 100,
+    body.isOptional ? 1 : 0
+  ).run();
+
+  return c.json({ success: true, message: `विषय "${body.subjectName}" सफलतापूर्वक जोड़ा गया।`, id });
+});
+
+// GET /api/exams/templates - Get all report card templates
+examsApp.get('/templates', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const templates = await db.prepare(
+    'SELECT * FROM report_card_templates WHERE is_active = 1 ORDER BY is_default DESC, template_name ASC'
+  ).all();
+
+  return c.json({ success: true, templates: templates.results || [] });
+});
+
+// GET /api/exams/school-preferences - Get school's report preferences
+examsApp.get('/school-preferences', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  const schoolId = getRequestSchoolId(c, authUser);
+
+  let prefs = await db.prepare('SELECT * FROM school_preferences WHERE school_id = ?').bind(schoolId).first();
+
+  // Create default preferences if not exist
+  if (!prefs) {
+    const id = 'pref-' + schoolId;
+    await db.prepare(
+      'INSERT INTO school_preferences (id, school_id, default_report_template_id) VALUES (?, ?, ?)'
+    ).bind(id, schoolId, 'template_cbse').run();
+    prefs = await db.prepare('SELECT * FROM school_preferences WHERE school_id = ?').bind(schoolId).first();
+  }
+
+  return c.json({ success: true, preferences: prefs });
+});
+
+// PUT /api/exams/school-preferences - Update school's report preferences
+examsApp.put('/school-preferences', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser || (authUser.role !== 'Director' && authUser.role !== 'Principal')) {
+    return c.json({ success: false, message: 'केवल प्रधानाचार्य या निदेशक ही प्राथमिकताएं बदल सकते हैं।' }, 403);
+  }
+  const schoolId = getRequestSchoolId(c, authUser);
+  const body = await c.req.json().catch(() => ({}));
+
+  const existing = await db.prepare('SELECT id FROM school_preferences WHERE school_id = ?').bind(schoolId).first();
+
+  if (existing) {
+    await db.prepare(
+      'UPDATE school_preferences SET default_report_template_id = ?, school_logo_url = ?, school_seal_url = ?, custom_header = ?, custom_footer = ?, show_attendance_in_report = ?, show_remarks_in_report = ?, auto_calculate_grades = ?, updated_at = ? WHERE school_id = ?'
+    ).bind(
+      body.defaultReportTemplateId || 'template_cbse',
+      body.schoolLogoUrl || null,
+      body.schoolSealUrl || null,
+      body.customHeader || null,
+      body.customFooter || null,
+      body.showAttendanceInReport ? 1 : 0,
+      body.showRemarksInReport !== false ? 1 : 0,
+      body.autoCalculateGrades !== false ? 1 : 0,
+      new Date().toISOString(),
+      schoolId
+    ).run();
+  } else {
+    const id = 'pref-' + schoolId;
+    await db.prepare(
+      'INSERT INTO school_preferences (id, school_id, default_report_template_id, school_logo_url, school_seal_url, custom_header, custom_footer, show_attendance_in_report, show_remarks_in_report, auto_calculate_grades) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(
+      id,
+      schoolId,
+      body.defaultReportTemplateId || 'template_cbse',
+      body.schoolLogoUrl || null,
+      body.schoolSealUrl || null,
+      body.customHeader || null,
+      body.customFooter || null,
+      body.showAttendanceInReport ? 1 : 0,
+      body.showRemarksInReport !== false ? 1 : 0,
+      body.autoCalculateGrades !== false ? 1 : 0
+    ).run();
+  }
+
+  return c.json({ success: true, message: 'स्कूल प्राथमिकताएं सफलतापूर्वक अद्यतित की गईं।' });
+});
+
+// GET /api/exams/analytics/:examId - Get result analytics for an exam
+examsApp.get('/analytics/:examId', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  const schoolId = getRequestSchoolId(c, authUser);
+  const examId = c.req.param('examId');
+
+  // Get exam details
+  const exam = await db.prepare('SELECT * FROM exams WHERE school_id = ? AND id = ?').bind(schoolId, examId).first();
+  if (!exam) {
+    return c.json({ success: false, message: 'परीक्षा नहीं मिली।' }, 404);
+  }
+
+  // Get all marks for this exam
+  const marksRows = await db.prepare(
+    'SELECT em.*, s.class_name, s.section FROM exam_marks em JOIN students s ON s.id = em.student_id WHERE em.school_id = ? AND em.exam_id = ?'
+  ).bind(schoolId, examId).all();
+
+  const marks = marksRows.results || [];
+
+  // Calculate analytics
+  const studentMarksMap = new Map<string, { totalMarks: number; maxTotal: number; className: string; section: string }>();
+
+  marks.forEach((m: any) => {
+    const key = m.student_id;
+    if (!studentMarksMap.has(key)) {
+      studentMarksMap.set(key, { totalMarks: 0, maxTotal: 0, className: m.class_name, section: m.section });
+    }
+    const data = studentMarksMap.get(key)!;
+    data.totalMarks += Number(m.marks_obtained) || 0;
+    data.maxTotal += Number(m.max_marks) || 100;
+  });
+
+  const studentResults = Array.from(studentMarksMap.entries()).map(([studentId, data]) => {
+    const percentage = data.maxTotal > 0 ? (data.totalMarks / data.maxTotal) * 100 : 0;
+    return { studentId, ...data, percentage, passed: percentage >= 33 };
+  });
+
+  const totalStudents = studentResults.length;
+  const studentsPassed = studentResults.filter((s) => s.passed).length;
+  const passPercentage = totalStudents > 0 ? (studentsPassed / totalStudents) * 100 : 0;
+  const averagePercentage = totalStudents > 0 ? studentResults.reduce((a, s) => a + s.percentage, 0) / totalStudents : 0;
+  const highestPercentage = Math.max(...studentResults.map((s) => s.percentage), 0);
+  const lowestPercentage = Math.min(...studentResults.map((s) => s.percentage), 100);
+
+  const topper = studentResults.find((s) => s.percentage === highestPercentage);
+
+  // Subject-wise analysis
+  const subjectStatsMap = new Map<string, { totalMarks: number; maxMarks: number; count: number; highest: number; lowest: number }>();
+  marks.forEach((m: any) => {
+    const key = m.subject;
+    if (!subjectStatsMap.has(key)) {
+      subjectStatsMap.set(key, { totalMarks: 0, maxMarks: 0, count: 0, highest: 0, lowest: 100 });
+    }
+    const data = subjectStatsMap.get(key)!;
+    const marksObtained = Number(m.marks_obtained) || 0;
+    const maxMarks = Number(m.max_marks) || 100;
+    data.totalMarks += marksObtained;
+    data.maxMarks += maxMarks;
+    data.count++;
+    data.highest = Math.max(data.highest, marksObtained);
+    data.lowest = Math.min(data.lowest, marksObtained);
+  });
+
+  const subjectWiseAnalysis = Array.from(subjectStatsMap.entries()).map(([subject, data]) => {
+    const averageMarks = data.count > 0 ? data.totalMarks / data.count : 0;
+    const averagePercentage = data.maxMarks > 0 ? (data.totalMarks / data.maxMarks) * 100 : 0;
+    const passCount = marks.filter((m: any) => m.subject === subject && ((Number(m.marks_obtained) || 0) >= (Number(m.max_marks) || 100) * 0.33)).length;
+    const passPercentage = data.count > 0 ? (passCount / data.count) * 100 : 0;
+
+    return {
+      subject,
+      averageMarks: +averageMarks.toFixed(1),
+      maxMarks: data.maxMarks / data.count,
+      passPercentage: +passPercentage.toFixed(1),
+      highestMarks: data.highest,
+      lowestMarks: data.lowest,
+    };
+  });
+
+  // Class-wise analysis
+  const classStatsMap = new Map<string, { totalStudents: number; studentsPassed: number; totalPercentage: number }>();
+  studentResults.forEach((s) => {
+    const key = s.className || 'Unknown';
+    if (!classStatsMap.has(key)) {
+      classStatsMap.set(key, { totalStudents: 0, studentsPassed: 0, totalPercentage: 0 });
+    }
+    const data = classStatsMap.get(key)!;
+    data.totalStudents++;
+    if (s.passed) data.studentsPassed++;
+    data.totalPercentage += s.percentage;
+  });
+
+  const classWiseAnalysis = Array.from(classStatsMap.entries()).map(([className, data]) => ({
+    className,
+    totalStudents: data.totalStudents,
+    studentsPassed: data.studentsPassed,
+    passPercentage: data.totalStudents > 0 ? +((data.studentsPassed / data.totalStudents) * 100).toFixed(1) : 0,
+    averagePercentage: data.totalStudents > 0 ? +(data.totalPercentage / data.totalStudents).toFixed(1) : 0,
+  }));
+
+  return c.json({
+    success: true,
+    analytics: {
+      examId,
+      examName: exam.exam_name,
+      totalStudents,
+      studentsPassed,
+      passPercentage: +passPercentage.toFixed(1),
+      averagePercentage: +averagePercentage.toFixed(1),
+      highestPercentage: +highestPercentage.toFixed(1),
+      lowestPercentage: +lowestPercentage.toFixed(1),
+      topperStudentId: topper?.studentId || null,
+      subjectWiseAnalysis,
+      classWiseAnalysis,
+    },
+  });
 });
 
 export default examsApp;

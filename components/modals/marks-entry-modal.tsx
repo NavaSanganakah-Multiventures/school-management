@@ -1,7 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, GraduationCap, Award, Plus, Trash2, CheckCircle2, AlertCircle, Save } from 'lucide-react';
+import { 
+  X, GraduationCap, Award, Plus, Trash2, CheckCircle2, AlertCircle, Save, 
+  AlertTriangle, Sparkles, Percent, Calculator, Target, Users 
+} from 'lucide-react';
 
 interface MarksEntryModalProps {
   isOpen: boolean;
@@ -16,15 +19,26 @@ interface SubjectMark {
   maxMarks: number;
   marksObtained: number | '';
   remarks: string;
+  subjectId?: string;
+  passingMarks?: number;
+}
+
+interface ExamSubject {
+  id: string;
+  subject_name: string;
+  max_marks: number;
+  passing_marks: number;
+  subject_type: string;
+  is_optional: number;
 }
 
 const DEFAULT_SUBJECTS: SubjectMark[] = [
-  { subject: 'हिंदी (Hindi)', maxMarks: 100, marksObtained: '', remarks: '' },
-  { subject: 'अंग्रेजी (English)', maxMarks: 100, marksObtained: '', remarks: '' },
-  { subject: 'गणित (Mathematics)', maxMarks: 100, marksObtained: '', remarks: '' },
-  { subject: 'विज्ञान (Science)', maxMarks: 100, marksObtained: '', remarks: '' },
-  { subject: 'सामाजिक विज्ञान (Social Science)', maxMarks: 100, marksObtained: '', remarks: '' },
-  { subject: 'संस्कृत / कंप्यूटर (Sanskrit/IT)', maxMarks: 100, marksObtained: '', remarks: '' },
+  { subject: 'हिंदी (Hindi)', maxMarks: 100, marksObtained: '', remarks: '', passingMarks: 33 },
+  { subject: 'अंग्रेजी (English)', maxMarks: 100, marksObtained: '', remarks: '', passingMarks: 33 },
+  { subject: 'गणित (Mathematics)', maxMarks: 100, marksObtained: '', remarks: '', passingMarks: 33 },
+  { subject: 'विज्ञान (Science)', maxMarks: 100, marksObtained: '', remarks: '', passingMarks: 33 },
+  { subject: 'सामाजिक विज्ञान (Social Science)', maxMarks: 100, marksObtained: '', remarks: '', passingMarks: 33 },
+  { subject: 'संस्कृत / कंप्यूटर (Sanskrit/IT)', maxMarks: 100, marksObtained: '', remarks: '', passingMarks: 33 },
 ];
 
 function calcGrade(p: number) {
@@ -34,6 +48,23 @@ function calcGrade(p: number) {
   if (p >= 45) return { grade: 'B', label: 'संतोषजनक (Satisfactory)' };
   if (p >= 33) return { grade: 'C', label: 'उत्तीर्ण (Pass)' };
   return { grade: 'D', label: 'अनुत्तीर्ण (Needs Improvement)' };
+}
+
+function getSubjectColor(percentage: number) {
+  if (percentage >= 90) return 'bg-gradient-to-r from-purple-50 to-purple-100 border-purple-200';
+  if (percentage >= 75) return 'bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200';
+  if (percentage >= 60) return 'bg-gradient-to-r from-emerald-50 to-emerald-100 border-emerald-200';
+  if (percentage >= 33) return 'bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200';
+  return 'bg-gradient-to-r from-rose-50 to-rose-100 border-rose-200';
+}
+
+function getSubjectStatusColor(marks: number, max: number, passing: number = 33) {
+  const percentage = max > 0 ? (marks / max) * 100 : 0;
+  if (percentage >= 90) return 'text-purple-800 bg-purple-100';
+  if (percentage >= 75) return 'text-blue-800 bg-blue-100';
+  if (percentage >= 60) return 'text-emerald-800 bg-emerald-100';
+  if (percentage >= passing) return 'text-amber-800 bg-amber-100';
+  return 'text-rose-800 bg-rose-100';
 }
 
 export function MarksEntryModal({
@@ -47,15 +78,19 @@ export function MarksEntryModal({
   const [students, setStudents] = useState<any[]>([]);
   const [selectedExamId, setSelectedExamId] = useState('');
   const [selectedStudentId, setSelectedStudentId] = useState(preselectedStudentId || '');
+  const [examSubjects, setExamSubjects] = useState<ExamSubject[]>([]);
   const [subjects, setSubjects] = useState<SubjectMark[]>(DEFAULT_SUBJECTS);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [bulkOperation, setBulkOperation] = useState<'clear' | 'defaults' | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
     setError('');
     setSuccessMsg('');
+    setValidationErrors([]);
 
     // Fetch exams
     fetch('/api/exams')
@@ -82,23 +117,77 @@ export function MarksEntryModal({
       .catch(() => {});
   }, [isOpen, preselectedStudentId]);
 
+  // Load exam subjects when exam changes
+  useEffect(() => {
+    if (!selectedExamId) return;
+    
+    fetch(`/api/exams/${selectedExamId}/subjects`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.subjects && data.subjects.length > 0) {
+          setExamSubjects(data.subjects);
+          // Auto-populate subjects from exam configuration
+          setSubjects(data.subjects.map((s: ExamSubject) => ({
+            subject: s.subject_name,
+            maxMarks: s.max_marks,
+            marksObtained: '',
+            remarks: '',
+            subjectId: s.id,
+            passingMarks: s.passing_marks,
+          })));
+        } else {
+          setExamSubjects([]);
+          setSubjects(DEFAULT_SUBJECTS);
+        }
+      })
+      .catch(() => {});
+  }, [selectedExamId]);
+
   // Load existing marks when student or exam changes
   useEffect(() => {
     if (!selectedStudentId || !selectedExamId) return;
-    fetch(`/api/exams/marks?studentId=${selectedStudentId}&examId=${selectedExamId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && data.marks && data.marks.length > 0) {
-          setSubjects(
-            data.marks.map((m: any) => ({
-              subject: m.subject,
-              maxMarks: Number(m.max_marks) || 100,
-              marksObtained: Number(m.marks_obtained) || 0,
-              remarks: m.remarks || '',
-            }))
-          );
-        } else {
-          setSubjects(DEFAULT_SUBJECTS);
+    
+    Promise.all([
+      fetch(`/api/exams/marks?studentId=${selectedStudentId}&examId=${selectedExamId}`),
+      fetch(`/api/exams/${selectedExamId}/subjects`)
+    ])
+      .then(async ([marksRes, subjectsRes]) => {
+        const marksData = await marksRes.json();
+        const subjectsData = await subjectsRes.json();
+        
+        if (subjectsData.success && subjectsData.subjects && subjectsData.subjects.length > 0) {
+          setExamSubjects(subjectsData.subjects);
+          
+          if (marksData.success && marksData.marks && marksData.marks.length > 0) {
+            // Merge existing marks with exam subjects
+            const mergedSubjects = subjectsData.subjects.map((es: ExamSubject) => {
+              const existingMark = marksData.marks.find((m: any) => 
+                m.subject.toLowerCase() === es.subject_name.toLowerCase() ||
+                (m.subject_id && m.subject_id === es.id)
+              );
+              
+              return {
+                subject: es.subject_name,
+                maxMarks: es.max_marks,
+                marksObtained: existingMark ? Number(existingMark.marks_obtained) : '',
+                remarks: existingMark?.remarks || '',
+                subjectId: es.id,
+                passingMarks: es.passing_marks,
+              };
+            });
+            
+            setSubjects(mergedSubjects);
+          } else {
+            // No existing marks, use exam subjects
+            setSubjects(subjectsData.subjects.map((s: ExamSubject) => ({
+              subject: s.subject_name,
+              maxMarks: s.max_marks,
+              marksObtained: '',
+              remarks: '',
+              subjectId: s.id,
+              passingMarks: s.passing_marks,
+            })));
+          }
         }
       })
       .catch(() => {});
@@ -110,19 +199,88 @@ export function MarksEntryModal({
     setSubjects((prev) => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: val };
+      
+      // Auto-calculate remarks based on percentage
+      if (field === 'marksObtained' && val !== '') {
+        const marksObtained = Number(val) || 0;
+        const maxMarks = next[idx].maxMarks || 100;
+        const passingMarks = next[idx].passingMarks || 33;
+        const percentage = maxMarks > 0 ? (marksObtained / maxMarks) * 100 : 0;
+        
+        let remarks = '';
+        if (percentage >= 90) remarks = 'उत्कृष्ट प्रदर्शन';
+        else if (percentage >= 75) remarks = 'उत्तम प्रदर्शन';
+        else if (percentage >= 60) remarks = 'अच्छा प्रदर्शन';
+        else if (percentage >= passingMarks) remarks = 'संतोषजनक';
+        else remarks = 'सुधार आवश्यक';
+        
+        next[idx].remarks = remarks;
+      }
+      
       return next;
     });
+    
+    // Clear validation errors when user edits
+    setValidationErrors(prev => prev.filter(e => !e.includes(`subject ${idx + 1}`)));
   };
 
   const handleAddSubject = () => {
     setSubjects((prev) => [
       ...prev,
-      { subject: '', maxMarks: 100, marksObtained: '', remarks: '' },
+      { subject: '', maxMarks: 100, marksObtained: '', remarks: '', passingMarks: 33 },
     ]);
   };
 
   const handleRemoveSubject = (idx: number) => {
+    if (subjects[idx].subjectId) {
+      // This is a predefined exam subject - show warning
+      if (!confirm('यह विषय परीक्षा सेटिंग से संबंधित है। क्या आप सुनिश्चित हैं कि आप इसे हटाना चाहते हैं?')) {
+        return;
+      }
+    }
     setSubjects((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // Bulk operations
+  const handleBulkOperation = (operation: 'clear' | 'defaults') => {
+    if (operation === 'clear') {
+      setSubjects(prev => prev.map(s => ({ ...s, marksObtained: '', remarks: '' })));
+    } else if (operation === 'defaults') {
+      setSubjects(prev => prev.map(s => ({ 
+        ...s, 
+        marksObtained: Math.floor((s.maxMarks * 0.75) + Math.random() * (s.maxMarks * 0.15)), 
+        remarks: 'उत्तम प्रदर्शन' 
+      })));
+    }
+  };
+
+  // Validate subjects before submission
+  const validateSubjects = (): boolean => {
+    const errors: string[] = [];
+    
+    subjects.forEach((subject, idx) => {
+      if (!subject.subject?.trim()) {
+        errors.push(`Subject ${idx + 1}: विषय का नाम खाली नहीं हो सकता।`);
+      }
+      
+      const marksObtained = Number(subject.marksObtained) || 0;
+      const maxMarks = Number(subject.maxMarks) || 100;
+      
+      if (marksObtained > maxMarks) {
+        errors.push(`Subject ${idx + 1}: प्राप्तांक पूर्णांक से अधिक नहीं हो सकते।`);
+      }
+      
+      if (marksObtained < 0) {
+        errors.push(`Subject ${idx + 1}: अंक ऋणात्मक नहीं हो सकते।`);
+      }
+      
+      if (maxMarks <= 0) {
+        errors.push(`Subject ${idx + 1}: पूर्णांक शून्य या ऋणात्मक नहीं हो सकता।`);
+      }
+    });
+    
+    setValidationErrors(errors);
+    return errors.length === 0;
   };
 
   // Computations
@@ -130,6 +288,17 @@ export function MarksEntryModal({
   const totalObtained = subjects.reduce((sum, s) => sum + (Number(s.marksObtained) || 0), 0);
   const percentage = totalMax > 0 ? +((totalObtained / totalMax) * 100).toFixed(1) : 0;
   const overallGrade = calcGrade(percentage);
+  
+  // Calculate passed subjects
+  const passedSubjects = subjects.filter(s => {
+    const marks = Number(s.marksObtained) || 0;
+    const max = Number(s.maxMarks) || 100;
+    const passing = s.passingMarks || 33;
+    return max > 0 && (marks / max) * 100 >= passing;
+  }).length;
+  
+  const totalSubjects = subjects.length;
+  const passPercentage = totalSubjects > 0 ? ((passedSubjects / totalSubjects) * 100).toFixed(1) : '0.0';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -141,6 +310,12 @@ export function MarksEntryModal({
       setError('कृपया छात्र का चयन करें।');
       return;
     }
+    
+    // Validate subjects
+    if (!validateSubjects()) {
+      setError('कृपया सभी विषयों की जानकारी सही भरें।');
+      return;
+    }
 
     setSaving(true);
     setError('');
@@ -150,12 +325,15 @@ export function MarksEntryModal({
       const payload = {
         examId: selectedExamId,
         studentId: selectedStudentId,
-        marks: subjects.filter((s) => s.subject.trim() !== '').map((s) => ({
-          subject: s.subject.trim(),
-          maxMarks: Number(s.maxMarks) || 100,
-          marksObtained: Number(s.marksObtained) || 0,
-          remarks: s.remarks,
-        })),
+        marks: subjects
+          .filter((s) => s.subject.trim() !== '')
+          .map((s) => ({
+            subject: s.subject.trim(),
+            maxMarks: Number(s.maxMarks) || 100,
+            marksObtained: Number(s.marksObtained) || 0,
+            remarks: s.remarks,
+            subjectId: s.subjectId,
+          })),
       };
 
       const res = await fetch('/api/exams/marks', {
@@ -170,7 +348,7 @@ export function MarksEntryModal({
         if (onSuccess) onSuccess();
         setTimeout(() => {
           onClose();
-        }, 1200);
+        }, 1500);
       } else {
         setError(data.message || 'अंक सुरक्षित करने में त्रुटि हुई।');
       }
@@ -208,17 +386,38 @@ export function MarksEntryModal({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="flex flex-col grow overflow-hidden">
           <div className="p-5 space-y-4 overflow-y-auto grow">
+            {/* Notifications */}
             {error && (
-              <div className="flex items-center gap-2 rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>{error}</span>
+              <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700 animate-pulse">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="font-bold">त्रुटि:</strong>
+                  <span className="ml-1">{error}</span>
+                </div>
+              </div>
+            )}
+
+            {validationErrors.length > 0 && (
+              <div className="rounded-xl bg-amber-50 border border-amber-200 p-3">
+                <div className="flex items-start gap-2 text-xs text-amber-700 mb-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <strong className="font-bold">सत्यापन त्रुटियाँ:</strong>
+                </div>
+                <ul className="text-xs text-amber-800 space-y-1 ml-6 list-disc">
+                  {validationErrors.map((err, idx) => (
+                    <li key={idx}>{err}</li>
+                  ))}
+                </ul>
               </div>
             )}
 
             {successMsg && (
-              <div className="flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-700">
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                <span>{successMsg}</span>
+              <div className="flex items-start gap-2 rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-700 animate-pulse">
+                <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="font-bold">सफलता:</strong>
+                  <span className="ml-1">{successMsg}</span>
+                </div>
               </div>
             )}
 
