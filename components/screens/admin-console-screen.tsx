@@ -5,7 +5,7 @@ import {
   ShieldCheck, RefreshCw, CheckCircle2, XCircle, School, IndianRupee,
   Loader2, Plus, Trash2, RotateCcw, Pencil, Tag, Boxes, Eye, EyeOff,
   Search, ToggleLeft, ToggleRight, Sparkles, Globe, Lock, Check, Store, Mail,
-  MessageSquarePlus, Clock, ExternalLink
+  MessageSquarePlus, Clock, ExternalLink, Calendar
 } from 'lucide-react';
 
 interface SchoolRow {
@@ -121,7 +121,8 @@ const FLAG_OPTIONS = [
   { key: 'dedicatedWorker', label: 'डेडिकेटेड वर्कर' },
 ];
 
-const emptyAddForm = { schoolName: '', directorName: '', email: '', phone: '', password: '', subdomain: '', customDomain: '', planId: 'starter', billingCycle: 'annual' };
+const default7Days = () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+const emptyAddForm = { schoolName: '', directorName: '', email: '', phone: '', password: '', subdomain: '', customDomain: '', planId: 'trial', trialEndsAt: default7Days(), billingCycle: 'monthly' };
 const emptyPlanForm = { name: '', tagline: '', badge: '', monthlyPrice: '', quarterlyPrice: '', annualPrice: '', maxStudents: '', maxStaff: '', maxStudentsLabel: '', recommended: false, active: true, isTrial: false, sortOrder: '0', modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'settings', 'billing'], features: '', reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false, dedicatedWorker: false };
 const emptyPluginForm = { id: '', name: '', description: '', type: 'global' as 'global' | 'private', price: '0', isActive: true, targetSchoolId: '' };
 const emptyAssignForm = { schoolId: '', pluginId: '', status: 'active' as 'active' | 'inactive' };
@@ -132,10 +133,16 @@ export function AdminConsoleScreen() {
   const [registrations, setRegistrations] = useState<SchoolRow[]>([]);
   const [featureRequests, setFeatureRequests] = useState<FeatureRequestRow[]>([]);
   const [approvalPlans, setApprovalPlans] = useState<Record<string, string>>({});
+  const [approvalExpiryDates, setApprovalExpiryDates] = useState<Record<string, string>>({});
   const [plans, setPlans] = useState<PlanRow[]>([]);
   const [plugins, setPlugins] = useState<PluginItem[]>([]);
   const [subscriptions, setSubscriptions] = useState<PluginSubscription[]>([]);
   const [deletedSchools, setDeletedSchools] = useState<SchoolRow[]>([]);
+
+  // Expiry Date Modal State
+  const [expiryModalSchool, setExpiryModalSchool] = useState<SchoolRow | null>(null);
+  const [expiryModalDate, setExpiryModalDate] = useState('');
+  const [expiryModalBusy, setExpiryModalBusy] = useState(false);
 
   const [showDeleted, setShowDeleted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -158,7 +165,7 @@ export function AdminConsoleScreen() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState<any>(emptyAddForm);
   const [editId, setEditId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<any>({ schoolName: '', email: '', phone: '', subdomain: '', customDomain: '', status: 'Active' });
+  const [editForm, setEditForm] = useState<any>({ schoolName: '', email: '', phone: '', subdomain: '', customDomain: '', status: 'Active', planId: 'trial', trialEndsAt: '' });
 
   // Plan Form
   const [showPlanForm, setShowPlanForm] = useState(false);
@@ -229,10 +236,10 @@ export function AdminConsoleScreen() {
   };
 
   // School actions
-  const approve = async (schoolId: string, planId?: string) => {
+  const approve = async (schoolId: string, planId?: string, trialEndsAt?: string) => {
     setBusyId(schoolId);
     try {
-      const data = await post('/api/admin/registrations/approve', { schoolId, planId });
+      const data = await post('/api/admin/registrations/approve', { schoolId, planId, trialEndsAt });
       if (data.success) {
         flashSuccess(data.message || 'स्कूल अप्रूव्ड!');
         await loadData();
@@ -263,15 +270,33 @@ export function AdminConsoleScreen() {
     finally { setBusyId(null); }
   };
 
-  const setPlan = async (schoolId: string, planId: string) => {
-    if (planId === 'trial') return;
+  const setPlan = async (schoolId: string, planId: string, trialEndsAt?: string) => {
     setBusyId(schoolId);
     try {
-      const data = await post('/api/admin/schools/plan', { schoolId, planId });
-      if (data.success) { flashSuccess('स्कूल का प्लान सफलतापूर्वक बदल दिया गया।'); await loadData(); }
+      const data = await post('/api/admin/schools/plan', { schoolId, planId, trialEndsAt });
+      if (data.success) { flashSuccess(data.message || 'स्कूल का प्लान सफलतापूर्वक बदल दिया गया।'); await loadData(); }
       else setErrorMsg(data.message || 'प्लान बदलने में त्रुटि।');
     } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
     finally { setBusyId(null); }
+  };
+
+  const saveExpiryDate = async (schoolId: string, expiryDate: string) => {
+    if (!expiryDate) { setErrorMsg('कृपया समाप्ति तिथि चुनें।'); return; }
+    setExpiryModalBusy(true);
+    try {
+      const data = await post('/api/admin/schools/expiry-date', { schoolId, expiryDate });
+      if (data.success) {
+        flashSuccess(data.message || 'समाप्ति तिथि अपडेट हो गई।');
+        setExpiryModalSchool(null);
+        await loadData();
+      } else {
+        setErrorMsg(data.message || 'समाप्ति तिथि सेट करने में त्रुटि।');
+      }
+    } catch (e) {
+      setErrorMsg('नेटवर्क त्रुटि।');
+    } finally {
+      setExpiryModalBusy(false);
+    }
   };
 
   const createSchool = async () => {
@@ -290,7 +315,16 @@ export function AdminConsoleScreen() {
 
   const startEdit = (s: SchoolRow) => {
     setEditId(s.id);
-    setEditForm({ schoolName: s.schoolName, email: s.contactEmail, phone: s.contactPhone, subdomain: s.subdomain || '', customDomain: s.customDomain || '', status: s.status });
+    setEditForm({
+      schoolName: s.schoolName,
+      email: s.contactEmail,
+      phone: s.contactPhone,
+      subdomain: s.subdomain || '',
+      customDomain: s.customDomain || '',
+      status: s.status,
+      planId: s.planId || 'trial',
+      trialEndsAt: s.trialEndsAt || '',
+    });
   };
 
   const saveEdit = async (schoolId: string) => {
@@ -865,14 +899,52 @@ export function AdminConsoleScreen() {
                 <input placeholder="लॉगिन पासवर्ड * (न्यूनतम 6 अक्षर)" type="password" value={addForm.password} onChange={(e) => setAddForm(Object.assign({}, addForm, { password: e.target.value }))} className="px-3 py-2 border border-slate-200 rounded-lg text-xs" />
                 <input placeholder="सबडोमेन (उदा. dps-bhopal)" value={addForm.subdomain} onChange={(e) => setAddForm(Object.assign({}, addForm, { subdomain: e.target.value }))} className="px-3 py-2 border border-slate-200 rounded-lg text-xs" />
                 <input placeholder="कस्टम डोमेन (उदा. portal.dps.edu.in)" value={addForm.customDomain} onChange={(e) => setAddForm(Object.assign({}, addForm, { customDomain: e.target.value }))} className="px-3 py-2 border border-slate-200 rounded-lg text-xs" />
-                <select value={addForm.planId} onChange={(e) => setAddForm(Object.assign({}, addForm, { planId: e.target.value }))} className="px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white">
-                  {nonTrialPlans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-                <select value={addForm.billingCycle} onChange={(e) => setAddForm(Object.assign({}, addForm, { billingCycle: e.target.value }))} className="px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white">
-                  <option value="monthly">मासिक बिलिंग</option>
-                  <option value="quarterly">त्रैमासिक बिलिंग</option>
-                  <option value="annual">वार्षिक बिलिंग</option>
-                </select>
+                
+                {/* Plan Selector with Trial Included */}
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-slate-600">सदस्यता प्लान (Subscription Plan) *</label>
+                  <select
+                    value={addForm.planId}
+                    onChange={(e) => {
+                      const pId = e.target.value;
+                      const isTrial = pId === 'trial';
+                      setAddForm(Object.assign({}, addForm, {
+                        planId: pId,
+                        billingCycle: isTrial ? 'monthly' : 'annual',
+                        trialEndsAt: isTrial ? (addForm.trialEndsAt || default7Days()) : addForm.trialEndsAt,
+                      }));
+                    }}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white font-medium"
+                  >
+                    <option value="trial">7-दिन फ्री ट्रायल (Trial - ☁️ शेयर्ड)</option>
+                    {nonTrialPlans.map((p) => {
+                      const isEnt = p.id === 'enterprise' || (p.featureFlags && p.featureFlags.dedicatedWorker);
+                      return <option key={p.id} value={p.id}>{p.name} ({isEnt ? '⚡ डेडीकेटेड' : '☁️ शेयर्ड'})</option>;
+                    })}
+                  </select>
+                </div>
+
+                {/* Expiry Date input */}
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-slate-600">
+                    {addForm.planId === 'trial' ? 'ट्रायल समाप्ति तिथि (Trial Expiry Date) *' : 'प्लान समाप्ति तिथि (Expiry Date - Optional)'}
+                  </label>
+                  <input
+                    type="date"
+                    value={addForm.trialEndsAt || ''}
+                    onChange={(e) => setAddForm(Object.assign({}, addForm, { trialEndsAt: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white font-medium"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-slate-600">बिलिंग चक्र (Billing Cycle)</label>
+                  <select value={addForm.billingCycle} onChange={(e) => setAddForm(Object.assign({}, addForm, { billingCycle: e.target.value }))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white">
+                    <option value="monthly">मासिक बिलिंग</option>
+                    <option value="quarterly">त्रैमासिक बिलिंग</option>
+                    <option value="annual">वार्षिक बिलिंग</option>
+                  </select>
+                </div>
               </div>
               <div className="mt-4 flex items-center gap-2">
                 <button onClick={createSchool} disabled={busyId === 'add'} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer disabled:opacity-50">
@@ -931,7 +1003,14 @@ export function AdminConsoleScreen() {
                           </option>
                         ))}
                       </select>
-                      <button onClick={() => approve(s.id, approvalPlans[s.id] || s.preferredPlanId || 'trial')} disabled={busyId === s.id} className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
+                      <input
+                        type="date"
+                        value={approvalExpiryDates[s.id] || ((approvalPlans[s.id] || s.preferredPlanId || 'trial') === 'trial' ? default7Days() : '')}
+                        onChange={(e) => setApprovalExpiryDates(Object.assign({}, approvalExpiryDates, { [s.id]: e.target.value }))}
+                        title="ट्रायल / सदस्यता समाप्ति तिथि"
+                        className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white text-slate-700 shadow-2xs w-32"
+                      />
+                      <button onClick={() => approve(s.id, approvalPlans[s.id] || s.preferredPlanId || 'trial', approvalExpiryDates[s.id])} disabled={busyId === s.id} className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         <span>स्वीकृत करें</span>
                       </button>
@@ -1075,7 +1154,20 @@ export function AdminConsoleScreen() {
                     </td>
                     <td className="py-3 px-3">{statusBadge(s.status, s)}</td>
                     <td className="py-3 px-3">
-                      {editId === s.id ? null : (
+                      {editId === s.id ? (
+                        <select
+                          value={editForm.planId}
+                          onChange={(e) => setEditForm(Object.assign({}, editForm, { planId: e.target.value }))}
+                          className="px-2 py-1 border border-slate-200 rounded-lg text-xs bg-white font-medium text-slate-800 w-full"
+                        >
+                          <option value="trial">7-दिन ट्रायल (☁️ शेयर्ड)</option>
+                          {nonTrialPlans.map((p) => {
+                            const isEnt = p.id === 'enterprise' || p.dedicatedWorker;
+                            const label = `${p.name} (${isEnt ? '⚡ डेडीकेटेड' : '☁️ शेयर्ड'})`;
+                            return <option key={p.id} value={p.id}>{label}</option>;
+                          })}
+                        </select>
+                      ) : (
                         <select
                           value={s.planId}
                           onChange={(e) => setPlan(s.id, e.target.value)}
@@ -1084,7 +1176,7 @@ export function AdminConsoleScreen() {
                           {s.planId && nonTrialPlans.findIndex((p) => p.id === s.planId) === -1 && s.planId !== 'trial' && (
                             <option value={s.planId}>{s.planName || s.planId}</option>
                           )}
-                          {s.planId === 'trial' && <option value="trial">7-दिन ट्रायल (☁️ शेयर्ड)</option>}
+                          <option value="trial">7-दिन ट्रायल (☁️ शेयर्ड)</option>
                           {nonTrialPlans.map((p) => {
                             const isEnt = p.id === 'enterprise' || p.dedicatedWorker;
                             const label = `${p.name} (${isEnt ? '⚡ डेडीकेटेड' : '☁️ शेयर्ड'})`;
@@ -1093,7 +1185,32 @@ export function AdminConsoleScreen() {
                         </select>
                       )}
                     </td>
-                    <td className="py-3 px-3 text-slate-600">{s.trialEndsAt || '—'}</td>
+                    <td className="py-3 px-3">
+                      {editId === s.id ? (
+                        <input
+                          type="date"
+                          value={editForm.trialEndsAt || ''}
+                          onChange={(e) => setEditForm(Object.assign({}, editForm, { trialEndsAt: e.target.value }))}
+                          className="px-2 py-1 border border-slate-200 rounded-lg text-xs bg-white font-medium w-36"
+                        />
+                      ) : (
+                        <div className="flex items-center gap-1.5 flex-nowrap">
+                          <span className={s.trialEndsAt ? 'font-medium text-slate-700' : 'text-slate-400'}>
+                            {s.trialEndsAt || '—'}
+                          </span>
+                          <button
+                            onClick={() => {
+                              setExpiryModalSchool(s);
+                              setExpiryModalDate(s.trialEndsAt || default7Days());
+                            }}
+                            className="p-1 rounded-md hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition cursor-pointer"
+                            title="समाप्ति तिथि (Expiry Date) बदलें"
+                          >
+                            <Calendar className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </td>
                     <td className="py-3 px-3">
                       {editId === s.id ? (
                         <div className="flex items-center gap-1.5">
@@ -1161,6 +1278,19 @@ export function AdminConsoleScreen() {
                                 <span>+7 दिन ट्रायल</span>
                               </button>
                             )}
+
+                            {/* Direct Set Expiry Date Button for Any School */}
+                            <button
+                              onClick={() => {
+                                setExpiryModalSchool(s);
+                                setExpiryModalDate(s.trialEndsAt || default7Days());
+                              }}
+                              className="px-2.5 py-1 border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-lg text-[11px] font-bold cursor-pointer flex items-center gap-1"
+                              title="समाप्ति तिथि (Expiry Date) बदलें / सेट करें"
+                            >
+                              <Calendar className="w-3 h-3" />
+                              <span>एक्सपायरी</span>
+                            </button>
 
                             <button onClick={() => startEmailConfig(s)} className="px-2.5 py-1 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-[11px] font-bold cursor-pointer flex items-center gap-1">
                               <Mail className="w-3 h-3" />
@@ -1877,6 +2007,98 @@ export function AdminConsoleScreen() {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Expiry Date Modal for Any School */}
+      {expiryModalSchool && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">समाप्ति तिथि (Expiry Date) निर्धारित करें</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">{expiryModalSchool.schoolName}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setExpiryModalSchool(null)}
+                className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-xs">
+                <span className="text-slate-500 font-medium">वर्तमान प्लान:</span>
+                <span className="font-bold text-slate-800">{expiryModalSchool.planName || expiryModalSchool.planId}</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  नई समाप्ति तिथि (New Expiry Date)
+                </label>
+                <input
+                  type="date"
+                  value={expiryModalDate}
+                  onChange={(e) => setExpiryModalDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+
+              {/* Quick presets */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-500 mb-1.5">त्वरित विकल्प (Quick Presets):</label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { label: '+7 दिन', days: 7 },
+                    { label: '+14 दिन', days: 14 },
+                    { label: '+1 महीना', days: 30 },
+                    { label: '+3 महीने', days: 90 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.days}
+                      type="button"
+                      onClick={() => {
+                        const d = new Date(Date.now() + preset.days * 86400000).toISOString().split('T')[0];
+                        setExpiryModalDate(d);
+                      }}
+                      className="px-2 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-bold text-slate-700 transition cursor-pointer"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="text-[11px] text-slate-500 bg-blue-50/60 p-2.5 rounded-xl border border-blue-100">
+                💡 <strong>ध्यान दें:</strong> भविष्य की तारीख सेट करने पर यदि स्कूल का ट्रायल समाप्त था तो वह पुनः सक्रिय हो जाएगा और स्मरण ईमेल टाइमस्टैम्प रीसेट हो जाएंगे।
+              </div>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setExpiryModalSchool(null)}
+                className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                रद्द
+              </button>
+              <button
+                type="button"
+                onClick={() => saveExpiryDate(expiryModalSchool.id, expiryModalDate)}
+                disabled={expiryModalBusy || !expiryModalDate}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {expiryModalBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                <span>{expiryModalBusy ? 'सहेजा जा रहा है...' : 'तिथि सहेजें'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
