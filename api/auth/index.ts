@@ -4,7 +4,7 @@ import { hashPassword, verifyPassword, signToken, getAuthUser } from '../lib/aut
 import { issueResetToken, consumeResetToken } from '../lib/reset-tokens';
 import { sendPasswordResetEmail, getRequestOrigin } from '../lib/email';
 import { syncTenantFromPlatform } from '../lib/tenant-sync';
-import { isAuthorizedPlatformEmail } from '../admin';
+import { isAuthorizedPlatformEmail, getAuthorizedPlatformEmail } from '../admin';
 
 const authApp = new Hono<{ Bindings: any }>();
 
@@ -32,16 +32,33 @@ authApp.post('/login', async (c) => {
   if (!isDedicated) {
     const admin = await db.prepare('SELECT * FROM platform_admins WHERE LOWER(email) = ?').bind(identifier).first();
     if (admin) {
-      // Validate that the admin email belongs to authorized platform domains or PLATFORM_ADMIN_EMAIL
-      if (!isAuthorizedPlatformEmail(admin.email, c.env)) {
-        return c.json({ success: false, message: 'अनधिकृत Super Admin ईमेल डोमेन। केवल अधिकृत प्लेटफ़ॉर्म डोमेन अनुमत है।' }, 403);
+      let platformEmail = getAuthorizedPlatformEmail(c.env);
+      if (!platformEmail && c.env && c.env.CONFIG_KV) {
+        try {
+          platformEmail = String((await c.env.CONFIG_KV.get('PLATFORM_ADMIN_EMAIL')) || '').trim().toLowerCase();
+        } catch (_) {}
+      }
+
+      const normalizedAdminEmail = String(admin.email || '').trim().toLowerCase();
+      const isAuthorized = platformEmail
+        ? normalizedAdminEmail === platformEmail
+        : isAuthorizedPlatformEmail(normalizedAdminEmail, c.env);
+
+      if (!isAuthorized) {
+        return c.json({ success: false, message: 'अनधिकृत Super Admin ईमेल। केवल अधिकृत प्लेटफ़ॉर्म एडमिन ही अनुमत है।' }, 403);
       }
 
       const ok = await verifyPassword(password, admin.password_hash || '');
       if (!ok) return c.json({ success: false, message: 'अमान्य पासवर्ड।' }, 401);
       await db.prepare('UPDATE platform_admins SET updated_at = ? WHERE id = ?').bind(new Date().toISOString(), admin.id).run();
       const SESSION_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
-      const token = await signToken(c, { sub: admin.id, role: 'SuperAdmin', schoolId: '', exp: Math.floor(Date.now() / 1000) + SESSION_EXPIRY_SECONDS });
+      const token = await signToken(c, {
+        sub: admin.id,
+        email: admin.email,
+        role: 'SuperAdmin',
+        schoolId: '',
+        exp: Math.floor(Date.now() / 1000) + SESSION_EXPIRY_SECONDS,
+      });
       return c.json({
         success: true,
         message: 'Super Admin लॉगिन सफल।',
@@ -97,7 +114,13 @@ authApp.post('/login', async (c) => {
 
   const schoolId = user.school_id || 'school-01';
   const SESSION_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
-  const token = await signToken(c, { sub: user.id, role: user.role, schoolId, exp: Math.floor(Date.now() / 1000) + SESSION_EXPIRY_SECONDS });
+  const token = await signToken(c, {
+    sub: user.id,
+    email: user.email,
+    role: user.role,
+    schoolId,
+    exp: Math.floor(Date.now() / 1000) + SESSION_EXPIRY_SECONDS,
+  });
 
   return c.json({
     success: true,

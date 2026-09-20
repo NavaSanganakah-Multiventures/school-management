@@ -5,6 +5,7 @@ export type PlatformRole = 'SuperAdmin' | 'Director' | 'Principal' | 'Staff';
 
 export interface AuthPayload {
   sub: string;
+  email?: string;
   role: PlatformRole;
   schoolId: string;
   exp: number;

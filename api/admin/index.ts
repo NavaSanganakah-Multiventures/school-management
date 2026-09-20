@@ -17,11 +17,24 @@ adminApp.use('*', async (c, next) => {
   await next();
 });
 
+export function getAuthorizedPlatformEmail(env: any): string {
+  return String((env && env.PLATFORM_ADMIN_EMAIL) || '').trim().toLowerCase();
+}
+
 export function isAuthorizedPlatformEmail(email: string, env: any): boolean {
   const normalized = String(email || '').trim().toLowerCase();
   if (!normalized) return false;
-  const platformEmail = String((env && env.PLATFORM_ADMIN_EMAIL) || '').trim().toLowerCase();
-  return normalized.endsWith('@nasven.com') || normalized.endsWith('@vidyasetu.com') || (!!platformEmail && normalized === platformEmail);
+  const platformEmail = getAuthorizedPlatformEmail(env);
+  if (platformEmail) {
+    return normalized === platformEmail;
+  }
+  // Fallback when PLATFORM_ADMIN_EMAIL is not yet bound to env (e.g. dev/setup):
+  return (
+    normalized.endsWith('@nasven.com') ||
+    normalized.endsWith('@vidyasetu.com') ||
+    normalized.endsWith('@vidyasetu.app') ||
+    normalized.endsWith('@navasanganakah.com')
+  );
 }
 
 async function requireSuperAdmin(c: any) {
@@ -30,12 +43,50 @@ async function requireSuperAdmin(c: any) {
     return { ok: false, authUser, error: c.json({ success: false, message: 'केवल Super Admin की अनुमति है।' }, 403) };
   }
 
-  // Enforce authorized platform email domain to prevent unauthorized registration/creation
-  if (!isAuthorizedPlatformEmail(authUser.email, c.env)) {
+  const db = getDB(c);
+  let adminEmail = authUser.email;
+
+  // Single Admin Architecture: verify the single active platform admin from DB
+  let adminRecord: any = null;
+  if (db && authUser.sub) {
+    try {
+      adminRecord = await db.prepare('SELECT id, email, status FROM platform_admins WHERE id = ?').bind(authUser.sub).first();
+      if (!adminRecord || adminRecord.status !== 'Active') {
+        return {
+          ok: false,
+          authUser,
+          error: c.json({ success: false, message: 'Super Admin खाता निष्क्रिय या मौजूद नहीं है।' }, 403),
+        };
+      }
+      if (!adminEmail) {
+        adminEmail = adminRecord.email;
+        authUser.email = adminEmail;
+      }
+    } catch (_) {}
+  }
+
+  // Check env or KV for PLATFORM_ADMIN_EMAIL
+  let platformEmail = getAuthorizedPlatformEmail(c.env);
+  if (!platformEmail && c.env && c.env.CONFIG_KV) {
+    try {
+      platformEmail = String((await c.env.CONFIG_KV.get('PLATFORM_ADMIN_EMAIL')) || '').trim().toLowerCase();
+    } catch (_) {}
+  }
+
+  const normalizedAdminEmail = String(adminEmail || '').trim().toLowerCase();
+  // Gate strictly: if PLATFORM_ADMIN_EMAIL is configured, admin email must match exactly
+  const isAuthorized = platformEmail
+    ? normalizedAdminEmail === platformEmail
+    : isAuthorizedPlatformEmail(normalizedAdminEmail, c.env);
+
+  if (!isAuthorized) {
     return {
       ok: false,
       authUser,
-      error: c.json({ success: false, message: 'अनधिकृत Super Admin ईमेल। केवल अधिकृत प्लेटफ़ॉर्म डोमेन से ही स्कूल प्रबंधन अनुमत है।' }, 403),
+      error: c.json({
+        success: false,
+        message: 'अनधिकृत Super Admin ईमेल। केवल अधिकृत प्लेटफ़ॉर्म एडमिन (' + (platformEmail || 'PLATFORM_ADMIN_EMAIL') + ') ही अनुमत है।',
+      }, 403),
     };
   }
 
@@ -82,28 +133,53 @@ function tenantToJson(row: any) {
 }
 
 
-// POST /api/admin/bootstrap - one-time first Super Admin creation from env secrets
+// POST /api/admin/bootstrap - idempotent single Super Admin creation/sync from env secrets
 adminApp.post('/bootstrap', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const existing = await db.prepare('SELECT COUNT(*) AS n FROM platform_admins').first();
-  if (existing && existing.n > 0) {
-    return c.json({ success: false, message: 'Super Admin पहले से मौजूद है।' }, 403);
+
+  let email = getAuthorizedPlatformEmail(c.env);
+  if (!email && c.env && c.env.CONFIG_KV) {
+    try {
+      email = String((await c.env.CONFIG_KV.get('PLATFORM_ADMIN_EMAIL')) || '').trim().toLowerCase();
+    } catch (_) {}
   }
-  const email = String((c.env && c.env.PLATFORM_ADMIN_EMAIL) || '').trim().toLowerCase();
-  const password = String((c.env && c.env.PLATFORM_ADMIN_PASSWORD) || '').trim();
+  let password = String((c.env && c.env.PLATFORM_ADMIN_PASSWORD) || '').trim();
+  if (!password && c.env && c.env.CONFIG_KV) {
+    try {
+      password = String((await c.env.CONFIG_KV.get('PLATFORM_ADMIN_PASSWORD')) || '').trim();
+    } catch (_) {}
+  }
+
   if (!email || !password) {
     return c.json({ success: false, message: 'PLATFORM_ADMIN_EMAIL और PLATFORM_ADMIN_PASSWORD env secrets सेट करें।' }, 400);
   }
 
-  // Verify that the bootstrap email belongs to the authorized platform domain
+  // Verify that the bootstrap email belongs to the authorized platform domain / pattern
   if (!isAuthorizedPlatformEmail(email, c.env)) {
     return c.json({ success: false, message: 'केवल अधिकृत प्लेटफ़ॉर्म ईमेल डोमेन को Super Admin बनाया जा सकता है।' }, 403);
   }
 
   const passwordHash = await hashPassword(password);
-  await db.prepare('INSERT INTO platform_admins (id, email, password_hash, full_name, phone, status, created_at) VALUES (?,?,?,?,?,?,?)')
-    .bind('adm-' + Date.now(), email, passwordHash, 'Platform Admin', '', 'Active', new Date().toISOString()).run();
+  const now = new Date().toISOString();
+
+  // Enforce single-admin rule: check existing admin
+  const existing = await db.prepare('SELECT id, email FROM platform_admins ORDER BY created_at ASC LIMIT 1').first();
+  if (existing) {
+    // Update existing single Super Admin credentials to match env secrets (idempotent bootstrap / rotation)
+    await db.prepare('UPDATE platform_admins SET email = ?, password_hash = ?, full_name = ?, status = ?, updated_at = ? WHERE id = ?')
+      .bind(email, passwordHash, 'Platform Super Admin', 'Active', now, existing.id).run();
+
+    // Clean up any extra admin records to guarantee exactly 1 Super Admin exists
+    await db.prepare('DELETE FROM platform_admins WHERE id != ?').bind(existing.id).run();
+
+    return c.json({ success: true, message: 'Super Admin क्रेडेंशियल्स env secrets के अनुसार सिंक हो गए।' });
+  }
+
+  // Create first single Super Admin
+  await db.prepare('INSERT INTO platform_admins (id, email, password_hash, full_name, phone, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)')
+    .bind('adm-' + Date.now(), email, passwordHash, 'Platform Super Admin', '', 'Active', now, now).run();
+
   return c.json({ success: true, message: 'Super Admin सफलतापूर्वक बूटस्ट्रैप हो गया।' });
 });
 
