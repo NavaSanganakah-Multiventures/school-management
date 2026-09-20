@@ -17,7 +17,7 @@
 import { spawnSync } from 'child_process';
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4/accounts';
-const DEFAULT_KV_NAMESPACE_ID = '393901911be84d55822c78070a82e94';
+const DEFAULT_KV_NAMESPACE_ID = '393901911be84d558822c78070a82e94';
 
 // KV keys = GitHub repo secret names that deploy.yml reads.
 const SECRET_KEYS = [
