@@ -1,5 +1,5 @@
 // api/lib/provisioning.ts
-// Shared helper for dispatching dedicated Workers for Platforms (WfP) workers.
+// Shared helper for provisioning dedicated (Enterprise) Cloudflare Workers.
 // Used by billing (enterprise purchase) and admin (manual provision / plan assignment).
 
 export type ProvisioningStatus = 'skipped' | 'started' | 'error';
