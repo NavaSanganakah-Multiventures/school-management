@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   TrendingUp, Users, Award, Target, BarChart3, PieChart, LineChart, 
-  BookOpen, Calendar, School, Trophy, Alert,
+  BookOpen, Calendar, School, Trophy,
   TrendingDown, Clock, CheckCircle, XCircle 
 } from 'lucide-react';
 
@@ -16,8 +16,10 @@ interface AnalyticsDashboardProps {
 interface ExamAnalytics {
   examId: string;
   examName: string;
+  dateRange?: string;
   totalStudents: number;
   studentsPassed: number;
+  studentsAbove90: number;
   passPercentage: number;
   averagePercentage: number;
   highestPercentage: number;
@@ -288,7 +290,9 @@ export function AnalyticsDashboard({ examId, className, section }: AnalyticsDash
                   <div className="text-xs text-slate-500 mb-1">Toppers</div>
                   <div className="flex items-center justify-center gap-1">
                     <Trophy className="h-4 w-4 text-amber-500" />
-                    <span className="font-bold text-amber-700">{Math.floor(analytics.highestPercentage >= 90 ? analytics.totalStudents * 0.1 : 0)}</span>
+                    <span className="font-bold text-amber-700">
+                      {analytics.studentsAbove90 ?? 0}
+                    </span>
                     <span className="text-xs text-slate-500">above 90%</span>
                   </div>
                 </div>
@@ -380,15 +384,15 @@ export function AnalyticsDashboard({ examId, className, section }: AnalyticsDash
                 </h3>
                 <ul className="text-xs text-slate-700 space-y-1">
                   <li className="flex items-start gap-2">
-                    <Alert className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />
+                    <XCircle className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />
                     <span>{(analytics.totalStudents - analytics.studentsPassed)} students need special attention</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <Alert className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />
+                    <XCircle className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />
                     <span>Bridge gap between highest ({analytics.highestPercentage}%) and lowest ({analytics.lowestPercentage}%)</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <Alert className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />
+                    <XCircle className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />
                     <span>Target to improve average score by 5% in next exam</span>
                   </li>
                 </ul>

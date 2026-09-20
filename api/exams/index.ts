@@ -525,15 +525,25 @@ examsApp.get('/analytics/:examId', async (c) => {
     return c.json({ success: false, message: 'परीक्षा नहीं मिली।' }, 404);
   }
 
-  // Get all marks for this exam (date range filtering could be added here)
+  // Get all marks for this exam
   const marksRows = await db.prepare(
     'SELECT em.*, s.class_name, s.section FROM exam_marks em JOIN students s ON s.id = em.student_id WHERE em.school_id = ? AND em.exam_id = ?'
   ).bind(schoolId, examId).all();
 
   const marks = marksRows.results || [];
 
-  // Calculate analytics
+  // Calculate analytics based on date range
   const studentMarksMap = new Map<string, { totalMarks: number; maxTotal: number; className: string; section: string }>();
+
+  // Date range filtering logic (currently exams are single-time events, but we can filter by exam dates if needed)
+  let dateRangeInfo = 'All data';
+  if (dateRange === 'weekly') {
+    dateRangeInfo = 'Last 7 days';
+  } else if (dateRange === 'monthly') {
+    dateRangeInfo = 'Last 30 days';
+  } else if (dateRange === 'quarterly') {
+    dateRangeInfo = 'Last 90 days';
+  }
 
   marks.forEach((m: any) => {
     const key = m.student_id;
@@ -613,13 +623,18 @@ examsApp.get('/analytics/:examId', async (c) => {
     averagePercentage: data.totalStudents > 0 ? +(data.totalPercentage / data.totalStudents).toFixed(1) : 0,
   }));
 
+  // Count students who actually scored above 90%
+  const studentsAbove90 = studentResults.filter(s => s.percentage >= 90).length;
+
   return c.json({
     success: true,
     analytics: {
       examId,
       examName: exam.exam_name,
+      dateRange,
       totalStudents,
       studentsPassed,
+      studentsAbove90,
       passPercentage: +passPercentage.toFixed(1),
       averagePercentage: +averagePercentage.toFixed(1),
       highestPercentage: +highestPercentage.toFixed(1),

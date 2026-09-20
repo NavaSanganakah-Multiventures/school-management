@@ -314,7 +314,7 @@ export function TemplateSelector({ reportData, schoolName, schoolCode, affiliati
               <div className="bg-slate-50 rounded-xl p-4 mb-4">
                 <p className="text-sm text-slate-700">
                   This preview shows how the marksheet will look when printed. The actual data shown is sample data.
-                  {!reportData?.hasData && (
+                  {(!reportData?.marks || reportData.marks.length === 0) && (
                     <span className="text-amber-700 font-bold ml-2">⚠️ Note: No real student marks data available for preview.</span>
                   )}
                 </p>
