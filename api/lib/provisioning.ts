@@ -104,6 +104,33 @@ export async function provisionDedicatedWorker(
   const schoolId = String((school && school.id) || '');
   if (!schoolId) return { ok: false, status: 'error', error: 'schoolId उपलब्ध नहीं है।' };
 
+  // Enforce Enterprise plan gating: Dedicated Workers can ONLY be provisioned for Enterprise schools.
+  const planId = String((school && (school.plan_id || school.planId)) || 'trial').toLowerCase();
+  if (planId !== 'enterprise' && (!school.featureFlags || !school.featureFlags.dedicatedWorker)) {
+    if (db) {
+      try {
+        const sub = await db.prepare('SELECT plan_id FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+        const activePlanId = String((sub && sub.plan_id) || planId).toLowerCase();
+        const plan = await db.prepare('SELECT id, feature_flags FROM subscription_plans WHERE id = ?').bind(activePlanId).first();
+        let flags: any = {};
+        try { flags = JSON.parse(plan?.feature_flags || '{}'); } catch (_) {}
+        if (activePlanId !== 'enterprise' && !flags.dedicatedWorker) {
+          return {
+            ok: false,
+            status: 'error',
+            error: 'डेडीकेटेड वर्कर केवल एंटरप्राइज (Enterprise) प्लान के लिए ही अनुमत है। कृपया पहले स्कूल को एंटरप्राइज प्लान में अपग्रेड करें।',
+          };
+        }
+      } catch (_) {}
+    } else if (planId !== 'enterprise') {
+      return {
+        ok: false,
+        status: 'error',
+        error: 'डेडीकेटेड वर्कर केवल एंटरप्राइज (Enterprise) प्लान के लिए ही अनुमत है। कृपया पहले स्कूल को एंटरप्राइज प्लान में अपग्रेड करें।',
+      };
+    }
+  }
+
   const currentStatus = String((school && school.provisioning_status) || 'none');
   if ((currentStatus === 'pending' || currentStatus === 'live') && (school && school.dedicated_slug)) {
     return {
@@ -173,5 +200,52 @@ export async function provisionDedicatedWorker(
   }
 
   await markProvisioningFailed(db, schoolId, lastError || 'schools.json commit विफल।');
+  return { ok: false, status: 'error', error: lastError || 'schools.json commit विफल।' };
+}
+
+export async function deprovisionDedicatedWorker(
+  env: any,
+  db: any,
+  schoolId: string,
+  slug?: string,
+): Promise<ProvisioningResult> {
+  if (!schoolId) return { ok: false, status: 'error', error: 'schoolId उपलब्ध नहीं है।' };
+
+  const token = String((env && env.GITHUB_TOKEN) || '').trim();
+  if (!token) {
+    return { ok: false, status: 'error', error: 'GITHUB_TOKEN worker secret सेट नहीं है।' };
+  }
+
+  const repo = String((env && env.GITHUB_REPO) || 'NavaSanganakah-Multiventures/school-management').trim();
+  const branch = String((env && env.GITHUB_BRANCH) || 'main').trim();
+
+  let lastError = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const { registry, sha } = await readSchoolsRegistry(token, repo, branch);
+      const schools = Array.isArray(registry.schools) ? registry.schools : [];
+
+      const entry = schools.find((x: any) => x && (x.schoolId === schoolId || (slug && x.slug === slug)));
+      if (entry) {
+        entry.mode = 'shared';
+      }
+      registry.schools = schools;
+
+      await commitSchoolsRegistry(token, repo, branch, registry, sha, 'chore: switch ' + (slug || schoolId) + ' to shared mode');
+      if (db) {
+        await db.prepare('UPDATE school_tenants SET provisioning_status=?, provisioning_error=? WHERE id=?')
+          .bind('none', '', schoolId).run();
+      }
+      return {
+        ok: true,
+        status: 'started',
+        message: 'स्कूल को शेयर्ड वर्कर मोड में सेट कर दिया गया।',
+      };
+    } catch (e: any) {
+      lastError = String((e && e.message) || e);
+      if (!/409|conflict/i.test(lastError)) break;
+    }
+  }
+
   return { ok: false, status: 'error', error: lastError || 'schools.json commit विफल।' };
 }

@@ -5,7 +5,7 @@ import {
   ShieldCheck, RefreshCw, CheckCircle2, XCircle, School, IndianRupee,
   Loader2, Plus, Trash2, RotateCcw, Pencil, Tag, Boxes, Eye, EyeOff,
   Search, ToggleLeft, ToggleRight, Sparkles, Globe, Lock, Check, Store, Mail,
-  MessageSquarePlus, Clock
+  MessageSquarePlus, Clock, ExternalLink
 } from 'lucide-react';
 
 interface SchoolRow {
@@ -77,6 +77,7 @@ interface PlanRow {
   recommended: boolean;
   active: boolean;
   isTrial: boolean;
+  dedicatedWorker?: boolean;
   sortOrder: number;
 }
 
@@ -149,6 +150,7 @@ export function AdminConsoleScreen() {
   // School Search & Filter
   const [schoolSearch, setSchoolSearch] = useState('');
   const [schoolStatusFilter, setSchoolStatusFilter] = useState<'all' | 'Active' | 'Trial' | 'Suspended'>('all');
+  const [schoolDeliveryFilter, setSchoolDeliveryFilter] = useState<'all' | 'shared' | 'dedicated'>('all');
 
   // School Add & Edit Forms
   const [showAddForm, setShowAddForm] = useState(false);
@@ -321,6 +323,10 @@ export function AdminConsoleScreen() {
 
   // Dedicated Worker provisioning actions
   const startProvision = (s: SchoolRow) => {
+    if (s.planId !== 'enterprise') {
+      setErrorMsg(`"${s.schoolName}" वर्तमान में ${s.planName || s.planId} पर है। डेडीकेटेड वर्कर केवल एंटरप्राइज (Enterprise) प्लान के लिए उपलब्ध है। कृपया पहले स्कूल का प्लान 'एंटरप्राइज' में बदलें।`);
+      return;
+    }
     setConfirmProvisionId(s.id);
     setProvisionSlug(s.subdomain || '');
   };
@@ -336,6 +342,19 @@ export function AdminConsoleScreen() {
         flashSuccess(data.message || 'डेडिकेटेड वर्कर provisioning शुरू हो गया।');
         await loadData();
       } else setErrorMsg(data.message || 'प्रोविजनिंग विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
+  const deprovisionDedicated = async (s: SchoolRow) => {
+    if (!confirm(`क्या आप निश्चित रूप से "${s.schoolName}" को शेयर्ड वर्कर मोड में वापस बदलना चाहते हैं? इससे यह स्कूल pragnya.nasven.com पर कार्य करेगा।`)) return;
+    setBusyId('deprovision-' + s.id);
+    try {
+      const data = await post('/api/admin/schools/provision/deprovision', { schoolId: s.id });
+      if (data.success) {
+        flashSuccess(data.message || 'स्कूल को शेयर्ड वर्कर मोड में बदल दिया गया।');
+        await loadData();
+      } else setErrorMsg(data.message || 'डी-प्रोविजनिंग विफल।');
     } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
     finally { setBusyId(null); }
   };
@@ -585,12 +604,20 @@ export function AdminConsoleScreen() {
       s.schoolName.toLowerCase().includes(schoolSearch.toLowerCase()) ||
       s.contactEmail.toLowerCase().includes(schoolSearch.toLowerCase()) ||
       s.contactPhone.includes(schoolSearch) ||
-      (s.subdomain && s.subdomain.toLowerCase().includes(schoolSearch.toLowerCase()));
+      (s.subdomain && s.subdomain.toLowerCase().includes(schoolSearch.toLowerCase())) ||
+      (s.dedicatedSlug && s.dedicatedSlug.toLowerCase().includes(schoolSearch.toLowerCase()));
 
     const matchesStatus = schoolStatusFilter === 'all' || s.status === schoolStatusFilter;
-    return matchesSearch && matchesStatus;
+    const isDedicated = s.planId === 'enterprise' || (s.provisioningStatus && s.provisioningStatus !== 'none');
+    const matchesDelivery = schoolDeliveryFilter === 'all' ||
+      (schoolDeliveryFilter === 'dedicated' && isDedicated) ||
+      (schoolDeliveryFilter === 'shared' && !isDedicated);
+
+    return matchesSearch && matchesStatus && matchesDelivery;
   });
 
+  const totalDedicated = schools.filter((s) => s.planId === 'enterprise' || (s.provisioningStatus && s.provisioningStatus !== 'none')).length;
+  const totalShared = schools.length - totalDedicated;
   const totalActive = schools.filter((s) => s.status === 'Active').length;
   const totalTrial = schools.filter((s) => s.status === 'Trial').length;
   const totalActivePlugins = plugins.filter((p) => !!p.is_active).length;
@@ -693,19 +720,19 @@ export function AdminConsoleScreen() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs">
               <div className="text-2xl font-black text-slate-900">{schools.length}</div>
-              <div className="text-xs font-semibold text-slate-500">कुल विद्यालय</div>
+              <div className="text-xs font-semibold text-slate-500">कुल पंजीकृत विद्यालय</div>
+            </div>
+            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs bg-slate-50/40">
+              <div className="text-2xl font-black text-slate-700">{totalShared}</div>
+              <div className="text-xs font-semibold text-slate-600">☁️ शेयर्ड वर्कर (Shared)</div>
+            </div>
+            <div className="p-4 rounded-2xl bg-white border border-indigo-200 shadow-2xs bg-indigo-50/30">
+              <div className="text-2xl font-black text-indigo-700">{totalDedicated}</div>
+              <div className="text-xs font-semibold text-indigo-800">⚡ डेडीकेटेड वर्कर (Enterprise)</div>
             </div>
             <div className="p-4 rounded-2xl bg-white border border-amber-200 shadow-2xs bg-amber-50/20">
               <div className="text-2xl font-black text-amber-600">{registrations.length}</div>
               <div className="text-xs font-semibold text-amber-800">लंबित पंजीकरण अप्रूवल</div>
-            </div>
-            <div className="p-4 rounded-2xl bg-white border border-blue-200 shadow-2xs bg-blue-50/20">
-              <div className="text-2xl font-black text-blue-700">{totalActive}</div>
-              <div className="text-xs font-semibold text-blue-800">सक्रिय (पेड प्लान)</div>
-            </div>
-            <div className="p-4 rounded-2xl bg-white border border-emerald-200 shadow-2xs bg-emerald-50/20">
-              <div className="text-2xl font-black text-emerald-600">{totalTrial}</div>
-              <div className="text-xs font-semibold text-emerald-800">फ्री ट्रायल पर</div>
             </div>
           </div>
 
@@ -728,7 +755,7 @@ export function AdminConsoleScreen() {
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <div className="relative">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
                 <input
@@ -748,6 +775,15 @@ export function AdminConsoleScreen() {
                 <option value="Active">सक्रिय (Active)</option>
                 <option value="Trial">ट्रायल (Trial)</option>
                 <option value="Suspended">निलंबित (Suspended)</option>
+              </select>
+              <select
+                value={schoolDeliveryFilter}
+                onChange={(e) => setSchoolDeliveryFilter(e.target.value as any)}
+                className="px-2.5 py-1.5 border border-indigo-200 rounded-xl text-xs bg-indigo-50/50 text-indigo-900 cursor-pointer font-bold"
+              >
+                <option value="all">सभी मॉडल ({schools.length})</option>
+                <option value="shared">☁️ शेयर्ड ({totalShared})</option>
+                <option value="dedicated">⚡ डेडीकेटेड ({totalDedicated})</option>
               </select>
             </div>
           </div>
@@ -903,21 +939,72 @@ export function AdminConsoleScreen() {
                           </select>
                         </div>
                       ) : (
-                        <div className="space-y-0.5">
-                          <div className="text-slate-700 font-medium">{s.subdomain ? `${s.subdomain}.nasven.com` : '—'}</div>
-                          {s.customDomain && <div className="text-[10px] text-blue-600 font-semibold">{s.customDomain}</div>}
-                          {s.provisioningStatus && s.provisioningStatus !== 'none' && (
-                            <div className="mt-1 space-y-0.5">
-                              <span className={'inline-block px-1.5 py-0.5 rounded-full text-[9px] font-bold ' + (s.provisioningStatus === 'live' ? 'bg-emerald-100 text-emerald-700' : (s.provisioningStatus === 'pending' || s.provisioningStatus === 'provisioning') ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700')}>
-                                {'⚡ ' + (s.provisioningStatus === 'live' ? 'डेडिकेटेड लाइव' : (s.provisioningStatus === 'pending' || s.provisioningStatus === 'provisioning') ? 'प्रोविजनिंग...' : s.provisioningStatus)}
-                              </span>
-                              {s.dedicatedDomain && <div className="text-[9px] text-slate-400 font-mono break-all">{s.dedicatedDomain}</div>}
-                              {s.provisioningError && s.provisioningStatus === 'failed' && (
-                                <div className="text-[9px] text-rose-600">{s.provisioningError}</div>
-                              )}
-                            </div>
+                        <div className="space-y-1">
+                          {/* Main domain display with clickable link */}
+                          <div className="flex items-center gap-1">
+                            {s.dedicatedDomain ? (
+                              <a
+                                href={`https://${s.dedicatedDomain}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-indigo-600 hover:text-indigo-800 font-semibold inline-flex items-center gap-1 hover:underline"
+                                title="डेडीकेटेड वर्कर URL"
+                              >
+                                <span>{s.dedicatedDomain}</span>
+                                <ExternalLink className="w-3 h-3 shrink-0 text-indigo-400" />
+                              </a>
+                            ) : (
+                              <a
+                                href={`https://${s.subdomain ? `${s.subdomain}.pragnya.nasven.com` : 'pragnya.nasven.com'}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-slate-700 hover:text-blue-600 font-medium inline-flex items-center gap-1 hover:underline"
+                                title="शेयर्ड वर्कर URL"
+                              >
+                                <span>{s.subdomain ? `${s.subdomain}.pragnya.nasven.com` : 'pragnya.nasven.com'}</span>
+                                <ExternalLink className="w-3 h-3 shrink-0 text-slate-400" />
+                              </a>
+                            )}
+                          </div>
+
+                          {s.customDomain && (
+                            <a
+                              href={`https://${s.customDomain}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[10px] text-blue-600 font-semibold inline-flex items-center gap-1 hover:underline"
+                            >
+                              <span>🌐 {s.customDomain}</span>
+                              <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                            </a>
                           )}
-                          <div className="mt-1 text-[9px] text-slate-500">
+
+                          {/* Delivery Mode & Provisioning Badge */}
+                          <div>
+                            {s.planId === 'enterprise' && s.provisioningStatus === 'live' ? (
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                ⚡ डेडीकेटेड लाइव
+                              </span>
+                            ) : s.planId === 'enterprise' && (s.provisioningStatus === 'pending' || s.provisioningStatus === 'provisioning') ? (
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                ⏳ डेडीकेटेड प्रोविजनिंग...
+                              </span>
+                            ) : s.planId === 'enterprise' && s.provisioningStatus === 'failed' ? (
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                                ⚠️ प्रोविजनिंग विफल
+                              </span>
+                            ) : (
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                ☁️ शेयर्ड वर्कर
+                              </span>
+                            )}
+                          </div>
+
+                          {s.provisioningError && s.provisioningStatus === 'failed' && (
+                            <div className="text-[9px] text-rose-600 leading-tight">{s.provisioningError}</div>
+                          )}
+
+                          <div className="text-[9px] text-slate-500">
                             ईमेल: {s.emailQuotaUsed || 0}/{s.emailQuotaLimit === null || s.emailQuotaLimit === undefined ? '∞' : s.emailQuotaLimit}
                             {s.emailFromEmail && <span className="text-slate-400"> · {s.emailFromEmail}</span>}
                           </div>
@@ -930,15 +1017,17 @@ export function AdminConsoleScreen() {
                         <select
                           value={s.planId}
                           onChange={(e) => setPlan(s.id, e.target.value)}
-                          className="px-2.5 py-1 border border-slate-200 rounded-lg text-xs bg-white font-medium text-slate-800 max-w-44 cursor-pointer"
+                          className="px-2.5 py-1 border border-slate-200 rounded-lg text-xs bg-white font-medium text-slate-800 max-w-48 cursor-pointer"
                         >
                           {s.planId && nonTrialPlans.findIndex((p) => p.id === s.planId) === -1 && s.planId !== 'trial' && (
                             <option value={s.planId}>{s.planName || s.planId}</option>
                           )}
-                          {s.planId === 'trial' && <option value="trial">7-दिन फ्री ट्रायल</option>}
-                          {nonTrialPlans.map((p) => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
+                          {s.planId === 'trial' && <option value="trial">7-दिन ट्रायल (☁️ शेयर्ड)</option>}
+                          {nonTrialPlans.map((p) => {
+                            const isEnt = p.id === 'enterprise' || p.dedicatedWorker;
+                            const label = `${p.name} (${isEnt ? '⚡ डेडीकेटेड' : '☁️ शेयर्ड'})`;
+                            return <option key={p.id} value={p.id}>{label}</option>;
+                          })}
                         </select>
                       )}
                     </td>
@@ -956,26 +1045,48 @@ export function AdminConsoleScreen() {
                       ) : (
                         <div className="space-y-1.5">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            {confirmProvisionId === s.id ? (
-                              <>
-                                <button onClick={() => provisionDedicated(s.id)} disabled={busyId === 'provision-' + s.id} className="px-2.5 py-1 bg-indigo-600 text-white rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50">
-                                  पक्का प्रोविजन?
-                                </button>
-                                <button onClick={() => setConfirmProvisionId(null)} className="px-2 py-1 border border-slate-200 rounded-lg text-[11px] font-bold cursor-pointer">
-                                  रद्द
-                                </button>
-                              </>
-                            ) : (
-                              <button onClick={() => startProvision(s)} disabled={busyId === 'provision-' + s.id || busyId === 'provision-check-' + s.id} className="px-2.5 py-1 border border-indigo-200 text-indigo-700 hover:bg-indigo-50 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50 flex items-center gap-1">
-                                <Globe className="w-3 h-3" />
-                                <span>{s.provisioningStatus && s.provisioningStatus !== 'none' ? 'री-डिप्लॉय' : 'प्रोविजन'}</span>
-                              </button>
-                            )}
+                            {/* Provisioning controls - ONLY for Enterprise schools */}
+                            {s.planId === 'enterprise' ? (
+                              confirmProvisionId === s.id ? (
+                                <>
+                                  <button onClick={() => provisionDedicated(s.id)} disabled={busyId === 'provision-' + s.id} className="px-2.5 py-1 bg-indigo-600 text-white rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50">
+                                    पक्का प्रोविजन?
+                                  </button>
+                                  <button onClick={() => setConfirmProvisionId(null)} className="px-2 py-1 border border-slate-200 rounded-lg text-[11px] font-bold cursor-pointer">
+                                    रद्द
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => startProvision(s)}
+                                    disabled={busyId === 'provision-' + s.id || busyId === 'provision-check-' + s.id}
+                                    className="px-2.5 py-1 border border-indigo-200 text-indigo-700 hover:bg-indigo-50 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50 flex items-center gap-1"
+                                    title="Enterprise स्कूल के लिए Dedicated Cloudflare Worker तैनात करें"
+                                  >
+                                    <Globe className="w-3 h-3" />
+                                    <span>{s.provisioningStatus && s.provisioningStatus !== 'none' ? 'री-डिप्लॉय' : 'प्रोविजन'}</span>
+                                  </button>
+                                  {s.provisioningStatus === 'live' && (
+                                    <button
+                                      onClick={() => deprovisionDedicated(s)}
+                                      disabled={busyId === 'deprovision-' + s.id}
+                                      className="px-2 py-1 border border-amber-200 text-amber-700 hover:bg-amber-50 rounded-lg text-[11px] font-semibold cursor-pointer disabled:opacity-50"
+                                      title="डेडिकेटेड वर्कर हटाकर शेयर्ड मोड पर वापस लाएं"
+                                    >
+                                      शेयर्ड में बदलें
+                                    </button>
+                                  )}
+                                </>
+                              )
+                            ) : null}
+
                             {(s.provisioningStatus === 'pending' || s.provisioningStatus === 'provisioning') && (
                               <button onClick={() => checkProvision(s.id)} disabled={busyId === 'provision-check-' + s.id} className="px-2 py-1 border border-amber-200 text-amber-700 hover:bg-amber-50 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50">
                                 स्टेटस जाँचें
                               </button>
                             )}
+
                             <button onClick={() => startEmailConfig(s)} className="px-2.5 py-1 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-[11px] font-bold cursor-pointer flex items-center gap-1">
                               <Mail className="w-3 h-3" />
                               <span>ईमेल</span>

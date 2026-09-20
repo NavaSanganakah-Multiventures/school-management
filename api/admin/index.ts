@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { getDB, loadSubscriptionPlans, loadSubscriptionPlanById, makeUniqueUsername } from '../db';
 import { getAuthUser, hashPassword } from '../lib/auth';
-import { sanitizeSlug, isSlugValid, provisionDedicatedWorker } from '../lib/provisioning';
+import { sanitizeSlug, isSlugValid, provisionDedicatedWorker, deprovisionDedicatedWorker } from '../lib/provisioning';
 
 const adminApp = new Hono<{ Bindings: any }>();
 
@@ -448,9 +448,16 @@ adminApp.post('/schools/plan', async (c) => {
     .bind(plan.id, 'Active', 'Approved', '', schoolId).run();
 
   let provisioning: any = null;
+  const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
   if (plan.featureFlags && plan.featureFlags.dedicatedWorker) {
-    const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
     if (school) provisioning = await provisionDedicatedWorker(c.env, db, school, {});
+  } else if (school && (school.dedicated_slug || school.provisioning_status === 'live' || school.provisioning_status === 'pending')) {
+    // School is being downgraded to a shared plan; switch schools.json mode to shared
+    try {
+      await deprovisionDedicatedWorker(c.env, db, schoolId, school.dedicated_slug);
+    } catch (downgradeErr) {
+      console.error('[Admin] deprovisionDedicatedWorker on plan downgrade error:', downgradeErr);
+    }
   }
   return c.json({ success: true, message: 'स्कूल का प्लान अपडेट कर दिया गया।', provisioning });
 });
@@ -545,6 +552,17 @@ adminApp.post('/schools/provision', async (c) => {
   const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
   if (!school) return c.json({ success: false, message: 'स्कूल नहीं मिला।' }, 404);
 
+  // Strict Enterprise plan verification:
+  const sub = await db.prepare('SELECT plan_id, status FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+  const currentPlanId = (sub && sub.status === 'Active' ? sub.plan_id : school.plan_id) || 'trial';
+  const plan = await loadSubscriptionPlanById(db, currentPlanId);
+  if (!plan || (plan.id !== 'enterprise' && (!plan.featureFlags || !plan.featureFlags.dedicatedWorker))) {
+    return c.json({
+      success: false,
+      message: 'डेडीकेटेड वर्कर केवल एंटरप्राइज (Enterprise) प्लान के लिए उपलब्ध है। कृपया पहले स्कूल को एंटरप्राइज प्लान में अपग्रेड करें।',
+    }, 400);
+  }
+
   const slug = sanitizeSlug(body.slug || school.subdomain || school.school_name);
   if (!isSlugValid(slug)) {
     return c.json({ success: false, message: 'अमान्य slug। केवल छोटे अंग्रेज़ी अक्षर, अंक और हाइफ़न (a-z, 0-9, -) उपयोग करें, और अंत में हाइफ़न न रखें।' }, 400);
@@ -568,6 +586,30 @@ adminApp.post('/schools/provision', async (c) => {
     slug: result.slug,
     domain: result.domain,
     next: 'schools.json commit → deploy.yml → provision-school.mjs → dedicated deploy',
+  });
+});
+
+// POST /api/admin/schools/provision/deprovision - dedicated worker को shared mode में बदलें
+adminApp.post('/schools/provision/deprovision', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schoolId = String(body.schoolId || '').trim();
+  if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
+
+  const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  if (!school) return c.json({ success: false, message: 'स्कूल नहीं मिला।' }, 404);
+
+  const result = await deprovisionDedicatedWorker(c.env, db, schoolId, school.dedicated_slug);
+  if (result.status === 'error') {
+    return c.json({ success: false, message: result.error || 'डी-प्रोविजनिंग में त्रुटि।' }, 502);
+  }
+  return c.json({
+    success: true,
+    message: 'स्कूल को सफलतापूर्वक शेयर्ड वर्कर मोड में बदल दिया गया।',
   });
 });
 

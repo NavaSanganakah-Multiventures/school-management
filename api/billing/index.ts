@@ -67,11 +67,34 @@ billingApp.get('/subscription', async (c) => {
   const subRow = await db.prepare('SELECT * FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
   const tenant = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
   const subscription = subToJson(subRow);
-  const planId = subscription && subscription.status === 'Trial' ? 'trial' : (subscription ? subscription.planId : 'trial');
-  const planDetails = await loadSubscriptionPlanById(db, planId) || SUBSCRIPTION_PLANS[0];
+  const isDedicated = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+  const planId = isDedicated ? 'enterprise' : (subscription && subscription.status === 'Trial' ? 'trial' : (subscription ? subscription.planId : (tenant ? tenant.plan_id : 'trial')));
+  let planDetails = await loadSubscriptionPlanById(db, planId) || SUBSCRIPTION_PLANS[0];
+  if (planId === 'enterprise' || isDedicated) {
+    planDetails = Object.assign({}, planDetails, {
+      modules: [
+        'dashboard', 'students', 'attendance', 'staff', 'notices', 'fees',
+        'exams', 'principal', 'settings', 'billing', 'classes', 'activity-logs',
+        'plugins', 'lms', 'ai', 'ai-reports'
+      ],
+      maxStudentsLimit: null,
+      maxStaffLimit: null,
+      emailQuotaLimit: null,
+      featureFlags: Object.assign({}, planDetails.featureFlags, {
+        reportCards: true,
+        principalHistory: true,
+        autopay: true,
+        domainEmail: true,
+        multiSchool: true,
+        prioritySupport: true,
+        customDomainIncluded: true,
+        dedicatedWorker: true,
+      }),
+    });
+  }
   return c.json({
     success: true,
-    school: tenant || { id: schoolId, schoolName: '', status: 'Trial' },
+    school: tenant || { id: schoolId, schoolName: '', status: isDedicated ? 'Active' : 'Trial' },
     subscription,
     planId,
     planDetails,

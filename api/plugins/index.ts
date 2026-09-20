@@ -20,6 +20,17 @@ pluginsApp.get('/marketplace', async (c) => {
       return c.json({ success: false, error: 'Forbidden. Only Directors can access plugins.' }, 403);
     }
 
+    // Check if the school is on Enterprise plan
+    let isEnterprise = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+    if (!isEnterprise && c.env.DB && user.schoolId) {
+      try {
+        const sub = await c.env.DB.prepare('SELECT plan_id FROM school_subscriptions WHERE school_id = ?').bind(user.schoolId).first();
+        const tenant = await c.env.DB.prepare('SELECT plan_id FROM school_tenants WHERE id = ?').bind(user.schoolId).first();
+        const planId = String((sub && sub.plan_id) || (tenant && tenant.plan_id) || '').toLowerCase();
+        if (planId === 'enterprise') isEnterprise = true;
+      } catch (_) {}
+    }
+
     // Get all active plugins (global + private for this school)
     const { results: plugins } = await c.env.DB.prepare(
       `SELECT * FROM plugins WHERE is_active = 1 AND (type = 'global' OR (type = 'private' AND target_school_id = ?))`
@@ -28,15 +39,24 @@ pluginsApp.get('/marketplace', async (c) => {
     // Get currently subscribed plugins for this school
     let mySubscriptions: any[] = [];
     if (user.schoolId) {
-      const { results } = await c.env.DB.prepare(
-        `SELECT plugin_id, status, valid_until FROM school_plugins WHERE school_id = ?`
-      ).bind(user.schoolId).all();
-      mySubscriptions = results;
+      if (isEnterprise) {
+        mySubscriptions = (plugins || []).map((p: any) => ({
+          plugin_id: p.id,
+          status: 'active',
+          isEnterpriseIncluded: true,
+        }));
+      } else {
+        const { results } = await c.env.DB.prepare(
+          `SELECT plugin_id, status, valid_until FROM school_plugins WHERE school_id = ?`
+        ).bind(user.schoolId).all();
+        mySubscriptions = results || [];
+      }
     }
 
     return c.json({
       success: true,
-      plugins,
+      isEnterprise,
+      plugins: (plugins || []).map((p: any) => Object.assign({}, p, { isEnterpriseIncluded: isEnterprise })),
       mySubscriptions
     });
   } catch (error: any) {
@@ -91,7 +111,7 @@ pluginsApp.post('/unsubscribe', async (c) => {
         UPDATE school_plugins SET status = 'inactive', updated_at = CURRENT_TIMESTAMP
         WHERE school_id = ? AND plugin_id = ?
       `).bind(user.schoolId, pluginId).run();
-  
+
       return c.json({ success: true, message: 'Unsubscribed successfully' });
     } catch (error: any) {
       return c.json({ success: false, error: error.message }, 500);
@@ -104,13 +124,43 @@ pluginsApp.get('/active', async (c) => {
     const user = await authCheck(c);
     if (!user || !user.schoolId) return c.json({ success: false, error: 'Unauthorized' }, 401);
 
+    // Check if the school is on Enterprise plan or dedicated worker
+    let isEnterprise = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+    if (!isEnterprise && c.env.DB) {
+      try {
+        const sub = await c.env.DB.prepare(
+          'SELECT plan_id FROM school_subscriptions WHERE school_id = ?'
+        ).bind(user.schoolId).first();
+        const tenant = await c.env.DB.prepare(
+          'SELECT plan_id FROM school_tenants WHERE id = ?'
+        ).bind(user.schoolId).first();
+        const planId = String((sub && sub.plan_id) || (tenant && tenant.plan_id) || '').toLowerCase();
+        if (planId === 'enterprise') isEnterprise = true;
+      } catch (_) {}
+    }
+
+    if (isEnterprise) {
+      // Enterprise schools have ALL active plugins automatically unlocked!
+      const { results: allPlugins } = await c.env.DB.prepare(
+        'SELECT id FROM plugins WHERE is_active = 1'
+      ).all();
+      const pluginIds = (allPlugins || []).map((r: any) => r.id);
+      const standardPlugins = ['plugin-lms', 'plugin-ai-assistant', 'plugin-ai-reports'];
+      const combined = Array.from(new Set([...standardPlugins, ...pluginIds]));
+      return c.json({
+        success: true,
+        isEnterprise: true,
+        activePlugins: combined,
+      });
+    }
+
     const { results } = await c.env.DB.prepare(
       `SELECT plugin_id FROM school_plugins WHERE school_id = ? AND status = 'active'`
     ).bind(user.schoolId).all();
 
     return c.json({
       success: true,
-      activePlugins: results.map((r: any) => r.plugin_id)
+      activePlugins: (results || []).map((r: any) => r.plugin_id)
     });
   } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500);
