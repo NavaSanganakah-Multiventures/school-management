@@ -1,4 +1,4 @@
--- VidyaSetu School Management — D1 schema (reference)
+-- VidyaSetu School Management â D1 schema (reference)
 -- This file mirrors db_migrations/0001..0013 (all migrations, in order).
 -- Apply changes via wrangler migrations; use this file only as a human-readable
 -- reference of the migration sequence and final schema.
@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS school_tenants (
 );
 
 -- 2. School Subscriptions (Starter, Professional, Enterprise with Auto-Pay)
--- NOTE (migration 0005): this table is rebuilt — the old plan_id CHECK was removed so
+-- NOTE (migration 0005): this table is rebuilt â the old plan_id CHECK was removed so
 -- Super Admin can assign dynamic/custom plan IDs, and trial/Razorpay columns were added.
 CREATE TABLE IF NOT EXISTS school_subscriptions (
     id TEXT PRIMARY KEY,
@@ -457,28 +457,28 @@ INSERT INTO subscription_plans
      max_students, max_staff, max_students_label, modules, features, feature_flags,
      recommended, active, is_trial, sort_order, created_at, updated_at)
 VALUES
-    ('trial', '7-दिन फ्री ट्रायल', 'नए स्कूल पंजीकरण हेतु निःशुल्क परीक्षण (Super Admin अप्रूवल के बाद 7 दिन)', 'फ्री', 0, 0, 0,
-     50, 10, '50 विद्यार्थी',
+    ('trial', '7-à¤¦à¤¿à¤¨ à¤«à¥à¤°à¥ à¤à¥à¤°à¤¾à¤¯à¤²', 'à¤¨à¤ à¤¸à¥à¤à¥à¤² à¤ªà¤à¤à¥à¤à¤°à¤£ à¤¹à¥à¤¤à¥ à¤¨à¤¿à¤à¤¶à¥à¤²à¥à¤ à¤ªà¤°à¥à¤à¥à¤·à¤£ (Super Admin à¤à¤ªà¥à¤°à¥à¤µà¤² à¤à¥ à¤¬à¤¾à¤¦ 7 à¤¦à¤¿à¤¨)', 'à¤«à¥à¤°à¥', 0, 0, 0,
+     50, 10, '50 à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤°à¥à¤¥à¥',
      '["dashboard","students","attendance","staff","notices","fees","settings","billing"]',
-     '["डैशबोर्ड व स्कूल प्रोफ़ाइल सेटअप","स्कॉलर रजिस्टर (अधिकतम 50 छात्र)","दैनिक छात्र उपस्थिति","स्टाफ निर्देशिका (अधिकतम 10 सदस्य)","नोटिस पट्ट व सूचना","बुनियादी फीस चालान"]',
+     '["à¤¡à¥à¤¶à¤¬à¥à¤°à¥à¤¡ à¤µ à¤¸à¥à¤à¥à¤² à¤ªà¥à¤°à¥à¤«à¤¼à¤¾à¤à¤² à¤¸à¥à¤à¤à¤ª","à¤¸à¥à¤à¥à¤²à¤° à¤°à¤à¤¿à¤¸à¥à¤à¤° (à¤à¤§à¤¿à¤à¤¤à¤® 50 à¤à¤¾à¤¤à¥à¤°)","à¤¦à¥à¤¨à¤¿à¤ à¤à¤¾à¤¤à¥à¤° à¤à¤ªà¤¸à¥à¤¥à¤¿à¤¤à¤¿","à¤¸à¥à¤à¤¾à¤« à¤¨à¤¿à¤°à¥à¤¦à¥à¤¶à¤¿à¤à¤¾ (à¤à¤§à¤¿à¤à¤¤à¤® 10 à¤¸à¤¦à¤¸à¥à¤¯)","à¤¨à¥à¤à¤¿à¤¸ à¤ªà¤à¥à¤ à¤µ à¤¸à¥à¤à¤¨à¤¾","à¤¬à¥à¤¨à¤¿à¤¯à¤¾à¤¦à¥ à¤«à¥à¤¸ à¤à¤¾à¤²à¤¾à¤¨"]',
      '{"reportCards":false,"principalHistory":false,"autopay":false,"domainEmail":false,"multiSchool":false,"prioritySupport":false,"customDomainIncluded":false}',
      0, 1, 1, 0, datetime('now'), datetime('now')),
-    ('starter', 'स्टार्टर प्लान (Starter)', 'प्राथमिक विद्यालयों (500 छात्रों तक) के लिए उपयुक्त', NULL, 2499, 7122, 23988,
-     500, 25, '500 विद्यार्थी',
+    ('starter', 'à¤¸à¥à¤à¤¾à¤°à¥à¤à¤° à¤ªà¥à¤²à¤¾à¤¨ (Starter)', 'à¤ªà¥à¤°à¤¾à¤¥à¤®à¤¿à¤ à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤²à¤¯à¥à¤ (500 à¤à¤¾à¤¤à¥à¤°à¥à¤ à¤¤à¤) à¤à¥ à¤²à¤¿à¤ à¤à¤ªà¤¯à¥à¤à¥à¤¤', NULL, 201, 573, 1932,
+     500, 25, '500 à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤°à¥à¤¥à¥',
      '["dashboard","students","attendance","staff","notices","fees","exams","settings","billing"]',
-     '["डिजिटल स्कॉलर रजिस्टर (दाखिला-खारिज)","दैनिक छात्र उपस्थिति","निदेशक, प्रधानाचार्य व शिक्षक 3-रोल व्यवस्था","फीस रसीद व चालान निर्माण","सामान्य ईमेल सूचना सेवा","परीक्षा व अंक प्रविष्टि (बेसिक)"]',
+     '["à¤¡à¤¿à¤à¤¿à¤à¤² à¤¸à¥à¤à¥à¤²à¤° à¤°à¤à¤¿à¤¸à¥à¤à¤° (à¤¦à¤¾à¤à¤¿à¤²à¤¾-à¤à¤¾à¤°à¤¿à¤)","à¤¦à¥à¤¨à¤¿à¤ à¤à¤¾à¤¤à¥à¤° à¤à¤ªà¤¸à¥à¤¥à¤¿à¤¤à¤¿","à¤¨à¤¿à¤¦à¥à¤¶à¤, à¤ªà¥à¤°à¤§à¤¾à¤¨à¤¾à¤à¤¾à¤°à¥à¤¯ à¤µ à¤¶à¤¿à¤à¥à¤·à¤ 3-à¤°à¥à¤² à¤µà¥à¤¯à¤µà¤¸à¥à¤¥à¤¾","à¤«à¥à¤¸ à¤°à¤¸à¥à¤¦ à¤µ à¤à¤¾à¤²à¤¾à¤¨ à¤¨à¤¿à¤°à¥à¤®à¤¾à¤£","à¤¸à¤¾à¤®à¤¾à¤¨à¥à¤¯ à¤à¤®à¥à¤² à¤¸à¥à¤à¤¨à¤¾ à¤¸à¥à¤µà¤¾","à¤ªà¤°à¥à¤à¥à¤·à¤¾ à¤µ à¤à¤à¤ à¤ªà¥à¤°à¤µà¤¿à¤·à¥à¤à¤¿ (à¤¬à¥à¤¸à¤¿à¤)"]',
      '{"reportCards":false,"principalHistory":false,"autopay":false,"domainEmail":false,"multiSchool":false,"prioritySupport":false,"customDomainIncluded":false}',
      0, 1, 0, 1, datetime('now'), datetime('now')),
-    ('pro', 'प्रोफेशनल प्लान (Professional)', 'सीनियर सेकेंडरी व तेजी से बढ़ते विद्यालयों (1500 छात्रों तक) के लिए', 'सर्वाधिक लोकप्रिय', 5999, 17097, 57588,
-     1500, 100, '1500 विद्यार्थी',
+    ('pro', 'à¤ªà¥à¤°à¥à¤«à¥à¤¶à¤¨à¤² à¤ªà¥à¤²à¤¾à¤¨ (Professional)', 'à¤¸à¥à¤¨à¤¿à¤¯à¤° à¤¸à¥à¤à¥à¤à¤¡à¤°à¥ à¤µ à¤¤à¥à¤à¥ à¤¸à¥ à¤¬à¤¢à¤¼à¤¤à¥ à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤²à¤¯à¥à¤ (1500 à¤à¤¾à¤¤à¥à¤°à¥à¤ à¤¤à¤) à¤à¥ à¤²à¤¿à¤', 'à¤¸à¤°à¥à¤µà¤¾à¤§à¤¿à¤ à¤²à¥à¤à¤ªà¥à¤°à¤¿à¤¯', 501, 1428, 4812,
+     1500, 100, '1500 à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤°à¥à¤¥à¥',
      '["dashboard","students","attendance","staff","notices","fees","exams","principal","settings","billing"]',
-     '["स्टार्टर की सभी सुविधाएं","विस्तृत रिपोर्ट कार्ड व परीक्षा परिणाम","प्रधानाचार्य नियुक्ति एवं इतिहास","ऑटो-पे रिकरिंग बिलिंग (UPI/e-NACH)","कस्टम डोमेन ईमेल ऐड-ऑन","प्राथमिकता तकनीकी सहायता"]',
+     '["à¤¸à¥à¤à¤¾à¤°à¥à¤à¤° à¤à¥ à¤¸à¤­à¥ à¤¸à¥à¤µà¤¿à¤§à¤¾à¤à¤","à¤µà¤¿à¤¸à¥à¤¤à¥à¤¤ à¤°à¤¿à¤ªà¥à¤°à¥à¤ à¤à¤¾à¤°à¥à¤¡ à¤µ à¤ªà¤°à¥à¤à¥à¤·à¤¾ à¤ªà¤°à¤¿à¤£à¤¾à¤®","à¤ªà¥à¤°à¤§à¤¾à¤¨à¤¾à¤à¤¾à¤°à¥à¤¯ à¤¨à¤¿à¤¯à¥à¤à¥à¤¤à¤¿ à¤à¤µà¤ à¤à¤¤à¤¿à¤¹à¤¾à¤¸","à¤à¤à¥-à¤ªà¥ à¤°à¤¿à¤à¤°à¤¿à¤à¤ à¤¬à¤¿à¤²à¤¿à¤à¤ (UPI/e-NACH)","à¤à¤¸à¥à¤à¤® à¤¡à¥à¤®à¥à¤¨ à¤à¤®à¥à¤² à¤à¤¡-à¤à¤¨","à¤ªà¥à¤°à¤¾à¤¥à¤®à¤¿à¤à¤¤à¤¾ à¤¤à¤à¤¨à¥à¤à¥ à¤¸à¤¹à¤¾à¤¯à¤¤à¤¾"]',
      '{"reportCards":true,"principalHistory":true,"autopay":true,"domainEmail":true,"multiSchool":false,"prioritySupport":true,"customDomainIncluded":false}',
      1, 1, 0, 2, datetime('now'), datetime('now')),
-    ('enterprise', 'एंटरप्राइज प्लान (Enterprise)', 'बड़े संस्थानों, ट्रस्ट व बहु-शाखा ग्रुप ऑफ स्कूल्स के लिए', 'असीमित क्षमता', 11999, 34197, 115188,
-     NULL, NULL, 'असीमित विद्यार्थी',
+    ('enterprise', 'à¤à¤à¤à¤°à¤ªà¥à¤°à¤¾à¤à¤ à¤ªà¥à¤²à¤¾à¤¨ (Enterprise)', 'à¤¬à¤¡à¤¼à¥ à¤¸à¤à¤¸à¥à¤¥à¤¾à¤¨à¥à¤, à¤à¥à¤°à¤¸à¥à¤ à¤µ à¤¬à¤¹à¥-à¤¶à¤¾à¤à¤¾ à¤à¥à¤°à¥à¤ª à¤à¤« à¤¸à¥à¤à¥à¤²à¥à¤¸ à¤à¥ à¤²à¤¿à¤', 'à¤à¤¸à¥à¤®à¤¿à¤¤ à¤à¥à¤·à¤®à¤¤à¤¾', 1001, 2853, 9612,
+     NULL, NULL, 'à¤à¤¸à¥à¤®à¤¿à¤¤ à¤µà¤¿à¤¦à¥à¤¯à¤¾à¤°à¥à¤¥à¥',
      '["dashboard","students","attendance","staff","notices","fees","exams","principal","settings","billing"]',
-     '["प्रो की सभी सुविधाएं","कस्टम डोमेन ऑफिशियल ईमेल (शामिल)","मल्टी-स्कूल टेनेन्सी मैनेजमेंट","GST इनवॉइसिंग व ऑडिट रिपोर्ट्स","डेडिकेटेड अकाउंट मैनेजर","99.9% अपटाइम SLA"]',
+     '["à¤ªà¥à¤°à¥ à¤à¥ à¤¸à¤­à¥ à¤¸à¥à¤µà¤¿à¤§à¤¾à¤à¤","à¤à¤¸à¥à¤à¤® à¤¡à¥à¤®à¥à¤¨ à¤à¤«à¤¿à¤¶à¤¿à¤¯à¤² à¤à¤®à¥à¤² (à¤¶à¤¾à¤®à¤¿à¤²)","à¤®à¤²à¥à¤à¥-à¤¸à¥à¤à¥à¤² à¤à¥à¤¨à¥à¤¨à¥à¤¸à¥ à¤®à¥à¤¨à¥à¤à¤®à¥à¤à¤","GST à¤à¤¨à¤µà¥à¤à¤¸à¤¿à¤à¤ à¤µ à¤à¤¡à¤¿à¤ à¤°à¤¿à¤ªà¥à¤°à¥à¤à¥à¤¸","à¤¡à¥à¤¡à¤¿à¤à¥à¤à¥à¤¡ à¤à¤à¤¾à¤à¤à¤ à¤®à¥à¤¨à¥à¤à¤°","99.9% à¤à¤ªà¤à¤¾à¤à¤® SLA"]',
      '{"reportCards":true,"principalHistory":true,"autopay":true,"domainEmail":true,"multiSchool":true,"prioritySupport":true,"customDomainIncluded":true}',
      0, 1, 0, 3, datetime('now'), datetime('now'));
 
@@ -505,7 +505,7 @@ CREATE TABLE IF NOT EXISTS fcm_device_tokens (
 CREATE INDEX IF NOT EXISTS idx_fcm_device_tokens_school ON fcm_device_tokens(school_id, device_type);
 
 -- Migration: 0007_fcm_web_topic_reset.sql
--- Description: One-time data cleanup — reset legacy web-device FCM topics after the web-push topic fix.
+-- Description: One-time data cleanup â reset legacy web-device FCM topics after the web-push topic fix.
 -- Older web-device rows stored *derived* FCM topics (school_<id>_all + role topic)
 -- even though the web client never actually subscribed to them. The web client now
 -- subscribes to topics itself and reports the real list on every registration, so
@@ -621,10 +621,10 @@ CREATE TABLE IF NOT EXISTS tc_requests (
     requested_by_role TEXT NOT NULL DEFAULT 'Staff',
     request_date TEXT NOT NULL,
     reason TEXT NOT NULL,
-    conduct TEXT DEFAULT 'उत्कृष्ट एवं चरित्रवान (Good & Exemplary)',
+    conduct TEXT DEFAULT 'à¤à¤¤à¥à¤à¥à¤·à¥à¤ à¤à¤µà¤ à¤à¤°à¤¿à¤¤à¥à¤°à¤µà¤¾à¤¨ (Good & Exemplary)',
     working_days TEXT DEFAULT '210',
     present_days TEXT DEFAULT '194',
-    fees_dues_status TEXT DEFAULT 'मार्च 2026 तक समस्त शुल्क चुकता (All Dues Cleared)',
+    fees_dues_status TEXT DEFAULT 'à¤®à¤¾à¤°à¥à¤ 2026 à¤¤à¤ à¤¸à¤®à¤¸à¥à¤¤ à¤¶à¥à¤²à¥à¤ à¤à¥à¤à¤¤à¤¾ (All Dues Cleared)',
     remarks TEXT,
     status TEXT NOT NULL DEFAULT 'Pending_Approval' CHECK(status IN ('Pending_Approval', 'Approved', 'Rejected')),
     reviewed_by_user_id TEXT,
