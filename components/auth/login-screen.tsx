@@ -78,7 +78,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
         <div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
-            विद्या सेतु पब्लिक स्कूल
+            Pragnya Mitra पब्लिक स्कूल
           </h1>
           <p className="text-xs text-blue-200/90 font-medium mt-1">
             केंद्रीय माध्यमिक शिक्षा बोर्ड (CBSE) संबद्ध • प्रशासनिक व शैक्षणिक पोर्टल
@@ -254,7 +254,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             <Shield className="h-3.5 w-3.5 text-emerald-400" />
             <span>रोल-आधारित एक्सेस कंट्रोल (RBAC) द्वारा पूर्णतः सुरक्षित</span>
           </p>
-          <p>© 2026 विद्या सेतु स्कूल प्रबंधन एवं प्रशासनिक सीआरएम</p>
+          <p>© 2026 Pragnya Mitra स्कूल प्रबंधन एवं प्रशासनिक सीआरएम</p>
         </div>
       </div>
     </div>

@@ -81,7 +81,7 @@ aiApp.post('/chat', async (c) => {
       ...(baseUrl ? { httpOptions: { baseUrl } } : {})
     });
 
-    const systemInstruction = `You are a helpful AI assistant for VidyaSetu School Management System.
+    const systemInstruction = `You are a helpful AI assistant for Pragnya Mitra School Management System.
 Your primary role is to help staff add new students by reading their requests or analyzing uploaded documents (images, PDFs, etc.). 
 Extract these 4 details: full name, class name, father's name, and parent phone number. 
 Automatically detect if any of these details are missing from the provided text or document.
@@ -466,7 +466,7 @@ aiApp.post('/report-analysis', async (c) => {
       model: 'gemini-3.6-flash',
       contents: [{ text: prompt }],
       config: {
-        systemInstruction: 'You are VidyaSetu AI Report Analyzer. Analyze school exam performance data and produce concise, encouraging, actionable insights for teachers and principals. Always respond in Hindi using short Markdown bullets. Never invent data beyond what is provided.',
+        systemInstruction: 'You are Pragnya Mitra AI Report Analyzer. Analyze school exam performance data and produce concise, encouraging, actionable insights for teachers and principals. Always respond in Hindi using short Markdown bullets. Never invent data beyond what is provided.',
         temperature: 0.4
       }
     });

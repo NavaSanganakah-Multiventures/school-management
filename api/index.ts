@@ -74,7 +74,7 @@ app.get('/health', (c) => {
   return c.json({
     status: 'online',
     timestamp: new Date().toISOString(),
-    system: 'VidyaSetu School Management System & CRM API',
+    system: 'Pragnya Mitra School Management System & CRM API',
     engine: 'Hono.js Engine',
     rolesSupported: ['SuperAdmin', 'Director', 'Principal', 'Staff'],
     paymentGateway: 'Razorpay',

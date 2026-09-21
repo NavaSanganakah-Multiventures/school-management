@@ -1,5 +1,5 @@
 /**
- * VidyaSetu — seed app secrets into the central CONFIG_KV namespace.
+ * Pragnya Mitra — seed app secrets into the central CONFIG_KV namespace.
  *
  * Run this once (locally or in CI) to populate KV with secret values. After
  * seeding, scripts/sync-kv-to-github.mjs pushes them to GitHub repo secrets,

@@ -255,7 +255,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
     final clean = phone.replaceAll(RegExp(r'[^0-9]'), '');
     final num = clean.length == 10 ? '91$clean' : clean;
     final msg = Uri.encodeComponent(
-      'सादर नमस्कार। आपका बच्चा $studentName आज ($_formattedDate) कक्षा $_selectedClass में अनुपस्थित दर्ज हुआ है। कृपया विद्यालय को सूचित करें। - विद्या सेतु',
+      'सादर नमस्कार। आपका बच्चा $studentName आज ($_formattedDate) कक्षा $_selectedClass में अनुपस्थित दर्ज हुआ है। कृपया विद्यालय को सूचित करें। - Pragnya Mitra',
     );
     final uri = Uri.parse('https://wa.me/$num?text=$msg');
     if (await canLaunchUrl(uri)) {

@@ -1,4 +1,4 @@
-# VidyaSetu School Management System & CRM (Pragnya Mitra)
+# Pragnya Mitra School Management System & CRM
 
 Multi-tenant school management platform built on Cloudflare Workers.
 यह single repo, single codebase है — कोई school-specific fork या hardcoded condition नहीं।

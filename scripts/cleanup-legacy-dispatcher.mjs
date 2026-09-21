@@ -1,5 +1,5 @@
 /**
- * VidyaSetu — cleanup legacy WfP dispatcher worker and routes (idempotent).
+ * Pragnya Mitra — cleanup legacy WfP dispatcher worker and routes (idempotent).
  *
  * When transitioning from Workers for Platforms to direct dedicated workers,
  * Cloudflare blocks deploying the shared worker with "*.pragnya.nasven.com/*"

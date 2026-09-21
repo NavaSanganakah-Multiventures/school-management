@@ -378,7 +378,7 @@ export function PluginLmsScreen() {
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/15 backdrop-blur-md rounded-full text-xs font-semibold text-blue-100 mb-3 border border-white/20">
             <GraduationCap className="h-3.5 w-3.5" />
-            <span>विद्या सेतु डिजिटल LMS प्लगइन</span>
+            <span>Pragnya Mitra डिजिटल LMS प्लगइन</span>
           </div>
           <h1 className="text-2xl lg:text-3xl font-black tracking-tight">डिजिटल क्लासरूम एवं ई-लर्निंग पोर्टल</h1>
           <p className="text-sm text-blue-100 mt-1 max-w-2xl leading-relaxed">

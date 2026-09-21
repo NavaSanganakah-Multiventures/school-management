@@ -79,7 +79,7 @@ export function PayFeeModal({ invoice, onClose, onPaymentSuccess }: PayFeeModalP
           key: order.keyId,
           amount: Math.round(order.amount * 100),
           currency: 'INR',
-          name: 'VidyaSetu',
+          name: 'Pragnya Mitra',
           description: invoice.title,
           order_id: order.id,
           theme: { color: '#1e3a8a' },

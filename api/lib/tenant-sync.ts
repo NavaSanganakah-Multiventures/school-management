@@ -51,7 +51,7 @@ export async function syncTenantFromPlatform(c: any, targetSchoolId?: string): P
           + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         ).bind(
           schoolId,
-          env.SCHOOL_NAME || 'विद्या सेतु स्कूल',
+          env.SCHOOL_NAME || 'Pragnya Mitra स्कूल',
           '',
           'CBSE',
           '',
@@ -85,7 +85,7 @@ export async function syncTenantFromPlatform(c: any, targetSchoolId?: string): P
         + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).bind(
         p.id || schoolId,
-        p.school_name || env.SCHOOL_NAME || 'विद्या सेतु स्कूल',
+        p.school_name || env.SCHOOL_NAME || 'Pragnya Mitra स्कूल',
         p.affiliation_number || '',
         p.board_name || 'CBSE',
         p.school_code || '',

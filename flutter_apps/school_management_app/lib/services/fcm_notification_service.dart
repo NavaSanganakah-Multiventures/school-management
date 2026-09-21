@@ -79,7 +79,7 @@ class FcmNotificationService {
         }
       }
 
-      // Register with VidyaSetu backend
+      // Register with Pragnya Mitra backend
       await _api.post('/api/notifications/register-token', body: {
         'token': token,
         'schoolId': user.schoolId,
@@ -105,7 +105,7 @@ class FcmNotificationService {
         const NotificationDetails(
           android: AndroidNotificationDetails(
             'vidyasetu_alerts',
-            'VidyaSetu Alerts',
+            'Pragnya Mitra Alerts',
             channelDescription: 'School Attendance and Emergency Notices',
             importance: Importance.max,
             priority: Priority.high,

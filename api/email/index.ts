@@ -43,7 +43,7 @@ emailApp.post('/test', async (c) => {
   const result = await sendSchoolEmail(c.env, {
     schoolId: schoolId,
     to: to,
-    subject: 'VidyaSetu — परीक्षण ईमेल',
+    subject: 'Pragnya Mitra — परीक्षण ईमेल',
     title: 'परीक्षण ईमेल',
     message: 'यह एक परीक्षण ईमेल है। आपके विद्यालय का ईमेल वितरण सही तरीके से कार्य कर रहा है।'
   });

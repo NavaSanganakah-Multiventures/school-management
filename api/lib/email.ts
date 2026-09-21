@@ -119,7 +119,7 @@ export async function sendNotificationEmail(env: any, input: NotificationEmailIn
     '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1e293b;line-height:1.6;border:1px solid #e2e8f0;border-radius:16px;background:#ffffff;">',
     '<div style="margin-bottom:16px;border-bottom:1px solid #f1f5f9;padding-bottom:12px;">',
     badgeHtml,
-    '<h1 style="font-size:20px;color:#4f46e5;margin:0 0 6px;">विद्या सेतु — स्कूल प्रबंधन</h1>',
+    '<h1 style="font-size:20px;color:#4f46e5;margin:0 0 6px;">Pragnya Mitra — स्कूल प्रबंधन</h1>',
     '<h2 style="font-size:16px;margin:0;color:#0f172a;">' + title + '</h2>',
     '</div>',
     '<div style="font-size:14px;margin:0 0 20px;white-space:pre-wrap;color:#334155;">' + input.message + '</div>',
@@ -129,7 +129,7 @@ export async function sendNotificationEmail(env: any, input: NotificationEmailIn
   ].join('');
 
   const textLines = [
-    'विद्या सेतु — स्कूल प्रबंधन',
+    'Pragnya Mitra — स्कूल प्रबंधन',
     '----------------------------------------',
     title,
     '',
@@ -144,7 +144,7 @@ export async function sendNotificationEmail(env: any, input: NotificationEmailIn
   try {
     await binding.send({
       to: input.to,
-      from: { email: 'pragnya@navasanganakah.com', name: 'VidyaSetu Alerts' },
+      from: { email: 'pragnya@navasanganakah.com', name: 'Pragnya Mitra Alerts' },
       subject: input.subject,
       html: html,
       text: textLines.join('\n')

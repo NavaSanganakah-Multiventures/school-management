@@ -1,5 +1,5 @@
 /**
- * VidyaSetu — sync app secrets from Cloudflare KV to GitHub repository secrets.
+ * Pragnya Mitra — sync app secrets from Cloudflare KV to GitHub repository secrets.
  *
  * KV is the single source of truth. This script reads each secret from KV and
  * writes it to the GitHub repo (actions) secrets via `gh secret set`, so the

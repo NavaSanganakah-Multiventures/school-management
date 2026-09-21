@@ -572,7 +572,7 @@ export function MarksEntryModal({
 
           {/* Footer Actions */}
           <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-            <span className="text-xs text-slate-500">विद्या सेतु परीक्षा मूल्यांकन मॉड्यूल</span>
+            <span className="text-xs text-slate-500">Pragnya Mitra परीक्षा मूल्यांकन मॉड्यूल</span>
             <div className="flex items-center gap-2">
               <button
                 type="button"

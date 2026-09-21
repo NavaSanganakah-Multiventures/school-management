@@ -195,7 +195,7 @@ export function SchoolCrmShell() {
   }, [currentUser]);
 
   const [schoolProfile, setSchoolProfile] = useState<any>({
-    schoolName: 'विद्या सेतु स्कूल प्रबंधन',
+    schoolName: 'Pragnya Mitra स्कूल प्रबंधन',
     affiliationNumber: '',
     boardName: '',
     academicSession: '2026-2027',
@@ -412,7 +412,7 @@ export function SchoolCrmShell() {
           <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
             <School className="h-5 w-5 text-white animate-pulse" />
           </div>
-          <span className="text-lg font-bold tracking-tight">विद्या सेतु स्कूल प्रबंधन</span>
+          <span className="text-lg font-bold tracking-tight">Pragnya Mitra स्कूल प्रबंधन</span>
         </div>
         <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
           <span className="h-2 w-2 rounded-full bg-blue-500 animate-ping" />
@@ -493,7 +493,7 @@ export function SchoolCrmShell() {
               <School className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-base font-black tracking-tight text-slate-900 line-clamp-1">{schoolProfile.schoolName || 'विद्या सेतु स्कूल प्रबंधन'}</h1>
+              <h1 className="text-base font-black tracking-tight text-slate-900 line-clamp-1">{schoolProfile.schoolName || 'Pragnya Mitra स्कूल प्रबंधन'}</h1>
               <p className="text-[11px] text-slate-500 hidden sm:block">सत्र: {schoolProfile.academicSession || '2026-2027'} • भूमिका: {roleEmoji(userRole)}</p>
             </div>
           </div>
@@ -601,7 +601,7 @@ export function SchoolCrmShell() {
           </div>
 
           <div className="p-4 border-t border-slate-100 text-slate-500 text-[11px] space-y-1 bg-slate-50/50">
-            <p className="font-bold text-slate-700">विद्या सेतु स्कूल प्रबंधन</p>
+            <p className="font-bold text-slate-700">Pragnya Mitra स्कूल प्रबंधन</p>
             <p className="text-[10px] text-slate-500">सुरक्षित एवं अधिकृत पोर्टल</p>
           </div>
         </aside>

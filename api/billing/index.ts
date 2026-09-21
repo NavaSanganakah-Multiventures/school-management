@@ -305,7 +305,7 @@ billingApp.post('/subscribe-recurring', async (c) => {
       interval,
       amountINR: baseAmount,
       name: plan.name + ' (' + billingCycle + ')',
-      description: plan.name + ' सदस्यता — विद्या सेतु',
+      description: plan.name + ' सदस्यता — Pragnya Mitra',
       notes: { platform_plan_id: plan.id, billing_cycle: billingCycle },
     });
     if (planResult.error) return c.json({ success: false, message: planResult.error }, 400);

@@ -51,7 +51,7 @@ export function FeeReceiptModal({ invoice, onClose }: FeeReceiptModalProps) {
               <School className="h-6 w-6" />
             </div>
             <h2 className="text-xl font-black tracking-tight text-slate-900">
-              विद्या सेतु सीनियर सेकेंडरी स्कूल
+              Pragnya Mitra सीनियर सेकेंडरी स्कूल
             </h2>
             <p className="text-xs text-slate-600 font-medium">
               मान्यता प्राप्त (Affiliated to CBSE/State Board) • स्कूल कोड: 26109 • सत्र: 2026-2027
@@ -143,7 +143,7 @@ export function FeeReceiptModal({ invoice, onClose }: FeeReceiptModalProps) {
             <div className="text-center">
               <div className="border-t border-slate-400 w-32 mx-auto mb-1"></div>
               <p className="text-slate-900 font-bold">अधिकृत हस्ताक्षरकर्ता (Cashier / Accountant)</p>
-              <p className="text-[10px] text-slate-400">विद्या सेतु विद्यालय</p>
+              <p className="text-[10px] text-slate-400">Pragnya Mitra विद्यालय</p>
             </div>
           </div>
 

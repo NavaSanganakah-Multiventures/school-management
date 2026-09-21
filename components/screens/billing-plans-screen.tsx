@@ -146,7 +146,7 @@ export function BillingPlansScreen(_props: { userRole: string; onOpenFcmModal?: 
         key: order.keyId,
         amount: Math.round(order.amount * 100),
         currency: 'INR',
-        name: 'VidyaSetu',
+        name: 'Pragnya Mitra',
         description: plan.name + ' (' + cycle + ')',
         order_id: order.id,
         theme: { color: '#1e3a8a' },

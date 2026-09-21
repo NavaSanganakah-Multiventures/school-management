@@ -1,5 +1,5 @@
 /**
- * VidyaSetu — generate per-school dedicated worker configs for Enterprise schools.
+ * Pragnya Mitra — generate per-school dedicated worker configs for Enterprise schools.
  *
  * Reads schools.json and generates a wrangler-<slug>.toml for each dedicated school.
  * The config is meant for:
@@ -20,7 +20,7 @@ const PLATFORM_VARS = {
   WEB_PUSH_VAPID_PUBLIC_KEY:
     'BJlcKjZBfC5YzmoIxZ1ndHRJAiemr7Rdi4LBuceK6GI7N6g9aV3ctHpKCtZ8RbaPugnfvfJQNBiRTi63CGipHP4',
   WEB_PUSH_VAPID_SUBJECT: 'mailto:pragnya@navasanganakah.com',
-  SCHOOL_NAME: 'विद्या सेतु पब्लिक स्कूल (VidyaSetu Public School)',
+  SCHOOL_NAME: 'Pragnya Mitra Public School',
 };
 
 function main() {

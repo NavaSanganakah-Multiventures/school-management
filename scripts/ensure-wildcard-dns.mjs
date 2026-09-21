@@ -1,5 +1,5 @@
 /**
- * VidyaSetu — ensure the wildcard DNS record for dedicated school subdomains exists (idempotent).
+ * Pragnya Mitra — ensure the wildcard DNS record for dedicated school subdomains exists (idempotent).
  *
  * Cloudflare Worker routes can only serve a hostname when a (proxied) DNS record exists
  * for it. The shared worker and dedicated-school workers deploy direct routes on

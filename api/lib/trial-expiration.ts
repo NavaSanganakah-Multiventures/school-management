@@ -174,7 +174,7 @@ export async function processTrialExpirations(env: any, passedDb?: any): Promise
           const priceLine = link.total ? `\n\nअनुशंसित प्लान: ${link.planName} — ₹${link.total}/वर्ष` : '';
           const emailRes = await sendNotificationEmail(env, {
             to: school.contact_email,
-            subject: `⚠️ विद्या सेतु — आपके स्कूल "${school.school_name}" का 7-दिन का ट्रायल समाप्त हो चुका है | अभी भुगतान करें`,
+            subject: `⚠️ Pragnya Mitra — आपके स्कूल "${school.school_name}" का 7-दिन का ट्रायल समाप्त हो चुका है | अभी भुगतान करें`,
             title: `ट्रायल समाप्त — स्कूल सेवाएं पुनः सक्रिय करें`,
             badge: 'ट्रायल समाप्त (Expired)',
             message: `नमस्ते,\n\nआपके विद्यालय "${school.school_name}" का 7-दिन का निःशुल्क ट्रायल ${school.trial_ends_at} को समाप्त हो गया है।\n\n` +
@@ -215,7 +215,7 @@ export async function processTrialExpirations(env: any, passedDb?: any): Promise
             `प्रिय निदेशक जी, आपके स्कूल का 7-दिन का फ्री ट्रायल समाप्त हो गया है। आपका डेटा सुरक्षित है। स्कूल का संचालन तुरंत बहाल करने के लिए कृपया बिलिंग सेक्शन में जाकर पेमेंट पूरा करें।`,
             'Subscription',
             'Staff',
-            'सिस्टम प्रशासक (VidyaSetu)',
+            'सिस्टम प्रशासक (Pragnya Mitra)',
             todayStr,
             'Urgent',
             'Sent',
@@ -282,7 +282,7 @@ export async function processTrialExpirations(env: any, passedDb?: any): Promise
         const priceLine = link.total ? `\n\nअनुशंसित प्लान: ${link.planName} — ₹${link.total}/वर्ष` : '';
         const emailRes = await sendNotificationEmail(env, {
           to: school.contact_email,
-          subject: `🔔 विद्या सेतु — आपके स्कूल "${school.school_name}" का फ्री ट्रायल ${school.trial_ends_at} को समाप्त हो रहा है`,
+          subject: `🔔 Pragnya Mitra — आपके स्कूल "${school.school_name}" का फ्री ट्रायल ${school.trial_ends_at} को समाप्त हो रहा है`,
           title: `फ्री ट्रायल शीघ्र समाप्त हो रहा है`,
           badge: 'ट्रायल रिमाइंडर (2 दिन शेष)',
           message: `नमस्ते,\n\nआपके विद्यालय "${school.school_name}" का 7-दिन का फ्री ट्रायल ${school.trial_ends_at} को समाप्त हो रहा है।\n\n` +
@@ -322,7 +322,7 @@ export async function processTrialExpirations(env: any, passedDb?: any): Promise
           `प्रिय निदेशक जी, आपके स्कूल का फ्री ट्रायल ${school.trial_ends_at} को समाप्त हो रहा है। कृपया बिना किसी बाधा के सेवाएं जारी रखने के लिए बिलिंग सेक्शन से उपयुक्त प्लान का चयन कर पेमेंट करें।`,
           'Subscription',
           'Staff',
-          'सिस्टम प्रशासक (VidyaSetu)',
+          'सिस्टम प्रशासक (Pragnya Mitra)',
           todayStr,
           'High',
           'Sent',
@@ -515,7 +515,7 @@ export async function processPluginTrialExpirations(env: any, passedDb?: any): P
       if (row.contact_email) {
         const emailRes = await sendNotificationEmail(env, {
           to: row.contact_email,
-          subject: `⚠️ विद्या सेतु — "${row.plugin_name}" प्लगइन ट्रायल समाप्त`,
+          subject: `⚠️ Pragnya Mitra — "${row.plugin_name}" प्लगइन ट्रायल समाप्त`,
           title: `प्लगइन ट्रायल समाप्त — ${row.plugin_name}`,
           badge: 'ट्रायल समाप्त',
           message: `नमस्ते,\n\nआपके विद्यालय "${row.school_name}" के "${row.plugin_name}" प्लगइन का ट्रायल ${row.trial_ends_at} को समाप्त हो गया है।\n\nप्लगइन सेवा जारी रखने के लिए कृपया नीचे दिए बटन से भुगतान करें।`,
@@ -606,7 +606,7 @@ export async function processPluginTrialExpirations(env: any, passedDb?: any): P
       if (row.contact_email) {
         const emailRes = await sendNotificationEmail(env, {
           to: row.contact_email,
-          subject: `🔔 विद्या सेतु — "${row.plugin_name}" प्लगइन ट्रायल ${row.trial_ends_at} को समाप्त हो रहा है`,
+          subject: `🔔 Pragnya Mitra — "${row.plugin_name}" प्लगइन ट्रायल ${row.trial_ends_at} को समाप्त हो रहा है`,
           title: `प्लगइन ट्रायल शीघ्र समाप्त`,
           badge: 'ट्रायल रिमाइंडर',
           message: `नमस्ते,\n\nआपके विद्यालय "${row.school_name}" के "${row.plugin_name}" प्लगइन का ट्रायल ${row.trial_ends_at} को समाप्त हो रहा है।\n\nनिरंतर सेवा के लिए कृपया समय रहते भुगतान करें।`,
@@ -696,7 +696,7 @@ export async function processSubscriptionRenewals(env: any, passedDb?: any): Pro
       if (row.contact_email) {
         await sendNotificationEmail(env, {
           to: row.contact_email,
-          subject: `🔔 विद्या सेतु — सदस्यता नवीनीकरण ${row.next_billing_date} को`,
+          subject: `🔔 Pragnya Mitra — सदस्यता नवीनीकरण ${row.next_billing_date} को`,
           title: `सदस्यता नवीनीकरण शीघ्र`,
           badge: 'नवीनीकरण अनुस्मारक',
           message: `नमस्ते,\n\nआपके विद्यालय "${row.school_name}" की ${row.plan_name} सदस्यता ${row.next_billing_date} को नवीनीकरण होने वाली है।\n\nऑटो-पे सक्रिय होने पर राशि स्वचालित कट जाएगी। अन्यथा कृपया समय रहते भुगतान करें।`,
@@ -759,7 +759,7 @@ export async function processSubscriptionRenewals(env: any, passedDb?: any): Pro
       if (row.contact_email) {
         await sendNotificationEmail(env, {
           to: row.contact_email,
-          subject: `⚠️ विद्या सेतु — ${row.plan_name} सदस्यता समाप्त`,
+          subject: `⚠️ Pragnya Mitra — ${row.plan_name} सदस्यता समाप्त`,
           title: 'सदस्यता समाप्त',
           badge: 'समाप्त',
           message: `नमस्ते,\n\nआपके विद्यालय "${row.school_name}" की ${row.plan_name} सदस्यता के सभी चक्र पूर्ण हो गए हैं। सेवा जारी रखने के लिए कृपया नवीनीकरण करें।`,
