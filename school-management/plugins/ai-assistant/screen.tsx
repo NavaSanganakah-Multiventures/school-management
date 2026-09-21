@@ -1,6 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Bot, Send, Sparkles, Info } from 'lucide-react';
 
+function renderBoldText(text: string): React.ReactNode[] {
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
 export function AIAssistantScreen() {
   const [messages, setMessages] = useState<{ role: 'user' | 'ai', content: string }[]>([
     { role: 'ai', content: 'नमस्ते! मैं विद्यासेतु AI असिस्टेंट हूँ। मैं नए छात्रों को जोड़ने में आपकी मदद कर सकता हूँ। छात्र का नाम, कक्षा, पिता का नाम और फोन नंबर बताएं।' }
@@ -92,7 +102,7 @@ export function AIAssistantScreen() {
                 : 'bg-white border border-slate-200 text-slate-700 rounded-bl-sm'
             }`}>
               {msg.role === 'ai' && msg.content.includes('**') ? (
-                <div dangerouslySetInnerHTML={{ __html: msg.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                <div>{renderBoldText(msg.content)}</div>
               ) : (
                 msg.content
               )}

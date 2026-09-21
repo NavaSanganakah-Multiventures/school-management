@@ -531,6 +531,10 @@ export async function makeUniqueUsername(db: any, email: string): Promise<string
 
 // Cryptographically secure random suffix for username uniqueness fallback.
 function secureUsernameSuffix(): string {
-  const rand = crypto.getRandomValues(new Uint32Array(1))[0];
-  return String(rand % 1000000).padStart(6, '0');
+  const arr = new Uint32Array(1);
+  // Reject values >= 2500000 (closest multiple of 1000000 below 2^32) to eliminate modulo bias
+  do {
+    crypto.getRandomValues(arr);
+  } while (arr[0] >= 2500000);
+  return String(arr[0] % 1000000).padStart(6, '0');
 }

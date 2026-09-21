@@ -3,6 +3,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Bot, X, Send, Settings, Sparkles, AlertCircle, Loader2 } from 'lucide-react';
 
+function renderBoldText(text: string): React.ReactNode[] {
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
 export function AIAssistantWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -181,7 +191,7 @@ export function AIAssistantWidget() {
                     : 'bg-white border border-slate-200 text-slate-700 rounded-bl-sm'
                 }`}>
                   {msg.role === 'ai' && msg.content.includes('**') ? (
-                    <div dangerouslySetInnerHTML={{ __html: msg.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                    <div>{renderBoldText(msg.content)}</div>
                   ) : (
                     msg.content
                   )}

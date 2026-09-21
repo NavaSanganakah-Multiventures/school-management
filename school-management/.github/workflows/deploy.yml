@@ -64,7 +64,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Platform/Shared Worker
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@cf8de183be0301a1b63c2f598e07c30c70760827 # v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
