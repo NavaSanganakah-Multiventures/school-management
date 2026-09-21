@@ -74,6 +74,6 @@ class DefaultFirebaseOptions {
     storageBucket: 'navasanganakah.firebasestorage.app',
     androidClientId: '1006899144467-gorck5dhtftnjmtk3libd09risrqj0mc.apps.googleusercontent.com',
     iosClientId: '1006899144467-i2hlflfi5l484stk2363gq6t67iqboq0.apps.googleusercontent.com',
-    iosBundleId: 'com.nasven.dheetantra',
+    iosBundleId: 'com.nasven.pragnya',
   );
 }

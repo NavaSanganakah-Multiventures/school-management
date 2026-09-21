@@ -92,9 +92,9 @@ BEGIN
             VALUE "CompanyName", "com.nasven" "\0"
             VALUE "FileDescription", "Dheetantra" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "dheetantra" "\0"
+            VALUE "InternalName", "pragnya" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.nasven. All rights reserved." "\0"
-            VALUE "OriginalFilename", "dheetantra.exe" "\0"
+            VALUE "OriginalFilename", "pragnya.exe" "\0"
             VALUE "ProductName", "Dheetantra" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

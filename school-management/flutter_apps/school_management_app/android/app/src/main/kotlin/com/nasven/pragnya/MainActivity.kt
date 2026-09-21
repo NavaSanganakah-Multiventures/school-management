@@ -1,4 +1,4 @@
-package com.nasven.dheetantra
+package com.nasven.pragnya
 
 import io.flutter.embedding.android.FlutterActivity
 

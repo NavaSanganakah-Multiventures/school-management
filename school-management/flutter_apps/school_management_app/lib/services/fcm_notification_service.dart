@@ -104,7 +104,7 @@ class FcmNotificationService {
         notification.body,
         const NotificationDetails(
           android: AndroidNotificationDetails(
-            'dheetantra_alerts',
+            'pragnya_alerts',
             'Dheetantra Alerts',
             channelDescription: 'School Attendance and Emergency Notices',
             importance: Importance.max,

@@ -5,7 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:dheetantra/main.dart';
+import 'package:pragnya/main.dart';
 
 void main() {
   testWidgets('App renders login screen on startup', (WidgetTester tester) async {

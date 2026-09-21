@@ -1,4 +1,4 @@
-# dheetantra
+# pragnya
 
 A new Flutter project.
 
