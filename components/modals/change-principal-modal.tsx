@@ -118,7 +118,7 @@ export function ChangePrincipalModal({
               <input
                 type="email"
                 required
-                placeholder="principal@vidyasetuschool.edu.in"
+                placeholder="principal@pragnyamitra.edu.in"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-amber-600 focus:outline-hidden"

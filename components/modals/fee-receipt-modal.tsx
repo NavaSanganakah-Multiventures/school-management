@@ -57,7 +57,7 @@ export function FeeReceiptModal({ invoice, onClose }: FeeReceiptModalProps) {
               मान्यता प्राप्त (Affiliated to CBSE/State Board) • स्कूल कोड: 26109 • सत्र: 2026-2027
             </p>
             <p className="text-[11px] text-slate-500">
-              प्रशासनिक कार्यालय • संपर्क: 9876543210 • ईमेल: info@vidyasetu.edu.in
+              प्रशासनिक कार्यालय • संपर्क: 9876543210 • ईमेल: info@pragnyamitra.edu.in
             </p>
             <div className="pt-2">
               <span className="inline-block px-4 py-1 rounded-full bg-slate-100 text-slate-900 text-xs font-black uppercase tracking-wider border border-slate-300">

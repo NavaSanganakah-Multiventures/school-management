@@ -5,8 +5,8 @@
 CREATE TABLE IF NOT EXISTS school_tenants (
     id TEXT PRIMARY KEY,
     school_name TEXT NOT NULL,
-    subdomain TEXT UNIQUE NOT NULL,       -- e.g. 'vidyasetu', 'delhi-public'
-    custom_domain TEXT,                   -- e.g. 'vidyasetuschool.edu.in'
+    subdomain TEXT UNIQUE NOT NULL,       -- e.g. 'pragnya-mitra', 'delhi-public'
+    custom_domain TEXT,                   -- e.g. 'pragnyamitra.edu.in'
     contact_email TEXT NOT NULL,
     contact_phone TEXT NOT NULL,
     status TEXT DEFAULT 'Active' CHECK(status IN ('Active', 'Suspended', 'Trial')),
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS subscription_addons (
 CREATE TABLE IF NOT EXISTS school_custom_domains (
     id TEXT PRIMARY KEY,
     school_id TEXT NOT NULL,
-    domain_name TEXT NOT NULL,           -- e.g. 'vidyasetuschool.edu.in'
+    domain_name TEXT NOT NULL,           -- e.g. 'pragnyamitra.edu.in'
     spf_record_status TEXT DEFAULT 'Verified' CHECK(spf_record_status IN ('Verified', 'Pending', 'Failed')),
     dkim_record_status TEXT DEFAULT 'Verified' CHECK(dkim_record_status IN ('Verified', 'Pending', 'Failed')),
     mx_record_status TEXT DEFAULT 'Verified' CHECK(mx_record_status IN ('Verified', 'Pending', 'Failed')),

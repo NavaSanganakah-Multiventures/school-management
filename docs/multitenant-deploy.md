@@ -1,7 +1,7 @@
-# VidyaSetu School Management — Multi-Tenant Delivery Architecture
+# Pragnya Mitra School Management — Multi-Tenant Delivery Architecture
 ## एक ही Repository, एक ही Codebase · Cloudflare Workers · Shared + Dedicated (Enterprise)
 
-यह document VidyaSetu school-management system की पूरी working architecture और deployment प्रक्रिया समझाता है। लक्ष्य: **एक ही codebase** से schools को दो तरह से serve करना, ताकि खर्च कम रहे, isolation पूरा रहे और custom/special features **plugin के रास्ते** से managed हों।
+यह document Pragnya Mitra school-management system की पूरी working architecture और deployment प्रक्रिया समझाता है। लक्ष्य: **एक ही codebase** से schools को दो तरह से serve करना, ताकि खर्च कम रहे, isolation पूरा रहे और custom/special features **plugin के रास्ते** से managed हों।
 
 ### मुख्य निर्णय (locked decisions)
 

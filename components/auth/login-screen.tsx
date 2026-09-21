@@ -47,9 +47,9 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
       if (data.success && data.user) {
         // Save auth state
-        localStorage.setItem('vidyasetu_auth_user', JSON.stringify(data.user));
+        localStorage.setItem('pragnya_mitra_auth_user', JSON.stringify(data.user));
         if (data.schoolProfile) {
-          localStorage.setItem('vidyasetu_school_profile', JSON.stringify(data.schoolProfile));
+          localStorage.setItem('pragnya_mitra_school_profile', JSON.stringify(data.schoolProfile));
         }
         onLoginSuccess(data.user);
       } else {
@@ -117,7 +117,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="उदा. director@vidyasetuschool.edu.in"
+                  placeholder="उदा. director@pragnyamitra.edu.in"
                   required
                   className="block w-full pl-10 pr-3.5 py-2.5 text-xs sm:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none transition-all placeholder:text-slate-400"
                 />
@@ -184,7 +184,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             <div className="grid grid-cols-1 gap-2">
               <button
                 type="button"
-                onClick={() => handleQuickSelect('director@vidyasetuschool.edu.in', 'director123')}
+                onClick={() => handleQuickSelect('director@pragnyamitra.edu.in', 'director123')}
                 className="flex items-center justify-between p-2.5 rounded-xl border border-amber-200 bg-amber-50/50 hover:bg-amber-100/70 transition-all text-left group cursor-pointer"
               >
                 <div className="flex items-center gap-2">
@@ -195,7 +195,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     <h4 className="text-xs font-bold text-slate-900 group-hover:text-amber-900">
                       निदेशक (Director - Super Admin)
                     </h4>
-                    <p className="text-[10px] text-slate-500 font-mono">director@vidyasetuschool.edu.in</p>
+                    <p className="text-[10px] text-slate-500 font-mono">director@pragnyamitra.edu.in</p>
                   </div>
                 </div>
                 <span className="text-[10px] font-bold text-amber-700 bg-white px-2 py-0.5 rounded-md border border-amber-200">
@@ -205,7 +205,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
               <button
                 type="button"
-                onClick={() => handleQuickSelect('principal@vidyasetuschool.edu.in', 'principal123')}
+                onClick={() => handleQuickSelect('principal@pragnyamitra.edu.in', 'principal123')}
                 className="flex items-center justify-between p-2.5 rounded-xl border border-indigo-200 bg-indigo-50/50 hover:bg-indigo-100/70 transition-all text-left group cursor-pointer"
               >
                 <div className="flex items-center gap-2">
@@ -216,7 +216,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-900">
                       प्रधानाचार्य (Principal - Academic Head)
                     </h4>
-                    <p className="text-[10px] text-slate-500 font-mono">principal@vidyasetuschool.edu.in</p>
+                    <p className="text-[10px] text-slate-500 font-mono">principal@pragnyamitra.edu.in</p>
                   </div>
                 </div>
                 <span className="text-[10px] font-bold text-indigo-700 bg-white px-2 py-0.5 rounded-md border border-indigo-200">
@@ -226,7 +226,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
               <button
                 type="button"
-                onClick={() => handleQuickSelect('staff@vidyasetuschool.edu.in', 'staff123')}
+                onClick={() => handleQuickSelect('staff@pragnyamitra.edu.in', 'staff123')}
                 className="flex items-center justify-between p-2.5 rounded-xl border border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100/70 transition-all text-left group cursor-pointer"
               >
                 <div className="flex items-center gap-2">
@@ -237,7 +237,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     <h4 className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">
                       स्टाफ शिक्षिका (Staff - Teacher)
                     </h4>
-                    <p className="text-[10px] text-slate-500 font-mono">staff@vidyasetuschool.edu.in</p>
+                    <p className="text-[10px] text-slate-500 font-mono">staff@pragnyamitra.edu.in</p>
                   </div>
                 </div>
                 <span className="text-[10px] font-bold text-emerald-700 bg-white px-2 py-0.5 rounded-md border border-emerald-200">

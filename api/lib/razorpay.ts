@@ -67,7 +67,7 @@ export async function createRazorpayOrder(c: any, amountINR: any, receipt: any) 
         'Content-Type': 'application/json',
         Authorization: 'Basic ' + btoa(keyId + ':' + keySecret),
       },
-      body: JSON.stringify({ amount: amountPaise, currency: 'INR', receipt: receipt, notes: { source: 'vidyasetu' } }),
+      body: JSON.stringify({ amount: amountPaise, currency: 'INR', receipt: receipt, notes: { source: 'pragnya-mitra' } }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -141,7 +141,7 @@ export async function createRazorpayPlan(env: any, input: {
       currency: 'INR',
       description: input.description || input.name,
     },
-    notes: Object.assign({ source: 'vidyasetu' }, input.notes || {}),
+    notes: Object.assign({ source: 'pragnya-mitra' }, input.notes || {}),
   });
   if (data.error) return { error: data.error };
   return { id: data.id, itemId: (data.item && data.item.id) || data.item_id || '', period: input.period, amount: amountPaise };
@@ -166,7 +166,7 @@ export async function createRazorpaySubscription(env: any, input: {
     total_count: input.totalCycles,
     quantity: input.quantity || 1,
     customer_notify: 1,
-    notes: Object.assign({ source: 'vidyasetu' }, input.notes || {}),
+    notes: Object.assign({ source: 'pragnya-mitra' }, input.notes || {}),
   };
   if (input.customerId) {
     body.customer_id = input.customerId;
@@ -244,7 +244,7 @@ export async function createRazorpayCustomer(env: any, input: {
   const custBody: any = {
     name: input.name,
     email: input.email || '',
-    notes: Object.assign({ source: 'vidyasetu' }, input.notes || {}),
+    notes: Object.assign({ source: 'pragnya-mitra' }, input.notes || {}),
   };
   if (sanitizedContact) custBody.contact = sanitizedContact;
   const data = await razorpayPost(env, 'customers', custBody);
@@ -316,7 +316,7 @@ export async function createRazorpayPaymentLink(c: any, input: RazorpayPaymentLi
     reference_id: input.referenceId,
     description: input.description,
     reminder_enable: true,
-    notes: Object.assign({ source: 'vidyasetu' }, input.notes || {}),
+    notes: Object.assign({ source: 'pragnya-mitra' }, input.notes || {}),
   };
   const sanitizedContact = sanitizeRazorpayContact(input.customerContact);
   if (input.customerName || input.customerEmail || sanitizedContact) {

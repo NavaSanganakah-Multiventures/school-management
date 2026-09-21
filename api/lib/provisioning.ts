@@ -42,7 +42,7 @@ function ghHeaders(token: string) {
   return {
     Authorization: 'Bearer ' + token,
     Accept: 'application/vnd.github+json',
-    'User-Agent': 'vidyasetu-admin',
+    'User-Agent': 'pragnya-mitra-admin',
     'X-GitHub-Api-Version': '2022-11-28',
   };
 }

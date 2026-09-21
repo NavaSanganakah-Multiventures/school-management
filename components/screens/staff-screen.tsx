@@ -351,7 +351,7 @@ export function StaffScreen({ userRole }: StaffScreenProps) {
                   <input
                     type="email"
                     required
-                    placeholder="teacher@vidyasetu.edu"
+                    placeholder="teacher@pragnyamitra.edu"
                     value={newStaff.email}
                     onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs focus:outline-hidden"

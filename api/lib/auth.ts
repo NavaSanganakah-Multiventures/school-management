@@ -64,7 +64,7 @@ function getSecret(c: any) {
       throw new Error('AUTH_SECRET env secret is not set. Configure a strong AUTH_SECRET (>= 32 characters) before deploying.');
     }
     // Local development fallback only.
-    return 'vidyasetu-dev-secret-change-me';
+    return 'pragnya-mitra-dev-secret-change-me';
   }
 
   if (typeof secret !== 'string' || secret.length < 32) {

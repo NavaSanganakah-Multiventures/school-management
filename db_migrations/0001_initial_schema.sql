@@ -1,5 +1,5 @@
 -- Migration: 0001_initial_schema.sql
--- Description: Initial schema setup for Cloudflare D1 database (VidyaSetu School Management)
+-- Description: Initial schema setup for Cloudflare D1 database (Pragnya Mitra School Management)
 
 CREATE TABLE IF NOT EXISTS classes (
     id TEXT PRIMARY KEY,

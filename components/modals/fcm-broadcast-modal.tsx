@@ -95,7 +95,7 @@ export function FcmBroadcastModal({
             detail: { type: 'FCM_NOTIFICATION', notification: { title, body } }
           }));
           try {
-            const bc = new BroadcastChannel('vidyasetu_fcm');
+            const bc = new BroadcastChannel('pragnya_mitra_fcm');
             bc.postMessage({ type: 'FCM_NOTIFICATION', notification: { title, body } });
             bc.close();
           } catch (_) {}
@@ -332,7 +332,7 @@ export function FcmBroadcastModal({
                     <span>कस्टम डोमेन ईमेल</span>
                   </div>
                   <span className="text-[10px] text-slate-500 font-normal">
-                    @vidyasetuschool.edu.in से आधिकारिक रूप से
+                    @pragnyamitra.edu.in से आधिकारिक रूप से
                   </span>
                 </button>
 

@@ -1,4 +1,4 @@
-# 🤖 AI Agent & Developer Guidelines (VidyaSetu School Management)
+# 🤖 AI Agent & Developer Guidelines (Pragnya Mitra School Management)
 ## 📌 फ़ाइल: `docs/ai-instruction.md` (एवं `.agents/rules/ai-instructions.md`)
 
 > [!CAUTION]

@@ -40,12 +40,12 @@ export function isWebPushSupported(): boolean {
 
 export function getStoredToken(): string | null {
   if (typeof localStorage === 'undefined') return null;
-  return localStorage.getItem('vidyasetu_device_registered');
+  return localStorage.getItem('pragnya_mitra_device_registered');
 }
 
 export function clearStoredToken(): void {
   if (typeof localStorage === 'undefined') return;
-  localStorage.removeItem('vidyasetu_device_registered');
+  localStorage.removeItem('pragnya_mitra_device_registered');
 }
 
 export interface RegisterTokenOptions {
@@ -168,7 +168,7 @@ export async function registerFcmWebToken(
 
     const endpoint = subJSON.endpoint || (data.endpoint as string);
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('vidyasetu_device_registered', endpoint);
+      localStorage.setItem('pragnya_mitra_device_registered', endpoint);
     }
     diag.token = endpoint;
     return endpoint;
@@ -244,7 +244,7 @@ export async function onForegroundFcmMessage(callback: (payload: any) => void): 
 
     // 2. BroadcastChannel listener across all browser tabs
     try {
-      const bc = new BroadcastChannel('vidyasetu_fcm');
+      const bc = new BroadcastChannel('pragnya_mitra_fcm');
       bc.onmessage = (event) => {
         if (event.data && (event.data.type === 'FCM_NOTIFICATION' || event.data.notification)) {
           callback(event.data);

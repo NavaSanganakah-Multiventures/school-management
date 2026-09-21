@@ -37,6 +37,8 @@ export function isAuthorizedPlatformEmail(email: string, env: any): boolean {
     normalized.endsWith('@nasven.com') ||
     normalized.endsWith('@vidyasetu.com') ||
     normalized.endsWith('@vidyasetu.app') ||
+    normalized.endsWith('@pragnyamitra.app') ||
+    normalized.endsWith('@pragnyamitra.com') ||
     normalized.endsWith('@navasanganakah.com')
   );
 }
