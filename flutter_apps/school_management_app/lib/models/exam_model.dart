@@ -157,8 +157,8 @@ class ReportCardModel {
         ? json['maxTotal']
         : int.tryParse(json['maxTotal']?.toString() ?? '') ?? (json['totalMarks'] is int ? json['totalMarks'] : int.tryParse(json['totalMarks']?.toString() ?? ''));
     return ReportCardModel(
-      studentName: sc['studentName'] ?? sc['fullName'] ?? sc['name'] ?? '',
-      className: sc['className'] ?? sc['class_name'] ?? sc['class'] ?? '',
+      studentName: sc['studentName'] ?? sc['fullName'] ?? sc['name'] ?? json['studentName'] ?? '',
+      className: sc['className'] ?? sc['class_name'] ?? sc['class'] ?? json['className'] ?? '',
       examName: json['examName']?.toString() ?? json['term']?.toString(),
       subjects: (subsRaw as List)
           .map((s) => SubjectMarkModel.fromJson(s as Map<String, dynamic>))

@@ -108,7 +108,7 @@ class FeeHeadModel {
   factory FeeHeadModel.fromJson(Map<String, dynamic> json) {
     return FeeHeadModel(
       id: json['id']?.toString(),
-      headName: json['headName'] ?? json['name'] ?? '',
+      headName: json['headName'] ?? json['head_name'] ?? json['name'] ?? '',
       description: json['description']?.toString(),
     );
   }
@@ -131,11 +131,11 @@ class FeeStructureModel {
 
   factory FeeStructureModel.fromJson(Map<String, dynamic> json) {
     return FeeStructureModel(
-      className: json['className'] ?? '',
-      feeHeadName: json['feeHeadName'] ?? json['headName'] ?? '',
-      feeHeadId: json['feeHeadId']?.toString(),
+      className: json['className'] ?? json['class_name'] ?? '',
+      feeHeadName: json['feeHeadName'] ?? json['head_name'] ?? json['headName'] ?? '',
+      feeHeadId: json['feeHeadId']?.toString() ?? json['fee_head_id']?.toString(),
       amount: json['amount']?.toString() ?? '0',
-      billingCycle: json['billingCycle']?.toString(),
+      billingCycle: json['billingCycle']?.toString() ?? json['billing_cycle']?.toString(),
     );
   }
 }

@@ -3,6 +3,7 @@ import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { isClassTeacher } from '../lib/permissions';
 import { logActivity } from '../lib/activity-logger';
+import { broadcastAlert } from '../notifications';
 import { buildTokenMessage, isFcmConfigured, isRealFcmToken, sendFcmMessage } from '../lib/fcm';
 import { isWebPushConfigured, sendWebPushNotification } from '../lib/webpush';
 
@@ -394,6 +395,25 @@ attendanceApp.post('/notify-absentees', async (c) => {
     return c.json({ success: false, message: 'अनुमति अस्वीकृत: केवल स्टाफ या प्रशासक ही अनुपस्थिति अलर्ट भेज सकते हैं।' }, 403);
   }
 
+  // Staff (non-admin) can only notify for their assigned classes.
+  let allowedClasses: string[] | null = null;
+  if (!isAdmin) {
+    if (className && className !== 'All') {
+      const permitted = await canMarkAttendanceForClass(db, schoolId, authUser, className);
+      if (!permitted) {
+        return c.json({ success: false, message: 'अनुमति अस्वीकृत: आप केवल अपनी अधिकृत कक्षाओं के लिए अलर्ट भेज सकते हैं।' }, 403);
+      }
+    } else {
+      const rows = await db.prepare(
+        'SELECT class_name FROM class_teachers WHERE school_id = ? AND teacher_user_id = ?'
+      ).bind(schoolId, authUser.sub).all().catch(() => ({ results: [] }));
+      allowedClasses = (rows.results || []).map((r: any) => String(r.class_name));
+      if (allowedClasses.length === 0) {
+        return c.json({ success: false, message: 'आपको कोई कक्षा असाइन नहीं है।' }, 403);
+      }
+    }
+  }
+
   // Find absent students
   let sql =
     'SELECT s.id AS student_id, s.first_name, s.last_name, s.class_name, s.section, s.roll_number, s.scholar_number, s.parent_name, s.parent_phone ' +
@@ -408,6 +428,10 @@ attendanceApp.post('/notify-absentees', async (c) => {
   } else if (className && className !== 'All') {
     sql += ' AND s.class_name = ?';
     params.push(className);
+  } else if (allowedClasses && allowedClasses.length > 0) {
+    const placeholders = allowedClasses.map(() => '?').join(',');
+    sql += ' AND s.class_name IN (' + placeholders + ')';
+    params.push(...allowedClasses);
   }
 
   sql += ' ORDER BY s.class_name, s.roll_number, s.first_name';
@@ -428,99 +452,124 @@ attendanceApp.post('/notify-absentees', async (c) => {
   const alertTitle = '⚠️ अनुपस्थिति सूचना | VidyaSetu';
 
   // Send TARGETED push notifications to ONLY the absent students' parents (not all parents).
-  // Previously this used broadcastAlert with targetRole 'Parents' which sent to every parent
-  // subscribed to the school's parents topic. Now we resolve each absent student's parent_phone
-  // to a system_users account, then fetch FCM device tokens / web push subscriptions for those
-  // specific parent users only.
+  // Resolve each absent student's parent_phone to a system_users account, then fetch FCM device
+  // tokens / web push subscriptions for those specific parent users only. If no parent user accounts
+  // are found (e.g. parent provisioning not yet set up), fall back to broadcastAlert topic broadcast
+  // so that the notification still reaches parents via FCM topic subscription.
   let tokenSuccess = 0;
   let tokenFailed = 0;
   let webPushSent = 0;
   let webPushFailed = 0;
-  let notifiedParentCount = 0;
+  let usedFallback = false;
 
   const parentPhones = Array.from(new Set(
     absentStudents
-      .map((s: any) => String(s.parent_phone || '').trim())
+      .map((s: any) => {
+        let p = String(s.parent_phone || '').trim();
+        p = p.replace(/\D/g, '');
+        if (p.length > 10 && (p.startsWith('91') || p.startsWith('0'))) p = p.slice(-10);
+        return p;
+      })
       .filter((p: string) => p.length >= 7)
   ));
 
+  const dataPayload: Record<string, string> = {
+    type: 'absentee_alert',
+    date: targetDate,
+    className: className || 'All',
+    absentCount: String(absentStudents.length),
+    schoolId,
+    priority: 'high',
+  };
+
+  let parentUserIds: string[] = [];
+
   if (parentPhones.length > 0) {
-    // Resolve parent user accounts by phone number
     const phonePlaceholders = parentPhones.map(() => '?').join(',');
     const userRows = await db.prepare(
       'SELECT id FROM system_users WHERE school_id = ? AND role = ? AND phone IN (' + phonePlaceholders + ')'
     ).bind(schoolId, 'Parents', ...parentPhones).all().catch(() => ({ results: [] }));
 
-    const parentUserIds = (userRows.results || []).map((r: any) => String(r.id));
-    notifiedParentCount = parentUserIds.length;
+    parentUserIds = (userRows.results || []).map((r: any) => String(r.id));
+  }
 
-    if (parentUserIds.length > 0) {
-      const userIdPlaceholders = parentUserIds.map(() => '?').join(',');
-      const dataPayload: Record<string, string> = {
-        type: 'absentee_alert',
-        date: targetDate,
-        className: className || 'All',
-        absentCount: String(absentStudents.length),
-        schoolId,
-        priority: 'high',
-      };
+  if (parentUserIds.length > 0) {
+    // Targeted delivery: send only to the absent students' parents
+    const userIdPlaceholders = parentUserIds.map(() => '?').join(',');
 
-      // FCM direct tokens for the absent students' parents
-      if (isFcmConfigured(c.env)) {
-        const tokenRows = await db.prepare(
-          'SELECT device_token FROM fcm_device_tokens WHERE school_id = ? AND is_active = 1 AND user_id IN (' + userIdPlaceholders + ')'
-        ).bind(schoolId, ...parentUserIds).all().catch(() => ({ results: [] }));
+    // FCM direct tokens (parallelized in chunks to respect subrequest limits)
+    if (isFcmConfigured(c.env)) {
+      const tokenRows = await db.prepare(
+        'SELECT device_token FROM fcm_device_tokens WHERE school_id = ? AND is_active = 1 AND user_id IN (' + userIdPlaceholders + ')'
+      ).bind(schoolId, ...parentUserIds).all().catch(() => ({ results: [] }));
 
-        const tokens = (tokenRows.results || [])
-          .map((r: any) => String(r.device_token || ''))
-          .filter((t: string) => isRealFcmToken(t));
+      const tokens = (tokenRows.results || [])
+        .map((r: any) => String(r.device_token || ''))
+        .filter((t: string) => isRealFcmToken(t));
 
-        for (let i = 0; i < tokens.length; i++) {
+      const CHUNK = 25;
+      for (let i = 0; i < tokens.length; i += CHUNK) {
+        const slice = tokens.slice(i, i + CHUNK);
+        await Promise.all(slice.map(async (t) => {
           try {
-            const r = await sendFcmMessage(c.env, buildTokenMessage(tokens[i], alertTitle, alertBody, dataPayload, 'high'));
+            const r = await sendFcmMessage(c.env, buildTokenMessage(t, alertTitle, alertBody, dataPayload, 'high'));
             if (r.success) {
               tokenSuccess++;
             } else {
               tokenFailed++;
               const errStr = r.error || '';
               if (errStr.includes('UNREGISTERED') || errStr.includes('INVALID_ARGUMENT') || errStr.includes('NOT_FOUND')) {
-                await db.prepare('UPDATE fcm_device_tokens SET is_active = 0 WHERE device_token = ?').bind(tokens[i]).run().catch(() => {});
+                await db.prepare('UPDATE fcm_device_tokens SET is_active = 0 WHERE device_token = ?').bind(t).run().catch(() => {});
               }
             }
           } catch (e: any) {
             tokenFailed++;
           }
-        }
+        }));
       }
+    }
 
-      // Web Push subscriptions for the absent students' parents
-      const webPushRows = await db.prepare(
-        'SELECT id, endpoint, p256dh, auth FROM web_push_subscriptions WHERE school_id = ? AND is_active = 1 AND user_id IN (' + userIdPlaceholders + ')'
-      ).bind(schoolId, ...parentUserIds).all().catch(() => ({ results: [] }));
+    // Web Push subscriptions (parallelized)
+    const webPushRows = await db.prepare(
+      'SELECT id, endpoint, p256dh, auth FROM web_push_subscriptions WHERE school_id = ? AND is_active = 1 AND user_id IN (' + userIdPlaceholders + ')'
+    ).bind(schoolId, ...parentUserIds).all().catch(() => ({ results: [] }));
 
-      const webPushSubs = webPushRows.results || [];
-      if (webPushSubs.length > 0 && isWebPushConfigured(c.env)) {
-        const webPayload = {
-          notification: { title: alertTitle, body: alertBody },
-          data: dataPayload,
-        };
-        for (let i = 0; i < webPushSubs.length; i++) {
-          const sub = webPushSubs[i] as any;
-          try {
-            const r = await sendWebPushNotification(c.env, { endpoint: String(sub.endpoint), keys: { p256dh: String(sub.p256dh), auth: String(sub.auth) } }, webPayload);
-            if (r.success) {
-              webPushSent++;
-            } else {
-              webPushFailed++;
-              if (r.status === 404 || r.status === 410) {
-                await db.prepare('UPDATE web_push_subscriptions SET is_active = 0 WHERE id = ?').bind(String(sub.id)).run().catch(() => {});
-              }
-            }
-          } catch (e) {
+    const webPushSubs = webPushRows.results || [];
+    if (webPushSubs.length > 0 && isWebPushConfigured(c.env)) {
+      const webPayload = {
+        notification: { title: alertTitle, body: alertBody },
+        data: dataPayload,
+      };
+      await Promise.all((webPushSubs as any[]).map(async (sub) => {
+        try {
+          const r = await sendWebPushNotification(c.env, { endpoint: String(sub.endpoint), keys: { p256dh: String(sub.p256dh), auth: String(sub.auth) } }, webPayload);
+          if (r.success) {
+            webPushSent++;
+          } else {
             webPushFailed++;
+            if (r.status === 404 || r.status === 410) {
+              await db.prepare('UPDATE web_push_subscriptions SET is_active = 0 WHERE id = ?').bind(String(sub.id)).run().catch(() => {});
+            }
           }
+        } catch (e) {
+          webPushFailed++;
         }
-      }
+      }));
+    }
+  } else {
+    // Fallback: no parent user accounts resolved — use topic broadcast (reaches all parents)
+    usedFallback = true;
+    try {
+      await broadcastAlert(db, c.env, {
+        title: alertTitle,
+        body: alertBody,
+        schoolId,
+        targetRole: 'Parents',
+        priority: 'high',
+        data: dataPayload,
+      });
+    } catch (pushErr) {
+      console.warn('[Attendance] broadcastAlert fallback push error:', pushErr);
     }
   }
 
@@ -543,16 +592,20 @@ attendanceApp.post('/notify-absentees', async (c) => {
     },
   });
 
+  const notifiedCount = parentUserIds.length;
   return c.json({
     success: true,
     count: absentStudents.length,
-    notifiedCount: notifiedParentCount,
+    notifiedCount,
     tokenSuccess,
     tokenFailed,
     webPushSent,
-    message: notifiedParentCount > 0
-      ? `${notifiedParentCount} अभिभावकों को अनुपस्थिति अलर्ट सफलतापूर्वक प्रेषित कर दिया गया।`
-      : `${absentStudents.length} छात्र अनुपस्थित हैं, किंतु किसी के अभिभावक का पंजीकृत डिवाइस नहीं मिला।`,
+    targeted: !usedFallback,
+    message: usedFallback
+      ? `${absentStudents.length} अनुपस्थित छात्रों की सूचना सभी अभिभावकों को प्रेषित कर दी गई।`
+      : (notifiedCount > 0
+        ? `${notifiedCount} अभिभावकों को अनुपस्थिति अलर्ट सफलतापूर्वक प्रेषित कर दिया गया।`
+        : `${absentStudents.length} छात्र अनुपस्थित हैं, किंतु किसी के अभिभावक का पंजीकृत डिवाइस नहीं मिला।`),
   });
 });
 
