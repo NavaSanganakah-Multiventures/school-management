@@ -18,9 +18,11 @@ interface ReportCardData {
     subject: string;
     marks: number;
     maxMarks: number;
+    passingMarks?: number;
     grade: string;
     percentage: number;
     remarks?: string;
+    isPassed?: boolean;
   }>;
   totalMarks: number;
   maxTotal: number;
@@ -54,9 +56,9 @@ export function CBSETemplate({ data, schoolName, schoolCode, affiliationNo, scho
           <div className="flex-1 text-center mx-4">
             <div className="text-xs font-bold text-blue-900 tracking-widest uppercase mb-1">CBSE AFFILIATED SCHOOL</div>
             <h1 className="text-2xl font-black text-blue-950 tracking-tight">
-              {schoolName || 'विद्या सेतु उच्चतर माध्यमिक विद्यालय'}
+              {schoolName || 'प्रज्ञा मित्र उच्चतर माध्यमिक विद्यालय'}
             </h1>
-            <p className="text-sm font-bold text-slate-700 mt-1">VIDYASETU HIGHER SECONDARY SCHOOL</p>
+            <p className="text-sm font-bold text-slate-700 mt-1">PRAGNYA MITRA HIGHER SECONDARY SCHOOL</p>
             <div className="flex items-center justify-center gap-4 mt-2 text-xs text-slate-600">
               <span>CBSE Affiliation: {affiliationNo || '1030894'}</span>
               <span>•</span>
@@ -117,17 +119,18 @@ export function CBSETemplate({ data, schoolName, schoolCode, affiliationNo, scho
 
       {/* Marks Table */}
       <div className="mb-6">
-        <table className="w-full border-2 border-blue-900">
-          <thead>
-            <tr className="bg-blue-900 text-white">
-              <th className="border border-blue-800 p-2 text-xs font-bold text-center w-12">S.No.</th>
-              <th className="border border-blue-800 p-2 text-xs font-bold text-left">Subject</th>
-              <th className="border border-blue-800 p-2 text-xs font-bold text-center w-24">Max Marks</th>
-              <th className="border border-blue-800 p-2 text-xs font-bold text-center w-24">Marks Obtained</th>
-              <th className="border border-blue-800 p-2 text-xs font-bold text-center w-20">Grade</th>
-              <th className="border border-blue-800 p-2 text-xs font-bold text-left w-32">Remarks</th>
-            </tr>
-          </thead>
+          <table className="w-full border-2 border-blue-900">
+            <thead>
+              <tr className="bg-blue-900 text-white">
+                <th className="border border-blue-800 p-2 text-xs font-bold text-center w-12">S.No.</th>
+                <th className="border border-blue-800 p-2 text-xs font-bold text-left">Subject</th>
+                <th className="border border-blue-800 p-2 text-xs font-bold text-center w-20">Max Marks</th>
+                <th className="border border-blue-800 p-2 text-xs font-bold text-center w-20">Pass Marks</th>
+                <th className="border border-blue-800 p-2 text-xs font-bold text-center w-24">Marks Obtained</th>
+                <th className="border border-blue-800 p-2 text-xs font-bold text-center w-20">Grade</th>
+                <th className="border border-blue-800 p-2 text-xs font-bold text-left w-32">Remarks</th>
+              </tr>
+            </thead>
           <tbody>
             {data.subjects.map((sub, idx) => (
               <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-blue-50/50'}>
@@ -139,6 +142,9 @@ export function CBSETemplate({ data, schoolName, schoolCode, affiliationNo, scho
                 </td>
                 <td className="border border-slate-300 p-2 text-center text-sm font-mono text-slate-700">
                   {sub.maxMarks}
+                </td>
+                <td className="border border-slate-300 p-2 text-center text-sm font-mono text-slate-500">
+                  {sub.passingMarks ?? 33}
                 </td>
                 <td className="border border-slate-300 p-2 text-center text-base font-black text-blue-900">
                   {sub.marks}
@@ -161,6 +167,9 @@ export function CBSETemplate({ data, schoolName, schoolCode, affiliationNo, scho
               </td>
               <td className="border border-slate-300 p-3 text-center font-black text-slate-900">
                 {data.maxTotal}
+              </td>
+              <td className="border border-slate-300 p-3 text-center font-mono text-slate-500">
+                —
               </td>
               <td className="border border-slate-300 p-3 text-center font-black text-blue-900 text-lg">
                 {data.totalMarks}

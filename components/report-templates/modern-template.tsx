@@ -18,9 +18,11 @@ interface ReportCardData {
     subject: string;
     marks: number;
     maxMarks: number;
+    passingMarks?: number;
     grade: string;
     percentage: number;
     remarks?: string;
+    isPassed?: boolean;
   }>;
   totalMarks: number;
   maxTotal: number;
@@ -39,7 +41,7 @@ interface ModernTemplateProps {
 
 export function ModernTemplate({ 
   data, 
-  schoolName = "VidyaSetu Higher Secondary School",
+  schoolName = "Pragnya Mitra Higher Secondary School",
   qrCodeUrl,
   showAnalytics = true 
 }: ModernTemplateProps) {
@@ -177,11 +179,11 @@ export function ModernTemplate({
                     </td>
                     <td className="p-3 text-right">
                       <span className={`text-xs font-bold px-2 py-1 rounded ${
-                        sub.percentage >= 33 
+                        (sub.isPassed !== undefined ? sub.isPassed : sub.percentage >= 33)
                           ? 'bg-emerald-100 text-emerald-800' 
                           : 'bg-rose-100 text-rose-800'
                       }`}>
-                        {sub.percentage >= 33 ? 'PASS' : 'FAIL'}
+                        {(sub.isPassed !== undefined ? sub.isPassed : sub.percentage >= 33) ? 'PASS' : 'FAIL'}
                       </span>
                     </td>
                   </tr>

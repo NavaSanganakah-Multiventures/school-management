@@ -8,9 +8,10 @@ interface IssueTcModalProps {
   student: any | null;
   onClose: () => void;
   onSuccess?: (student: any) => void;
+  userRole?: string;
 }
 
-export function IssueTcModal({ isOpen, student, onClose, onSuccess }: IssueTcModalProps) {
+export function IssueTcModal({ isOpen, student, onClose, onSuccess, userRole }: IssueTcModalProps) {
   const [tcNumber, setTcNumber] = useState(`TC/2026/${Math.floor(100 + Math.random() * 900)}`);
   const [issueDate, setIssueDate] = useState(new Date().toISOString().split('T')[0]);
   const [applicationDate, setApplicationDate] = useState(new Date().toISOString().split('T')[0]);
@@ -21,13 +22,15 @@ export function IssueTcModal({ isOpen, student, onClose, onSuccess }: IssueTcMod
   const [workingDays, setWorkingDays] = useState('210');
   const [presentDays, setPresentDays] = useState('194');
   const [remarks, setRemarks] = useState('उज्ज्वल भविष्य की शुभकामनाएं।');
+  const [annualResult, setAnnualResult] = useState('उत्तीर्ण (Passed & Qualified)');
   const [issuing, setIssuing] = useState(false);
   const [issued, setIssued] = useState(false);
   const [error, setError] = useState('');
 
   if (!isOpen || !student) return null;
 
-  const isAlreadyIssued = student.status === 'TC_Issued' || issued;
+  const isAlreadyIssued = student.status === 'TC_Issued' || student.status === 'tc_issued' || issued;
+  const canIssue = userRole === 'Director' || userRole === 'Principal';
 
   const handleIssueTc = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,6 +47,11 @@ export function IssueTcModal({ isOpen, student, onClose, onSuccess }: IssueTcMod
           applicationDate,
           promotionStatus,
           conduct,
+          annualResult,
+          feesDues,
+          workingDays,
+          presentDays,
+          remarks,
         }),
       });
       const data = await res.json();
@@ -104,7 +112,7 @@ export function IssueTcModal({ isOpen, student, onClose, onSuccess }: IssueTcMod
         {/* Modal Scrollable Body */}
         <div className="p-6 overflow-y-auto grow space-y-6">
           {/* If NOT yet issued, show Quick Parameter Form (Hidden in Print) */}
-          {!isAlreadyIssued && (
+          {!isAlreadyIssued && canIssue && (
             <form onSubmit={handleIssueTc} className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl space-y-3 print:hidden text-xs">
               <div className="flex items-center gap-2 text-amber-900 font-bold">
                 <AlertTriangle className="h-4 w-4 text-amber-700 shrink-0" />
@@ -162,6 +170,62 @@ export function IssueTcModal({ isOpen, student, onClose, onSuccess }: IssueTcMod
                     className="w-full bg-white border border-amber-300 rounded p-1.5"
                   />
                 </div>
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">वार्षिक परीक्षा परिणाम (Annual Result)</label>
+                  <input
+                    type="text"
+                    value={annualResult}
+                    onChange={(e) => setAnnualResult(e.target.value)}
+                    className="w-full bg-white border border-amber-300 rounded p-1.5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">पदोन्नति स्थिति (Promotion)</label>
+                  <input
+                    type="text"
+                    value={promotionStatus}
+                    onChange={(e) => setPromotionStatus(e.target.value)}
+                    className="w-full bg-white border border-amber-300 rounded p-1.5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-medium mb-1">शुल्क चुकता (Fees Dues)</label>
+                  <input
+                    type="text"
+                    value={feesDues}
+                    onChange={(e) => setFeesDues(e.target.value)}
+                    className="w-full bg-white border border-amber-300 rounded p-1.5"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-slate-700 font-medium mb-1">कार्य दिवस</label>
+                    <input
+                      type="number"
+                      value={workingDays}
+                      onChange={(e) => setWorkingDays(e.target.value)}
+                      className="w-full bg-white border border-amber-300 rounded p-1.5"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-700 font-medium mb-1">उपस्थित दिवस</label>
+                    <input
+                      type="number"
+                      value={presentDays}
+                      onChange={(e) => setPresentDays(e.target.value)}
+                      className="w-full bg-white border border-amber-300 rounded p-1.5"
+                    />
+                  </div>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-slate-700 font-medium mb-1">अन्य टिप्पणी (Remarks)</label>
+                  <input
+                    type="text"
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    className="w-full bg-white border border-amber-300 rounded p-1.5"
+                  />
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t border-amber-200">
@@ -176,6 +240,13 @@ export function IssueTcModal({ isOpen, student, onClose, onSuccess }: IssueTcMod
             </form>
           )}
 
+          {!isAlreadyIssued && !canIssue && (
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 font-semibold print:hidden">
+              <AlertTriangle className="h-4 w-4 inline mr-2" />
+              केवल निदेशक (Director) या प्राचार्य (Principal) ही टी.सी. निर्गत कर सकते हैं।
+            </div>
+          )}
+
           {/* Official Printable 18-Point Bilingual TC Layout */}
           <div className="border-4 border-double border-slate-800 p-6 sm:p-8 bg-white text-slate-900 shadow-sm print:border-2 print:p-2 print:shadow-none space-y-5">
             {/* Header */}
@@ -185,10 +256,10 @@ export function IssueTcModal({ isOpen, student, onClose, onSuccess }: IssueTcMod
                 <span>शिक्षा विभाग • मध्य प्रदेश शासन मान्यता प्राप्त</span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950 uppercase">
-                विद्या सेतु उच्चतर माध्यमिक विद्यालय
+                प्रज्ञा मित्र उच्चतर माध्यमिक विद्यालय
               </h1>
               <h2 className="text-xs font-extrabold tracking-widest text-slate-700 uppercase">
-                VIDYASETU HIGHER SECONDARY SCHOOL
+                PRAGNYA MITRA HIGHER SECONDARY SCHOOL
               </h2>
               <p className="text-[11px] text-slate-600 mt-1">
                 संस्था मान्यता कोड: 231405098 • डी.आई.एस.ई. (DISE) कोड: 23200109923
@@ -251,7 +322,7 @@ export function IssueTcModal({ isOpen, student, onClose, onSuccess }: IssueTcMod
 
               <div className="flex items-baseline justify-between border-b border-dashed border-slate-200 pb-1">
                 <span className="w-3/5">8. विद्यालय / बोर्ड वार्षिक परीक्षा परिणाम (Annual Exam Result):</span>
-                <span className="w-2/5 text-right font-semibold text-emerald-800">उत्तीर्ण (Passed & Qualified)</span>
+                <span className="w-2/5 text-right font-semibold text-emerald-800">{annualResult}</span>
               </div>
 
               <div className="flex items-baseline justify-between border-b border-dashed border-slate-200 pb-1">
@@ -323,7 +394,7 @@ export function IssueTcModal({ isOpen, student, onClose, onSuccess }: IssueTcMod
 
         {/* Footer (Hidden in Print) */}
         <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0 print:hidden text-xs">
-          <span className="text-slate-500">विद्या सेतु शासकीय मान्यता प्राप्त टी.सी. मॉड्यूल</span>
+          <span className="text-slate-500">प्रज्ञा मित्र शासकीय मान्यता प्राप्त टी.सी. मॉड्यूल</span>
           <button
             onClick={onClose}
             className="px-4 py-1.5 font-bold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100"

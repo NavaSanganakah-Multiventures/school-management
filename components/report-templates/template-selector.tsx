@@ -157,7 +157,7 @@ export function TemplateSelector({ reportData, schoolName, schoolCode, affiliati
           </div>
           <div className="bg-white/10 px-4 py-2 rounded-xl">
             <div className="text-xs text-blue-100">Current School</div>
-            <div className="font-bold text-sm">{schoolName || 'VidyaSetu Higher Secondary School'}</div>
+            <div className="font-bold text-sm">{schoolName || 'Pragnya Mitra Higher Secondary School'}</div>
           </div>
         </div>
       </div>
@@ -266,7 +266,7 @@ export function TemplateSelector({ reportData, schoolName, schoolCode, affiliati
                 className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-bold text-sm transition-colors"
               >
                 <Eye className="h-4 w-4" />
-                {previewMode ? 'Preview' : 'Hide Preview'}
+                {previewMode ? 'Hide Preview' : 'Show Preview'}
               </button>
               <button
                 onClick={saveSchoolPreferences}
