@@ -473,15 +473,33 @@ studentsApp.post('/:id/issue-tc', async (c) => {
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  if (authUser.role !== 'Director' && authUser.role !== 'Principal') {
+    return c.json({ success: false, message: 'केवल निदेशक या प्राचार्य ही टी.सी. निर्गत कर सकते हैं।' }, 403);
+  }
   const schoolId = getRequestSchoolId(c, authUser);
   const id = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
   const row = await db.prepare('SELECT * FROM students WHERE school_id = ? AND id = ?').bind(schoolId, id).first();
   if (!row) return c.json({ success: false, message: 'छात्र नहीं मिला।' }, 404);
 
+  // Prevent double-issuance
+  if (row.status === 'Inactive' && row.tc_issue_date) {
+    return c.json({ success: false, message: 'इस छात्र के लिए टी.सी. पहले ही निर्गत हो चुकी है।' }, 409);
+  }
+
   const today = body.issueDate || new Date().toISOString().split('T')[0];
   const tcNum = body.tcNumber || `TC/${new Date().getFullYear()}/${Math.floor(100 + Math.random() * 900)}`;
   const reason = body.reason || 'अभिभावक के अनुरोध पर टीसी जारी की गई।';
+
+  // Build TC detail remarks from extra fields
+  const tcDetails = [
+    body.promotionStatus ? `पदोन्नति: ${body.promotionStatus}` : '',
+    body.conduct ? `आचरण: ${body.conduct}` : '',
+    body.annualResult ? `वार्षिक परिणाम: ${body.annualResult}` : '',
+    body.feesDues ? `शुल्क: ${body.feesDues}` : '',
+    body.workingDays && body.presentDays ? `उपस्थिति: ${body.presentDays}/${body.workingDays} दिवस` : '',
+    body.remarks ? `टिप्पणी: ${body.remarks}` : '',
+  ].filter(Boolean).join(' | ');
 
   await db.prepare('UPDATE students SET status = ?, tc_issue_date = ?, remarks = ?, updated_at = ? WHERE id = ? AND school_id = ?')
     .bind('Inactive', today, reason, new Date().toISOString(), id, schoolId).run();
@@ -511,7 +529,7 @@ studentsApp.post('/:id/issue-tc', async (c) => {
       authUser.sub,
       actorName,
       authUser.role,
-      body.remarks || 'स्थानांतरण प्रमाण पत्र निर्गत (TC Issued)'
+      tcDetails || 'स्थानांतरण प्रमाण पत्र निर्गत (TC Issued)'
     ).run();
   } catch (err) {
     console.warn('[Students] Error recording TC issuance history:', err);
@@ -529,7 +547,7 @@ studentsApp.post('/:id/issue-tc', async (c) => {
     entityType: 'student',
     entityId: id,
     className: student.className,
-    metadata: { tcNumber: tcNum, reason },
+    metadata: { tcNumber: tcNum, reason, promotionStatus: body.promotionStatus, conduct: body.conduct, annualResult: body.annualResult, feesDues: body.feesDues, workingDays: body.workingDays, presentDays: body.presentDays },
   });
 
   return c.json({ success: true, message: student.fullName + ' के लिए टीसी जारी की गई। स्कॉलर स्थिति: TC_Issued.', student });

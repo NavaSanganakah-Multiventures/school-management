@@ -18,9 +18,11 @@ interface ReportCardData {
     subject: string;
     marks: number;
     maxMarks: number;
+    passingMarks?: number;
     grade: string;
     percentage: number;
     remarks?: string;
+    isPassed?: boolean;
   }>;
   totalMarks: number;
   maxTotal: number;
@@ -54,24 +56,24 @@ export function StateBoardTemplate({
             <div className="flex items-center justify-center gap-6 mb-4">
               <img src={schoolLogo} alt="School Logo" className="h-16 w-16 object-contain" />
               <div className="text-center">
-                <h1 className="text-3xl font-serif font-black text-emerald-950 tracking-tight">
-                  {schoolName || 'विद्या सेतु उच्चतर माध्यमिक विद्यालय'}
-                </h1>
-                <p className="text-sm font-bold text-slate-700 mt-1">
-                  {boardName} द्वारा मान्यता प्राप्त
-                </p>
-              </div>
-              <img src={schoolLogo} alt="School Logo" className="h-16 w-16 object-contain" />
-            </div>
-          ) : (
-            <div className="text-center">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <School className="h-10 w-10 text-emerald-900" />
-                <Shield className="h-10 w-10 text-emerald-900" />
-              </div>
               <h1 className="text-3xl font-serif font-black text-emerald-950 tracking-tight">
-                {schoolName || 'विद्या सेतु उच्चतर माध्यमिक विद्यालय'}
+                {schoolName || 'प्रज्ञा मित्र उच्चतर माध्यमिक विद्यालय'}
               </h1>
+              <p className="text-sm font-bold text-slate-700 mt-1">
+                {boardName} द्वारा मान्यता प्राप्त
+              </p>
+            </div>
+            <img src={schoolLogo} alt="School Logo" className="h-16 w-16 object-contain" />
+          </div>
+        ) : (
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <School className="h-10 w-10 text-emerald-900" />
+              <Shield className="h-10 w-10 text-emerald-900" />
+            </div>
+            <h1 className="text-3xl font-serif font-black text-emerald-950 tracking-tight">
+              {schoolName || 'प्रज्ञा मित्र उच्चतर माध्यमिक विद्यालय'}
+            </h1>
               <p className="text-sm font-bold text-slate-700 mt-1">
                 {boardName} द्वारा मान्यता प्राप्त
               </p>

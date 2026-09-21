@@ -3,7 +3,7 @@ import { getDB, loadSubscriptionPlans, loadSubscriptionPlanById, makeUniqueUsern
 import { getAuthUser, hashPassword } from '../lib/auth';
 import { sanitizeSlug, isSlugValid, provisionDedicatedWorker, deprovisionDedicatedWorker } from '../lib/provisioning';
 import { processTrialExpirations, processPluginTrialExpirations } from '../lib/trial-expiration';
-import { createRazorpayPaymentLink, cancelRazorpaySubscription, pauseRazorpaySubscription, resumeRazorpaySubscription, fetchRazorpaySubscription } from '../lib/razorpay';
+import { createRazorpayPaymentLink, cancelRazorpaySubscription, pauseRazorpaySubscription, resumeRazorpaySubscription, fetchRazorpaySubscription, createRazorpayPlan, fetchRazorpayPlan } from '../lib/razorpay';
 import { sendNotificationEmail } from '../lib/email';
 import { broadcastAlert } from '../notifications';
 
@@ -1742,6 +1742,159 @@ adminApp.get('/subscriptions/detail', async (c) => {
       nextBillingDate: sub.next_billing_date, pausedAt: sub.paused_at,
     },
     razorpayDetail: razorpayDetail && !razorpayDetail.error ? razorpayDetail : null,
+  });
+});
+
+// ==========================================
+// Razorpay Plan Management (Admin creates/syncs plans on Razorpay)
+// ==========================================
+
+// GET /api/admin/razorpay/plans - list all cached Razorpay plans
+adminApp.get('/razorpay/plans', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  try {
+    const rows = await db.prepare('SELECT * FROM razorpay_plans_cache ORDER BY created_at DESC').all();
+    return c.json({ success: true, plans: rows.results || [] });
+  } catch (e: any) {
+    return c.json({ success: true, plans: [] });
+  }
+});
+
+// POST /api/admin/razorpay/plans/create - create a Razorpay Plan from a platform plan
+adminApp.post('/razorpay/plans/create', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const body = await c.req.json().catch(() => ({}));
+  const planId = String(body.planId || '').trim();
+  const billingCycle = String(body.billingCycle || 'monthly').trim();
+
+  if (!planId) return c.json({ success: false, message: 'planId आवश्यक है।' }, 400);
+
+  const allPlans = await loadSubscriptionPlans(db);
+  const plan = allPlans.find((p: any) => p.id === planId && !p.isTrial);
+  if (!plan) return c.json({ success: false, message: 'प्लान नहीं मिला।' }, 404);
+
+  const period = billingCycle === 'annual' ? 'yearly' : 'monthly';
+  const interval = billingCycle === 'quarterly' ? 3 : 1;
+  const baseAmount = billingCycle === 'monthly' ? plan.monthlyPrice : (billingCycle === 'quarterly' ? plan.quarterlyPrice : plan.annualPrice);
+  if (!baseAmount || baseAmount <= 0) return c.json({ success: false, message: 'प्लान की राशि अमान्य है।' }, 400);
+
+  // Check if already cached
+  const existing = await db.prepare('SELECT razorpay_plan_id FROM razorpay_plans_cache WHERE platform_plan_id = ? AND period = ? AND amount = ?')
+    .bind(planId, period, Math.round(baseAmount * 100)).first();
+  if (existing) return c.json({ success: false, message: 'यह प्लान पहले से Razorpay पर बना हुआ है।', razorpayPlanId: existing.razorpay_plan_id }, 409);
+
+  // Create on Razorpay
+  const result = await createRazorpayPlan(c.env, {
+    period: period as 'monthly' | 'yearly',
+    interval,
+    amountINR: baseAmount,
+    name: plan.name + ' (' + billingCycle + ')',
+    description: plan.name + ' सदस्यता — विद्या सेतु',
+    notes: { platform_plan_id: planId, billing_cycle: billingCycle },
+  });
+  if (result.error) return c.json({ success: false, message: result.error }, 400);
+
+  // Cache in DB
+  const cacheId = 'rpc-' + Date.now();
+  await db.prepare('INSERT INTO razorpay_plans_cache (id, platform_plan_id, razorpay_plan_id, period, amount, razorpay_item_id, created_at) VALUES (?,?,?,?,?,?,?)')
+    .bind(cacheId, planId, result.id, period, Math.round(baseAmount * 100), result.itemId, new Date().toISOString()).run().catch(() => {});
+
+  return c.json({
+    success: true,
+    message: `Razorpay प्लान बन गया: ${plan.name} (${billingCycle}) — ₹${baseAmount}/${period === 'yearly' ? 'वर्ष' : 'माह'}`,
+    razorpayPlanId: result.id,
+    razorpayItemId: result.itemId,
+  });
+});
+
+// POST /api/admin/razorpay/plans/sync-all - create Razorpay Plans for all active platform plans (all cycles)
+adminApp.post('/razorpay/plans/sync-all', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+
+  const allPlans = await loadSubscriptionPlans(db);
+  const activePlans = allPlans.filter((p: any) => !p.isTrial && p.active !== false);
+  const results: any[] = [];
+
+  for (const plan of activePlans) {
+    const cycles = [
+      { cycle: 'monthly', amount: plan.monthlyPrice, period: 'monthly', interval: 1 },
+      { cycle: 'quarterly', amount: plan.quarterlyPrice, period: 'monthly', interval: 3 },
+      { cycle: 'annual', amount: plan.annualPrice, period: 'yearly', interval: 1 },
+    ];
+    for (const cyc of cycles) {
+      if (!cyc.amount || cyc.amount <= 0) continue;
+      // Skip if already cached
+      const existing = await db.prepare('SELECT razorpay_plan_id FROM razorpay_plans_cache WHERE platform_plan_id = ? AND period = ? AND amount = ?')
+        .bind(plan.id, cyc.period, Math.round(cyc.amount * 100)).first();
+      if (existing) { results.push({ planId: plan.id, cycle: cyc.cycle, status: 'exists', razorpayPlanId: existing.razorpay_plan_id }); continue; }
+
+      const result = await createRazorpayPlan(c.env, {
+        period: cyc.period as 'monthly' | 'yearly',
+        interval: cyc.interval,
+        amountINR: cyc.amount,
+        name: plan.name + ' (' + cyc.cycle + ')',
+        description: plan.name + ' सदस्यता — विद्या सेतु',
+        notes: { platform_plan_id: plan.id, billing_cycle: cyc.cycle },
+      });
+      if (result.error) { results.push({ planId: plan.id, cycle: cyc.cycle, status: 'error', error: result.error }); continue; }
+
+      const cacheId = 'rpc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 4);
+      await db.prepare('INSERT INTO razorpay_plans_cache (id, platform_plan_id, razorpay_plan_id, period, amount, razorpay_item_id, created_at) VALUES (?,?,?,?,?,?,?)')
+        .bind(cacheId, plan.id, result.id, cyc.period, Math.round(cyc.amount * 100), result.itemId, new Date().toISOString()).run().catch(() => {});
+
+      results.push({ planId: plan.id, cycle: cyc.cycle, status: 'created', razorpayPlanId: result.id });
+    }
+  }
+
+  const created = results.filter(r => r.status === 'created').length;
+  const exists = results.filter(r => r.status === 'exists').length;
+  const errors = results.filter(r => r.status === 'error').length;
+
+  return c.json({
+    success: true,
+    message: `Razorpay प्लान सिंक पूर्ण: ${created} नए बनाए, ${exists} पहले से मौजूद, ${errors} त्रुटियां।`,
+    results,
+    summary: { created, exists, errors },
+  });
+});
+
+// GET /api/admin/razorpay/plans/detail - fetch live Razorpay plan details by razorpay_plan_id
+adminApp.get('/razorpay/plans/detail', async (c) => {
+  const guard = await requireSuperAdmin(c);
+  if (!guard.ok) return guard.error;
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const razorpayPlanId = c.req.query('razorpayPlanId') || '';
+  if (!razorpayPlanId) return c.json({ success: false, message: 'razorpayPlanId आवश्यक।' }, 400);
+
+  const detail = await fetchRazorpayPlan(c.env, razorpayPlanId);
+  if (detail.error) return c.json({ success: false, message: detail.error }, 400);
+
+  // Return only whitelisted fields
+  const item = detail.item || {};
+  return c.json({
+    success: true,
+    plan: {
+      id: detail.id,
+      status: detail.status || 'active',
+      period: detail.period,
+      interval: detail.interval,
+      amount: item.amount ? item.amount / 100 : 0,
+      currency: item.currency || 'INR',
+      name: item.name || '',
+      description: item.description || '',
+      createdAt: detail.created_at,
+    },
   });
 });
 

@@ -4,7 +4,11 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/user_model.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/school_profile_service.dart';
 import 'login_screen.dart';
+import 'leave_applications_screen.dart';
+import 'fees_screen.dart';
+import 'exams_screen.dart';
 
 class ParentPortalScreen extends StatefulWidget {
   final UserModel user;
@@ -29,11 +33,24 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
   String _todayStatus = 'Unmarked';
   String? _childName;
   String? _childClass;
+  String _schoolPhone = '';
+  String _schoolName = '';
 
   @override
   void initState() {
     super.initState();
     _loadParentData();
+    _loadSchoolProfile();
+  }
+
+  Future<void> _loadSchoolProfile() async {
+    try {
+      final profile = await SchoolProfileService().getProfile();
+      setState(() {
+        _schoolPhone = profile.phone ?? '';
+        _schoolName = profile.schoolName;
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadParentData() async {
@@ -122,6 +139,7 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
           _buildAttendanceTab(),
           _buildNoticesTab(),
           _buildHelpdeskTab(),
+          _buildMoreTab(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -142,6 +160,11 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
             icon: Icon(Icons.support_agent_outlined),
             selectedIcon: Icon(Icons.support_agent, color: Color(0xFF047857)),
             label: 'संपर्क',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.more_horiz_outlined),
+            selectedIcon: Icon(Icons.more_horiz, color: Color(0xFF047857)),
+            label: 'और',
           ),
         ],
       ),
@@ -458,7 +481,7 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  n['date'] ?? '',
+                                  n['publishedDate'] ?? n['date'] ?? '',
                                   style: const TextStyle(fontSize: 10, color: Color(0xFF047857), fontWeight: FontWeight.bold),
                                 ),
                               ),
@@ -466,7 +489,7 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            n['description'] ?? '',
+                            n['content'] ?? n['description'] ?? '',
                             style: const TextStyle(fontSize: 12, color: Colors.black87),
                           ),
                         ],
@@ -515,10 +538,10 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
                     child: Icon(Icons.call, color: Color(0xFF047857)),
                   ),
                   title: const Text('विद्यालय हेल्पलाइन नंबर'),
-                  subtitle: const Text('+91 9876543210'),
+                  subtitle: Text(_schoolPhone.isEmpty ? 'उपलब्ध नहीं' : _schoolPhone),
                   trailing: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF047857), foregroundColor: Colors.white),
-                    onPressed: () => _makePhoneCall('+919876543210'),
+                    onPressed: _schoolPhone.isEmpty ? null : () => _makePhoneCall(_schoolPhone),
                     child: const Text('कॉल करें'),
                   ),
                 ),
@@ -534,7 +557,7 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
                   subtitle: const Text('त्वरित संदेश सहायता'),
                   trailing: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-                    onPressed: () => _openWhatsApp('+919876543210'),
+                    onPressed: _schoolPhone.isEmpty ? null : () => _openWhatsApp(_schoolPhone),
                     child: const Text('WhatsApp'),
                   ),
                 ),
@@ -563,6 +586,65 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
             label: const Text('लॉगआउट करें'),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMoreTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_schoolName.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF047857).withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(_schoolName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
+            ),
+          const SizedBox(height: 14),
+          _moreTile(Icons.event_available, 'अवकाश आवेदन', 'बच्चे के लिए अवकाश का अनुरोध करें', const Color(0xFF0F766E),
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => LeaveApplicationsScreen(user: widget.user)))),
+          _moreTile(Icons.receipt_long, 'फीस विवरण', 'बकाया फीस और बिल देखें', const Color(0xFF065F46),
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => FeesScreen(user: widget.user)))),
+          _moreTile(Icons.assignment_turned_in, 'परीक्षा परिणाम', 'रिपोर्ट कार्ड और अंक देखें', const Color(0xFF7C2D12),
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExamsScreen(user: widget.user)))),
+          const SizedBox(height: 20),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              foregroundColor: Colors.red.shade700,
+              side: BorderSide(color: Colors.red.shade300),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              await AuthService().logout();
+              if (mounted) {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                );
+              }
+            },
+            icon: const Icon(Icons.logout),
+            label: const Text('लॉगआउट करें'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _moreTile(IconData icon, String title, String subtitle, Color color, VoidCallback onTap) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        onTap: onTap,
+        leading: CircleAvatar(backgroundColor: color.withValues(alpha: 0.12), child: Icon(icon, color: color)),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+        subtitle: Text(subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
       ),
     );
   }

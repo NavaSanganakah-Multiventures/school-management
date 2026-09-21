@@ -1,5 +1,27 @@
 // Razorpay payment gateway helpers (real API only, no demo/simulated data).
 
+/**
+ * Sanitizes a phone number for Razorpay's contact field.
+ * Razorpay requires 8-14 digits (no +, spaces, dashes, or country code prefix beyond the digits).
+ * Strips all non-digits, removes leading country code if it makes the number too long,
+ * and returns null if the result doesn't meet the 8-14 digit requirement.
+ */
+export function sanitizeRazorpayContact(phone: any): string | null {
+  if (!phone) return null;
+  let digits = String(phone).replace(/\D/g, '');
+  if (!digits) return null;
+  // If 15+ digits, strip leading 91 (India country code) or other prefixes
+  if (digits.length > 14) {
+    if (digits.startsWith('91') && digits.length - 2 <= 14) {
+      digits = digits.slice(2);
+    } else if (digits.length > 14) {
+      digits = digits.slice(-14);
+    }
+  }
+  if (digits.length < 8) return null;
+  return digits;
+}
+
 function hexFromBytes(bytes: any) {
   return Array.from(bytes).map(function (b: any) { return b.toString(16).padStart(2, '0'); }).join('');
 }
@@ -95,7 +117,7 @@ export async function createRazorpayPlan(env: any, input: {
     notes: Object.assign({ source: 'vidyasetu' }, input.notes || {}),
   });
   if (data.error) return { error: data.error };
-  return { id: data.id, itemId: data.item_id, period: input.period, amount: amountPaise };
+  return { id: data.id, itemId: (data.item && data.item.id) || data.item_id || '', period: input.period, amount: amountPaise };
 }
 
 // Fetch a Razorpay Plan by ID
@@ -191,12 +213,14 @@ export async function createRazorpayCustomer(env: any, input: {
   contact?: string;
   notes?: Record<string, string>;
 }): Promise<{ error?: string; id?: string }> {
-  const data = await razorpayPost(env, 'customers', {
+  const sanitizedContact = sanitizeRazorpayContact(input.contact);
+  const custBody: any = {
     name: input.name,
     email: input.email || '',
-    contact: input.contact || '',
     notes: Object.assign({ source: 'vidyasetu' }, input.notes || {}),
-  });
+  };
+  if (sanitizedContact) custBody.contact = sanitizedContact;
+  const data = await razorpayPost(env, 'customers', custBody);
   if (data.error) return { error: data.error };
   return { id: data.id };
 }
@@ -267,15 +291,18 @@ export async function createRazorpayPaymentLink(c: any, input: RazorpayPaymentLi
     reminder_enable: true,
     notes: Object.assign({ source: 'vidyasetu' }, input.notes || {}),
   };
-  if (input.customerName || input.customerEmail || input.customerContact) {
+  const sanitizedContact = sanitizeRazorpayContact(input.customerContact);
+  if (input.customerName || input.customerEmail || sanitizedContact) {
     body.customer = {
       name: input.customerName || '',
       email: input.customerEmail || '',
-      contact: input.customerContact || '',
     };
+    if (sanitizedContact) {
+      body.customer.contact = sanitizedContact;
+    }
   }
   // Razorpay can auto-notify the customer by email/SMS; we also send our own branded email.
-  body.notify = { sms: !!(input.customerContact), email: !!(input.customerEmail) };
+  body.notify = { sms: !!sanitizedContact, email: !!(input.customerEmail) };
   try {
     const res = await fetch('https://api.razorpay.com/v1/payment_links', {
       method: 'POST',

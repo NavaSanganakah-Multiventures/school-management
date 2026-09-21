@@ -5,8 +5,13 @@ import '../models/user_model.dart';
 import '../models/attendance_model.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/student_service.dart';
 import '../widgets/activity_log_sheet.dart';
 import 'login_screen.dart';
+import 'exams_screen.dart';
+import 'leave_applications_screen.dart';
+import 'lms_screen.dart';
+import 'student_detail_screen.dart';
 
 class TeacherAttendanceScreen extends StatefulWidget {
   final UserModel user;
@@ -431,35 +436,26 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                       setDialogState(() => isSaving = true);
 
                       try {
-                        final res = await _api.post('/api/students', body: {
-                          'name': name,
-                          'scholarNumber': scholarCtrl.text.trim(),
-                          'parentName': parent,
+                        await StudentService().addStudent({
+                          'fullName': name,
+                          'className': _selectedClass,
+                          'fatherName': parent,
                           'parentPhone': phone,
+                          'scholarNumber': scholarCtrl.text.trim(),
                           'gender': gender,
                           'dob': dob != null ? DateFormat('yyyy-MM-dd').format(dob!) : null,
-                          'currentClass': _selectedClass,
                           'status': 'Active',
                         });
 
-                        if (res['success'] == true) {
-                          if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('छात्र $name को कक्षा $_selectedClass में सफलतापूर्वक प्रवेशित किया गया।'),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                            _loadAttendance();
-                          }
-                        } else {
-                          setDialogState(() => isSaving = false);
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(res['error'] ?? 'प्रवेश विफल रहा'), backgroundColor: Colors.red),
-                            );
-                          }
+                        if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('छात्र $name को कक्षा $_selectedClass में सफलतापूर्वक प्रवेशित किया गया।'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                          _loadAttendance();
                         }
                       } catch (err) {
                         setDialogState(() => isSaving = false);
@@ -509,6 +505,28 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
             icon: const Icon(Icons.history_edu),
             tooltip: 'कार्य डायरी',
             onPressed: () => ActivityLogSheet.show(context, user: widget.user),
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.apps),
+            tooltip: 'मॉड्यूल',
+            onSelected: (v) {
+              switch (v) {
+                case 'exams':
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => ExamsScreen(user: widget.user)));
+                  break;
+                case 'leave':
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => LeaveApplicationsScreen(user: widget.user)));
+                  break;
+                case 'lms':
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => LmsScreen(user: widget.user)));
+                  break;
+              }
+            },
+            itemBuilder: (c) => [
+              const PopupMenuItem(value: 'exams', child: ListTile(leading: Icon(Icons.assignment_turned_in), title: Text('परीक्षा एवं अंक'))),
+              const PopupMenuItem(value: 'leave', child: ListTile(leading: Icon(Icons.event_available), title: Text('अवकाश आवेदन'))),
+              const PopupMenuItem(value: 'lms', child: ListTile(leading: Icon(Icons.video_library), title: Text('पाठ्यक्रम (LMS)'))),
+            ],
           ),
           IconButton(
             icon: const Icon(Icons.logout),
@@ -915,7 +933,20 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, idx) {
                       final s = students[idx];
-                      return Container(
+                      return InkWell(
+                        onTap: () {
+                          if (s.studentId.isNotEmpty) {
+                            Navigator.push(context, MaterialPageRoute(
+                              builder: (_) => StudentDetailScreen(
+                                studentId: s.studentId,
+                                studentName: s.studentName,
+                                user: widget.user,
+                              ),
+                            ));
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: Colors.white,
@@ -945,6 +976,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                                 ],
                               ),
                             ),
+                            const Icon(Icons.chevron_right, color: Colors.grey, size: 18),
                             if (s.parentPhone.isNotEmpty) ...[
                               IconButton(
                                 icon: const Icon(Icons.call, color: Colors.blue, size: 20),
@@ -959,6 +991,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                             ],
                           ],
                         ),
+                      ),
                       );
                     },
                   ),
@@ -1025,7 +1058,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  n['date'] ?? '',
+                                  n['publishedDate'] ?? n['date'] ?? '',
                                   style: TextStyle(fontSize: 10, color: Colors.indigo.shade700, fontWeight: FontWeight.bold),
                                 ),
                               ),
@@ -1033,7 +1066,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            n['description'] ?? '',
+                            n['content'] ?? n['description'] ?? '',
                             style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
                           ),
                         ],

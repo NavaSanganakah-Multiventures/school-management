@@ -455,6 +455,7 @@ export function ViewScholarModal({
       <IssueTcModal
         isOpen={isTcModalOpen}
         student={student}
+        userRole={userRole}
         onClose={() => setIsTcModalOpen(false)}
         onSuccess={(updated) => {
           onIssueTc(student.id);

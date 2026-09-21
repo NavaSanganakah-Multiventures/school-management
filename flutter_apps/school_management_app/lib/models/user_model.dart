@@ -80,4 +80,23 @@ class UserModel {
       'schoolId': schoolId,
     };
   }
+
+  // ── Centralized role-policy predicates (single source of truth) ────────
+  /// Director or Principal — academic + administrative management.
+  bool get isAdminRole => role == UserRole.director || role == UserRole.principal;
+
+  /// Director or Principal or Staff — can approve leave / enter marks / manage LMS.
+  bool get canManageAcademics => role == UserRole.director || role == UserRole.principal || role == UserRole.staff;
+
+  /// Director only — school profile, billing, principal change, delete staff.
+  bool get isDirector => role == UserRole.director;
+
+  /// Whether this user can edit school profile.
+  bool get canEditSchoolProfile => role == UserRole.director;
+
+  /// Whether this user can manage billing/subscription.
+  bool get canManageBilling => role == UserRole.director;
+
+  /// Whether this user can manage staff (add/delete/assign class teacher).
+  bool get canManageStaff => role == UserRole.director || role == UserRole.principal;
 }

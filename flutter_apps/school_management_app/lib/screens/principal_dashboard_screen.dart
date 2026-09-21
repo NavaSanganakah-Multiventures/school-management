@@ -7,6 +7,14 @@ import '../services/auth_service.dart';
 import '../widgets/activity_log_sheet.dart';
 import 'login_screen.dart';
 import 'teacher_attendance_screen.dart';
+import 'exams_screen.dart';
+import 'fees_screen.dart';
+import 'staff_management_screen.dart';
+import 'subjects_screen.dart';
+import 'leave_applications_screen.dart';
+import 'notifications_screen.dart';
+import 'lms_screen.dart';
+import 'settings_screen.dart';
 
 class PrincipalDashboardScreen extends StatefulWidget {
   final UserModel user;
@@ -192,9 +200,9 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
                       try {
                         await _api.post('/api/notices', body: {
                           'title': title,
-                          'description': desc,
-                          'date': _today,
-                          'targetRole': 'All',
+                          'content': desc,
+                          'targetAudience': 'All',
+                          'priority': 'Normal',
                         });
                         if (ctx.mounted) Navigator.pop(ctx);
                         _loadNotices();
@@ -447,6 +455,30 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
                           const Color(0xFFFAF5FF),
                         ),
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Modules quick-access grid
+                  const Text('प्रबंधन मॉड्यूल', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  const SizedBox(height: 10),
+                  GridView.count(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    childAspectRatio: 1.0,
+                    children: [
+                      _moduleChip(Icons.assignment_turned_in, 'परीक्षा', const Color(0xFF7C2D12), () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExamsScreen(user: widget.user)))),
+                      _moduleChip(Icons.payments, 'फीस', const Color(0xFF065F46), () => Navigator.push(context, MaterialPageRoute(builder: (_) => FeesScreen(user: widget.user)))),
+                      _moduleChip(Icons.badge, 'स्टाफ', const Color(0xFF6D28D9), () => Navigator.push(context, MaterialPageRoute(builder: (_) => StaffManagementScreen(user: widget.user)))),
+                      _moduleChip(Icons.menu_book, 'विषय', const Color(0xFF1F2937), () => Navigator.push(context, MaterialPageRoute(builder: (_) => SubjectsScreen(user: widget.user)))),
+                      _moduleChip(Icons.event_available, 'अवकाश', const Color(0xFF0F766E), () => Navigator.push(context, MaterialPageRoute(builder: (_) => LeaveApplicationsScreen(user: widget.user)))),
+                      _moduleChip(Icons.campaign, 'सूचना', const Color(0xFFB45309), () => Navigator.push(context, MaterialPageRoute(builder: (_) => NotificationsScreen(user: widget.user)))),
+                      _moduleChip(Icons.video_library, 'पाठ्यक्रम', const Color(0xFF7E22CE), () => Navigator.push(context, MaterialPageRoute(builder: (_) => LmsScreen(user: widget.user)))),
+                      _moduleChip(Icons.settings, 'सेटिंग्स', const Color(0xFF334155), () => Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(user: widget.user)))),
+                      _moduleChip(Icons.checklist_rtl, 'हाजिरी', const Color(0xFF4338CA), () => Navigator.push(context, MaterialPageRoute(builder: (_) => TeacherAttendanceScreen(user: widget.user)))),
                     ],
                   ),
                   const SizedBox(height: 20),
@@ -713,14 +745,14 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
                                   ),
                                 ),
                                 Text(
-                                  n['date'] ?? '',
+                                  n['publishedDate'] ?? n['date'] ?? '',
                                   style: const TextStyle(fontSize: 10, color: Colors.grey),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              n['description'] ?? '',
+                              n['content'] ?? n['description'] ?? '',
                               style: const TextStyle(fontSize: 12, color: Colors.black87),
                             ),
                           ],
@@ -754,6 +786,32 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
           const SizedBox(height: 2),
           Text(sub, style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 10)),
         ],
+      ),
+    );
+  }
+
+  Widget _moduleChip(IconData icon, String label, Color color, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: color.withValues(alpha: 0.12),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(height: 6),
+            Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600), textAlign: TextAlign.center),
+          ],
+        ),
       ),
     );
   }
