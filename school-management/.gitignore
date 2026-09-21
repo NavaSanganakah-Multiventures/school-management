@@ -1,0 +1,14 @@
+node_modules/
+.next/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+*.tsbuildinfo
+out/
+.wrangler/
+wrangler-*.toml
+wrangler-*.secrets.json
+.dev.vars
+.dev.vars.*

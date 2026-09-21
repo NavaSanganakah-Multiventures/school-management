@@ -1,0 +1,27 @@
+name: dheetantra
+description: "Pragnya Mitra School Management Mobile Application for Director, Principal, Teachers and Parents."
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+  flutter_secure_storage: ^9.0.0
+  firebase_core: ^2.30.0
+  firebase_messaging: ^14.8.0
+  flutter_local_notifications: ^17.1.0
+  url_launcher: ^6.2.5
+  intl: ^0.19.0
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

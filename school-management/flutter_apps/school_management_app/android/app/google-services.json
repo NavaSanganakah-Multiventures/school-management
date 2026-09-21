@@ -1,0 +1,130 @@
+{
+  "project_info": {
+    "project_number": "1006899144467",
+    "firebase_url": "https://navasanganakah-default-rtdb.firebaseio.com",
+    "project_id": "navasanganakah",
+    "storage_bucket": "navasanganakah.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1006899144467:android:843ba3b9660eb460555ce6",
+        "android_client_info": {
+          "package_name": "com.nasven.dheetantra"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1006899144467-k5le34m41el545le07uq4nb0uf81p65v.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCBnwhTTM3w8aiXHxC_4rX6aonhIe3wjqo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1006899144467-47c8es3besdiq5jk5fqbtltg5eb899nt.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1006899144467:android:bccbaf3cd291bca2555ce6",
+        "android_client_info": {
+          "package_name": "com.yagyaashram.lms"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1006899144467-gorck5dhtftnjmtk3libd09risrqj0mc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.yagyaashram.lms",
+            "certificate_hash": "de89c38447539024fbc3bdd16fa6adbc9f08dd74"
+          }
+        },
+        {
+          "client_id": "1006899144467-n6s3eumhvovthctekv9joh6fjka3c6dk.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.yagyaashram.lms",
+            "certificate_hash": "3c549c40cef47751240dad42d4385fb07b17cb00"
+          }
+        },
+        {
+          "client_id": "1006899144467-tqeff76n2926c7jv26re6ffvg3kqm13i.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.yagyaashram.lms",
+            "certificate_hash": "ddb33869d3c6906f9bd5e5763a27f397c71b5378"
+          }
+        },
+        {
+          "client_id": "1006899144467-k5le34m41el545le07uq4nb0uf81p65v.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCBnwhTTM3w8aiXHxC_4rX6aonhIe3wjqo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1006899144467-47c8es3besdiq5jk5fqbtltg5eb899nt.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1006899144467:android:4ae584b37ebc390e555ce6",
+        "android_client_info": {
+          "package_name": "com.yagyaashram.lms.admin"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1006899144467-o858pbe9rkarqfrtj437suc3s7ipn92h.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.yagyaashram.lms.admin",
+            "certificate_hash": "3c549c40cef47751240dad42d4385fb07b17cb00"
+          }
+        },
+        {
+          "client_id": "1006899144467-k5le34m41el545le07uq4nb0uf81p65v.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCBnwhTTM3w8aiXHxC_4rX6aonhIe3wjqo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1006899144467-47c8es3besdiq5jk5fqbtltg5eb899nt.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

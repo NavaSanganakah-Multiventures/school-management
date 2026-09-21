@@ -1,0 +1,546 @@
+import { Hono } from 'hono';
+import { getDB } from '../db';
+import { getAuthUser, getRequestSchoolId } from '../lib/auth';
+import { logActivity, resolveActorName } from '../lib/activity-logger';
+import { isClassTeacher } from '../lib/permissions';
+import { GoogleGenAI, Type } from '@google/genai';
+import { broadcastAlert } from '../notifications';
+import { sendNotificationEmail } from '../lib/email';
+
+const aiApp = new Hono<{ Bindings: any }>();
+
+aiApp.post('/chat', async (c) => {
+  try {
+    const db = getDB(c);
+    if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+    const authUser = await getAuthUser(c);
+    if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+    const schoolId = getRequestSchoolId(c, authUser);
+    const body = await c.req.json().catch(() => ({}));
+    const prompt = body.prompt;
+    const files = body.files || []; // Expected format: [{ mimeType: 'image/jpeg', data: 'base64...' }]
+
+    if (!prompt && files.length === 0) {
+      return c.json({ success: false, message: 'प्रॉम्प्ट (Prompt) या फ़ाइल आवश्यक है।' }, 400);
+    }
+
+    // Helper to check Enterprise plan or dedicated worker
+    let isEnterprise = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+    if (!isEnterprise) {
+      try {
+        const sub = await db.prepare('SELECT plan_id FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+        const tenant = await db.prepare('SELECT plan_id FROM school_tenants WHERE id = ?').bind(schoolId).first();
+        const planId = String((sub && sub.plan_id) || (tenant && tenant.plan_id) || '').toLowerCase();
+        if (planId === 'enterprise') isEnterprise = true;
+      } catch (_) {}
+    }
+
+    // Check if plugin is active (Enterprise schools have all plugins included)
+    if (!isEnterprise) {
+      const pluginCheck = await db.prepare(
+        `SELECT status FROM school_plugins WHERE school_id = ? AND plugin_id = 'plugin-ai-assistant'`
+      ).bind(schoolId).first();
+      
+      if (!pluginCheck || pluginCheck.status !== 'active') {
+        return c.json({ success: false, message: 'AI Assistant प्लगइन एक्टिव नहीं है।' }, 403);
+      }
+    }
+
+    // Get school settings for custom api key and credits
+    const school = await db.prepare(
+      `SELECT gemini_api_key, ai_credits FROM school_tenants WHERE id = ?`
+    ).bind(schoolId).first();
+
+    let apiKey = school?.gemini_api_key;
+    let usingCredits = false;
+
+    if (!apiKey) {
+      // Use platform key
+      apiKey = c.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return c.json({ success: false, message: 'सिस्टम में Gemini API Key कॉन्फ़िगर नहीं है।' }, 500);
+      }
+      if (!school || school.ai_credits <= 0) {
+        return c.json({ success: false, message: 'AI Credits समाप्त हो गए हैं। कृपया कस्टम API Key सेट करें या Credits रीचार्ज करें।' }, 402);
+      }
+      usingCredits = true;
+    }
+
+    // Initialize Google GenAI
+    // Use Cloudflare AI Gateway if CLOUDFLARE_AI_GATEWAY_ID and CLOUDFLARE_ACCOUNT_ID exist
+    const gatewayId = c.env.CLOUDFLARE_AI_GATEWAY_ID;
+    const accountId = c.env.CLOUDFLARE_ACCOUNT_ID;
+    let baseUrl: string | undefined = undefined;
+
+    if (gatewayId && accountId) {
+      baseUrl = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/google-genai`;
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      ...(baseUrl ? { httpOptions: { baseUrl } } : {})
+    });
+
+    const systemInstruction = `You are a helpful AI assistant for Pragnya Mitra School Management System.
+Your primary role is to help staff add new students by reading their requests or analyzing uploaded documents (images, PDFs, etc.). 
+Extract these 4 details: full name, class name, father's name, and parent phone number. 
+Automatically detect if any of these details are missing from the provided text or document.
+If any details are missing, you MUST ask the user to provide the missing details (e.g., "मुझे आपका फोन नंबर नहीं मिला, कृपया प्रदान करें").
+Only call the 'addStudent' tool when you have gathered all the details, OR if the user explicitly tells you to proceed with missing details.
+If proceeding with missing details, pass the missing field names as a comma-separated string to the 'missingDetails' parameter.
+Always respond in Hindi. Be polite and concise.`;
+
+    const addStudentTool = {
+      functionDeclarations: [
+        {
+          name: 'addStudent',
+          description: 'Adds a new student. Extract details from text/files. If user explicitly asks to proceed despite missing details, pass them in missingDetails.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              fullName: { type: Type.STRING, description: 'Full name of the student (or empty if missing)' },
+              className: { type: Type.STRING, description: 'Class name (e.g., 5, 10, VI, etc.) (or empty if missing)' },
+              fatherName: { type: Type.STRING, description: "Father's name (or empty if missing)" },
+              parentPhone: { type: Type.STRING, description: 'Parent phone number (10 digits) (or empty if missing)' },
+              missingDetails: { type: Type.STRING, description: 'Comma separated list of missing fields if any (e.g. "phone, class")' }
+            }
+          }
+        }
+      ]
+    };
+
+    const apiContents: any[] = [];
+    if (prompt) {
+      apiContents.push({ text: prompt });
+    }
+    for (const file of files) {
+      if (file.mimeType && file.data) {
+        // Strip data URL prefix if present
+        const base64Data = file.data.includes(',') ? file.data.split(',')[1] : file.data;
+        apiContents.push({
+          inlineData: {
+            mimeType: file.mimeType,
+            data: base64Data
+          }
+        });
+      }
+    }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.6-flash',
+      contents: apiContents,
+      config: {
+        systemInstruction,
+        tools: [addStudentTool],
+        temperature: 0.2
+      }
+    });
+
+    // Check if tool was called
+    let functionCall = null;
+    if (response.candidates && response.candidates[0]?.content?.parts) {
+       for (const part of response.candidates[0].content.parts) {
+          if (part.functionCall && part.functionCall.name === 'addStudent') {
+             functionCall = part.functionCall;
+             break;
+          }
+       }
+    }
+
+    let resultMessage = response.text || "क्षमा करें, मैं आपका अनुरोध समझ नहीं पाया।";
+
+    if (functionCall) {
+      // Execute the addStudent logic
+      const args = functionCall.args as any;
+      const fullName = args.fullName || '';
+      const className = args.className || 'Unknown';
+      const fatherName = args.fatherName || '';
+      const parentPhone = args.parentPhone || '';
+      const missingDetails = args.missingDetails || '';
+
+      // Verification logic identical to students API
+      if (authUser.role === 'Staff') {
+        const isTeacher = await isClassTeacher(db, schoolId, className, authUser.sub);
+        if (!isTeacher) {
+          return c.json({
+            success: false,
+            message: `क्षमा करें, केवल अधिकृत कक्षा अध्यापक या प्रधानाचार्य ही कक्षा "${className}" में छात्र प्रवेश दर्ज कर सकते हैं।`,
+          }, 403);
+        }
+      }
+
+      const cntAll = await db.prepare('SELECT COUNT(*) AS n FROM students WHERE school_id = ?').bind(schoolId).first();
+      const nextNum = (cntAll ? (cntAll as any).n : 0) + 1;
+      const scholarNumber = 'SR-' + new Date().getFullYear() + '/' + String(nextNum).padStart(3, '0');
+      const id = crypto.randomUUID();
+      const classId = 'cls-' + String(className).toLowerCase().replace(/\\s+/g, '-');
+
+      const admissionDate = new Date().toISOString().split('T')[0];
+      const firstName = fullName.split(' ')[0] || '';
+      const lastName = fullName.split(' ').slice(1).join(' ') || '';
+      const histId = crypto.randomUUID();
+      const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+
+      await db.prepare('INSERT OR REPLACE INTO students (id, roll_number, first_name, last_name, class_id, class_name, section, gender, dob, parent_name, parent_phone, email, address, blood_group, avatar_url, admission_date, status, school_id, scholar_number, father_name, father_occupation, mother_name, category, religion, aadhaar_number, samagra_id, whatsapp_number, current_address, permanent_address, previous_school, previous_tc_no, bank_account_no, bank_name, ifsc_code, tc_issue_date, remarks, updated_at, missing_details) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(
+          id, '', firstName, lastName,
+          classId, className, 'A', 'Other', '', fatherName, parentPhone, '', '', '', '', admissionDate, 'Active', schoolId, scholarNumber, fatherName, '', '', 'General', 'Hindu', '', '', '', '', '', '', '', '', '', '', '', 'Added via AI Assistant', new Date().toISOString(), missingDetails
+        ).run();
+
+      await db.prepare(
+        'INSERT INTO student_academic_history (id, school_id, student_id, scholar_number, event_type, event_date, academic_session, class_name, section, recorded_by_user_id, recorded_by_name, recorded_by_role, remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).bind(
+        histId, schoolId, id, scholarNumber, 'Initial_Admission', admissionDate, '2026-2027', className, 'A', authUser.sub, actorName, authUser.role, 'AI Assistant द्वारा प्रथम स्कॉलर प्रवेश'
+      ).run();
+
+      if (usingCredits) {
+        await db.prepare(`UPDATE school_tenants SET ai_credits = ai_credits - 1 WHERE id = ?`).bind(schoolId).run();
+      }
+
+      await logActivity(db, {
+        schoolId,
+        userId: authUser.sub,
+        userName: actorName,
+        userRole: authUser.role,
+        actionType: 'STUDENT_ADD_AI',
+        actionTitle: 'AI द्वारा नया स्कॉलर प्रवेश',
+        description: `कक्षा ${className} में नए छात्र ${fullName} (स्कॉलर सं.: ${scholarNumber}) का प्रवेश AI द्वारा दर्ज किया गया।`,
+        entityType: 'student',
+        entityId: id,
+        className: String(className),
+      });
+
+      resultMessage = `मैंने छात्र **${fullName}** को सफलतापूर्वक **कक्षा ${className}** में जोड़ दिया है। उनका स्कॉलर नंबर **${scholarNumber}** है।`;
+      
+      if (missingDetails) {
+        resultMessage += `\n\n**ध्यान दें:** निम्नलिखित विवरण गायब हैं: ${missingDetails}।`;
+        
+        // Notify Director/Principal via FCM Broadcast
+        await broadcastAlert(db, c.env, {
+          title: 'Missing Student Details Alert',
+          body: `Student ${fullName || scholarNumber} was added by AI with missing details: ${missingDetails}.`,
+          schoolId: schoolId,
+          targetRole: 'Director'
+        });
+        await broadcastAlert(db, c.env, {
+          title: 'Missing Student Details Alert',
+          body: `Student ${fullName || scholarNumber} was added by AI with missing details: ${missingDetails}.`,
+          schoolId: schoolId,
+          targetRole: 'Principal'
+        });
+
+        // Fetch emails of Director/Principal to send email alert
+        const adminUsers = await db.prepare(
+          `SELECT email FROM auth_users WHERE school_id = ? AND role IN ('Director', 'Principal') AND is_active = 1`
+        ).bind(schoolId).all();
+
+        if (adminUsers && adminUsers.results) {
+          for (const admin of adminUsers.results as any[]) {
+            if (admin.email) {
+              await sendNotificationEmail(c.env, {
+                to: admin.email,
+                subject: 'Action Required: Missing Student Details',
+                title: 'Missing Student Details',
+                message: `Hello,\n\nA new student (${fullName || scholarNumber}) was registered via the AI Assistant, but some details are missing:\n\nMissing Fields: ${missingDetails}\n\nPlease update the student record in the system.`
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return c.json({ success: true, message: resultMessage });
+
+  } catch (error: any) {
+    console.error('AI Chat Error:', error);
+    return c.json({ success: false, message: 'AI के साथ संचार करते समय त्रुटि हुई।' }, 500);
+  }
+});
+
+aiApp.post('/report-analysis', async (c) => {
+  try {
+    const db = getDB(c);
+    if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+    const authUser = await getAuthUser(c);
+    if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+    if (authUser.role !== 'Director' && authUser.role !== 'Principal' && authUser.role !== 'Staff') {
+      return c.json({ success: false, message: 'अनधिकृत पहुँच।' }, 403);
+    }
+    const schoolId = getRequestSchoolId(c, authUser);
+    const body = await c.req.json().catch(() => ({}));
+    const examId = body.examId || null;
+    const className = body.className || null;
+    const subject = body.subject || null;
+
+    // Paid plugin gate: AI Report Analyzer must be active (Enterprise schools have all plugins included)
+    let isEnterprise = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+    if (!isEnterprise) {
+      try {
+        const sub = await db.prepare('SELECT plan_id FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
+        const tenant = await db.prepare('SELECT plan_id FROM school_tenants WHERE id = ?').bind(schoolId).first();
+        const planId = String((sub && sub.plan_id) || (tenant && tenant.plan_id) || '').toLowerCase();
+        if (planId === 'enterprise') isEnterprise = true;
+      } catch (_) {}
+    }
+
+    if (!isEnterprise) {
+      const pluginCheck = await db.prepare(
+        "SELECT status FROM school_plugins WHERE school_id = ? AND plugin_id = 'plugin-ai-reports'"
+      ).bind(schoolId).first();
+      if (!pluginCheck || pluginCheck.status !== 'active') {
+        return c.json({ success: false, message: 'AI Report Analyzer प्लगइन एक्टिव नहीं है।' }, 403);
+      }
+    }
+
+    // Resolve exam: explicit examId first, otherwise latest active exam, otherwise any exam.
+    let exam = null;
+    if (examId) {
+      exam = await db.prepare('SELECT * FROM exams WHERE school_id = ? AND id = ?').bind(schoolId, examId).first();
+    }
+    if (!exam) {
+      exam = await db.prepare('SELECT * FROM exams WHERE school_id = ? AND is_active = 1 ORDER BY start_date DESC LIMIT 1').bind(schoolId).first();
+    }
+    if (!exam) {
+      exam = await db.prepare('SELECT * FROM exams WHERE school_id = ? ORDER BY start_date DESC LIMIT 1').bind(schoolId).first();
+    }
+
+    // Always school-scoped marks query (multi-tenancy invariant).
+    let marksQuery = 'SELECT em.subject, em.max_marks, em.marks_obtained, em.grade, s.id AS student_id, s.first_name, s.last_name, s.class_name, s.section FROM exam_marks em JOIN students s ON s.id = em.student_id WHERE em.school_id = ? AND s.school_id = ?';
+    const params = [schoolId, schoolId];
+    if (exam) {
+      marksQuery += ' AND em.exam_id = ?';
+      params.push(exam.id);
+    }
+    if (className) {
+      marksQuery += ' AND s.class_name = ?';
+      params.push(className);
+    }
+    if (subject) {
+      marksQuery += ' AND em.subject = ?';
+      params.push(subject);
+    }
+    marksQuery += ' ORDER BY s.class_name ASC, s.first_name ASC, em.subject ASC';
+
+    const rows = await db.prepare(marksQuery).bind(...params).all();
+    const marks = rows.results || [];
+    if (marks.length === 0) {
+      return c.json({ success: false, message: 'चयनित परीक्षा के लिए अंक प्रविष्टियाँ उपलब्ध नहीं हैं। पहले परीक्षा अंक दर्ज करें।' }, 404);
+    }
+
+    const subjectMap = new Map();
+    const studentMap = new Map();
+
+    for (const m of marks) {
+      const max = Number(m.max_marks) || 100;
+      const got = Number(m.marks_obtained) || 0;
+      const pct = max > 0 ? (got / max) * 100 : 0;
+
+      const sub = m.subject || 'अन्य';
+      if (!subjectMap.has(sub)) subjectMap.set(sub, { total: 0, maxTotal: 0, entries: 0, min: Infinity, max: -Infinity, pass: 0 });
+      const ss = subjectMap.get(sub);
+      ss.total += got;
+      ss.maxTotal += max;
+      ss.entries += 1;
+      if (pct < ss.min) ss.min = pct;
+      if (pct > ss.max) ss.max = pct;
+      if (pct >= 33) ss.pass += 1;
+
+      const sid = m.student_id;
+      if (!studentMap.has(sid)) {
+        studentMap.set(sid, {
+          name: [m.first_name, m.last_name].filter(Boolean).join(' ').trim() || 'छात्र',
+          className: m.class_name || '',
+          section: m.section || '',
+          total: 0,
+          maxTotal: 0,
+          entries: 0
+        });
+      }
+      const st = studentMap.get(sid);
+      st.total += got;
+      st.maxTotal += max;
+      st.entries += 1;
+    }
+
+    const subjectBreakdown = Array.from(subjectMap.entries()).map((entry) => {
+      const subject = entry[0];
+      const s = entry[1];
+      return {
+        subject: subject,
+        avgPercentage: +(s.maxTotal > 0 ? (s.total / s.maxTotal) * 100 : 0).toFixed(1),
+        avgMarks: +(s.entries ? s.total / s.entries : 0).toFixed(1),
+        minPercentage: s.min === Infinity ? 0 : +s.min.toFixed(1),
+        maxPercentage: s.max === -Infinity ? 0 : +s.max.toFixed(1),
+        passRate: s.entries ? +((s.pass / s.entries) * 100).toFixed(1) : 0,
+        entries: s.entries
+      };
+    }).sort((a, b) => b.avgPercentage - a.avgPercentage);
+
+    const students = Array.from(studentMap.values()).map((s) => ({
+      name: s.name,
+      className: s.className,
+      section: s.section,
+      avgPercentage: +(s.maxTotal > 0 ? (s.total / s.maxTotal) * 100 : 0).toFixed(1),
+      totalMarks: +s.total.toFixed(1),
+      maxTotal: +s.maxTotal.toFixed(1),
+      subjects: s.entries
+    }));
+
+    const overall = students.length ? +(students.reduce((a, s) => a + s.avgPercentage, 0) / students.length).toFixed(1) : 0;
+    const passCount = students.filter((s) => s.avgPercentage >= 33).length;
+    const passRate = students.length ? +((passCount / students.length) * 100).toFixed(1) : 0;
+
+    const classMap = new Map();
+    for (const s of students) {
+      const cls = s.className || 'अन्य';
+      if (!classMap.has(cls)) classMap.set(cls, { className: cls, count: 0, totalPct: 0, pass: 0 });
+      const cc = classMap.get(cls);
+      cc.count += 1;
+      cc.totalPct += s.avgPercentage;
+      if (s.avgPercentage >= 33) cc.pass += 1;
+    }
+    const classBreakdown = Array.from(classMap.values()).map((c) => ({
+      className: c.className,
+      studentCount: c.count,
+      avgPercentage: +(c.totalPct / c.count).toFixed(1),
+      passRate: +((c.pass / c.count) * 100).toFixed(1)
+    })).sort((a, b) => b.avgPercentage - a.avgPercentage);
+
+    const sorted = students.slice().sort((a, b) => b.avgPercentage - a.avgPercentage);
+    const toppers = sorted.slice(0, 5);
+    const needsAttention = students.filter((s) => s.avgPercentage < 33).sort((a, b) => a.avgPercentage - b.avgPercentage).slice(0, 10);
+
+    const examName = exam ? exam.exam_name : 'सभी परीक्षाएँ';
+    const academicYear = exam ? exam.academic_year : '';
+
+    const contextLines = [
+      'परीक्षा: ' + examName + (academicYear ? ' (' + academicYear + ')' : ''),
+      'कुल छात्र: ' + students.length,
+      'कुल विषय प्रविष्टियाँ: ' + marks.length,
+      'औसत प्रतिशत: ' + overall + '%',
+      'उत्तीर्ण दर: ' + passRate + '%',
+      '',
+      'विषयवार प्रदर्शन:'
+    ];
+    for (const s of subjectBreakdown) {
+      contextLines.push('- ' + s.subject + ': औसत ' + s.avgPercentage + '%, उत्तीर्ण दर ' + s.passRate + '% (' + s.entries + ' प्रविष्टियाँ)');
+    }
+    contextLines.push('', 'कक्षावार प्रदर्शन:');
+    for (const c of classBreakdown) {
+      contextLines.push('- ' + c.className + ': औसत ' + c.avgPercentage + '%, छात्र ' + c.studentCount + ', उत्तीर्ण दर ' + c.passRate + '%');
+    }
+    contextLines.push('', 'शीर्ष छात्र:');
+    toppers.forEach((s, i) => {
+      contextLines.push((i + 1) + '. ' + s.name + ' (' + s.className + '): ' + s.avgPercentage + '%');
+    });
+    contextLines.push('', 'सुधार की आवश्यकता वाले छात्र (33% से कम):');
+    if (needsAttention.length === 0) {
+      contextLines.push('- कोई नहीं');
+    } else {
+      for (const s of needsAttention) {
+        contextLines.push('- ' + s.name + ' (' + s.className + '): ' + s.avgPercentage + '%');
+      }
+    }
+
+    const prompt = 'नीचे दिए गए विद्यालय के परीक्षा परिणाम आँकड़ों का विश्लेषण करें और हिंदी में संक्षिप्त, कार्यान्वयन-योग्य सुझाव दें।\n\n' + contextLines.join('\n') + '\n\nकृपया निम्न बिंदु शामिल करें:\n1. समग्र प्रदर्शन का आकलन\n2. सबसे मजबूत व सबसे कमजोर विषय\n3. कक्षावार रुझान\n4. कमजोर छात्रों के लिए 2-3 ठोस सुधार सुझाव\nMarkdown बुलेट्स का उपयोग करें।';
+
+    // API key resolution: school custom key first, otherwise platform key.
+    // Note: this is a paid plugin (Rs. 499), so unlike the credit-based AI Assistant
+    // we deliberately do NOT deduct ai_credits for report analysis.
+    const school = await db.prepare('SELECT gemini_api_key FROM school_tenants WHERE id = ?').bind(schoolId).first();
+    let apiKey = (school && school.gemini_api_key) || c.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return c.json({ success: false, message: 'सिस्टम में Gemini API Key कॉन्फ़िगर नहीं है।' }, 500);
+    }
+
+    const gatewayId = c.env.CLOUDFLARE_AI_GATEWAY_ID;
+    const accountId = c.env.CLOUDFLARE_ACCOUNT_ID;
+    const baseUrl = (gatewayId && accountId) ? 'https://gateway.ai.cloudflare.com/v1/' + accountId + '/' + gatewayId + '/google-genai' : undefined;
+
+    const ai = new GoogleGenAI({
+      apiKey: apiKey,
+      ...(baseUrl ? { httpOptions: { baseUrl: baseUrl } } : {})
+    });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.6-flash',
+      contents: [{ text: prompt }],
+      config: {
+        systemInstruction: 'You are Pragnya Mitra AI Report Analyzer. Analyze school exam performance data and produce concise, encouraging, actionable insights for teachers and principals. Always respond in Hindi using short Markdown bullets. Never invent data beyond what is provided.',
+        temperature: 0.4
+      }
+    });
+
+    const insights = (response.text || 'क्षमा करें, AI विश्लेषण उपलब्ध नहीं हो सका।').trim();
+
+    const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+    await logActivity(db, {
+      schoolId: schoolId,
+      userId: authUser.sub,
+      userName: actorName,
+      userRole: authUser.role,
+      actionType: 'AI_REPORT_ANALYSIS',
+      actionTitle: 'AI रिपोर्ट विश्लेषण',
+      description: 'परीक्षा "' + examName + '" के परिणामों का AI विश्लेषण तैयार किया गया।',
+      entityType: 'exam',
+      entityId: exam ? exam.id : 'all',
+      className: className || undefined,
+      metadata: { studentCount: students.length, overallPercentage: overall }
+    });
+
+    return c.json({
+      success: true,
+      analysis: {
+        generatedAt: new Date().toISOString(),
+        exam: exam ? { id: exam.id, name: exam.exam_name, academicYear: exam.academic_year, term: exam.term } : null,
+        studentCount: students.length,
+        marksCount: marks.length,
+        overallPercentage: overall,
+        passRate: passRate,
+        subjectBreakdown: subjectBreakdown,
+        classBreakdown: classBreakdown,
+        toppers: toppers,
+        needsAttention: needsAttention,
+        insights: insights
+      }
+    });
+  } catch (error: any) {
+    console.error('AI Report Analysis Error:', error);
+    return c.json({ success: false, message: 'AI रिपोर्ट विश्लेषण में त्रुटि हुई।' }, 500);
+  }
+});
+aiApp.get('/settings', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'Database not available' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'Unauthorized' }, 401);
+  const schoolId = getRequestSchoolId(c, authUser);
+
+  const school = await db.prepare(
+    `SELECT gemini_api_key, ai_credits FROM school_tenants WHERE id = ?`
+  ).bind(schoolId).first();
+
+  return c.json({
+    success: true,
+    hasCustomApiKey: !!school?.gemini_api_key,
+    aiCredits: school?.ai_credits || 0
+  });
+});
+
+aiApp.put('/settings', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'Database not available' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'Unauthorized' }, 401);
+  if (authUser.role !== 'Director' && authUser.role !== 'SuperAdmin' && authUser.role !== 'Principal') {
+    return c.json({ success: false, message: 'Forbidden' }, 403);
+  }
+  const schoolId = getRequestSchoolId(c, authUser);
+  const body = await c.req.json().catch(() => ({}));
+
+  await db.prepare(`UPDATE school_tenants SET gemini_api_key = ? WHERE id = ?`).bind(body.apiKey || null, schoolId).run();
+  
+  return c.json({ success: true, message: 'Settings updated' });
+});
+
+export default aiApp;
