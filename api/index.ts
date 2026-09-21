@@ -28,6 +28,7 @@ import internalApp from './internal';
 import featuresApp from './features';
 import webhooksApp from './webhooks';
 import { processTrialExpirations, processPluginTrialExpirations, processSubscriptionRenewals } from './lib/trial-expiration';
+import { processFeeReminders } from './lib/fee-reminders';
 
 const app = new Hono<{ Bindings: any }>().basePath('/api');
 
@@ -73,7 +74,7 @@ app.get('/health', (c) => {
   return c.json({
     status: 'online',
     timestamp: new Date().toISOString(),
-    system: 'VidyaSetu School Management System & CRM API',
+    system: 'Pragnya Mitra School Management System & CRM API',
     engine: 'Hono.js Engine',
     rolesSupported: ['SuperAdmin', 'Director', 'Principal', 'Staff'],
     paymentGateway: 'Razorpay',
@@ -116,6 +117,7 @@ const worker = {
         processTrialExpirations(env),
         processPluginTrialExpirations(env),
         processSubscriptionRenewals(env),
+        processFeeReminders(env),
       ]);
       if (ctx && typeof ctx.waitUntil === 'function') {
         ctx.waitUntil(task);

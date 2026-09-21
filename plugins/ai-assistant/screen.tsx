@@ -70,7 +70,7 @@ export function AIAssistantScreen() {
              <Bot className="w-8 h-8" />
           </div>
           <div>
-            <h3 className="font-bold text-xl tracking-wide">VidyaSetu AI</h3>
+            <h3 className="font-bold text-xl tracking-wide">Pragnya Mitra AI</h3>
             <p className="text-sm text-indigo-200 font-medium mt-1">
               {hasCustomKey ? 'Custom API Key Active' : `${aiCredits} Credits left`}
             </p>

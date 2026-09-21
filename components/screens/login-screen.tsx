@@ -20,7 +20,7 @@ export function LoginScreen({ onLoginSuccess, onRegister }: LoginScreenProps) {
   const [forgotMsg, setForgotMsg] = useState<string | null>(null);
   const [forgotLoading, setForgotLoading] = useState(false);
   const [isDedicated, setIsDedicated] = useState(false);
-  const [schoolTitle, setSchoolTitle] = useState('विद्या सेतु स्कूल प्रबंधन');
+  const [schoolTitle, setSchoolTitle] = useState('Pragnya Mitra स्कूल प्रबंधन');
 
   useEffect(() => {
     fetch('/api/config')
@@ -204,7 +204,7 @@ export function LoginScreen({ onLoginSuccess, onRegister }: LoginScreenProps) {
       </div>
 
       <div className="mt-6 text-center text-xs text-slate-400">
-        <p>विद्या सेतु विद्यालय प्रबंधन प्रणाली • सत्र 2026-27</p>
+        <p>Pragnya Mitra विद्यालय प्रबंधन प्रणाली • सत्र 2026-27</p>
         <p className="text-[10px] text-slate-500 mt-0.5">अधिकृत एवं सुरक्षित पोर्टल</p>
       </div>
     </div>

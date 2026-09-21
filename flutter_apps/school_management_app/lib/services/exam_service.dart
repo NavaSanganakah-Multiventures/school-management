@@ -57,7 +57,7 @@ class ExamService {
   }
 
   Future<ExamAnalyticsModel> getAnalytics(String examId) async {
-    final res = await _api.get('/api/exams/$examId/analytics');
+    final res = await _api.get('/api/exams/analytics/$examId');
     return ExamAnalyticsModel.fromJson(res['analytics'] ?? res);
   }
 }

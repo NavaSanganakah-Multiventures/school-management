@@ -104,7 +104,7 @@ class _LoginScreenState extends State<LoginScreen> {
       case UserRole.superAdmin:
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('सुपर एडमिन कृपया "VidyaSetu Super Admin" ऐप का उपयोग करें।'),
+            content: Text('सुपर एडमिन कृपया "Pragnya Mitra Super Admin" ऐप का उपयोग करें।'),
             backgroundColor: Colors.orange,
           ),
         );
@@ -301,7 +301,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 16),
                     const Text(
-                      'विद्या सेतु',
+                      'Pragnya Mitra',
                       style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.w900,
@@ -311,7 +311,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      'विद्यालय प्रबंधन एवं छात्र उपस्थिति पोर्टल',
+                      'School Management System',
                       style: TextStyle(
                         fontSize: 13,
                         color: Color(0xFF94A3B8),

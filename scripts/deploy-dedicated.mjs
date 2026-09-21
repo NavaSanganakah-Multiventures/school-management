@@ -1,5 +1,5 @@
 /**
- * VidyaSetu — deploy dedicated (Enterprise) schools as direct Cloudflare Workers.
+ * Pragnya Mitra — deploy dedicated (Enterprise) schools as direct Cloudflare Workers.
  *
  * For each dedicated school this script:
  *   1. writes a per-school secrets file (JSON),

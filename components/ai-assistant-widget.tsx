@@ -155,7 +155,7 @@ export function AIAssistantWidget() {
                  <Bot className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-sm tracking-wide">VidyaSetu AI</h3>
+                <h3 className="font-bold text-sm tracking-wide">Pragnya Mitra AI</h3>
                 <p className="text-[10px] text-indigo-200 font-medium tracking-wider uppercase">
                   {hasCustomKey ? 'Custom Key Active' : `${aiCredits} Credits left`}
                 </p>

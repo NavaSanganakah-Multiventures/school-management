@@ -440,7 +440,7 @@ attendanceApp.post('/notify-absentees', async (c) => {
 
   const senderName = await resolveMarkedBy(db, authUser);
   const alertBody = customMessage || `सादर नमस्कार, आपका पाल्य आज (${targetDate}) विद्यालय में अनुपस्थित है। कृपया अनुपस्थिति का कारण विद्यालय को सूचित करें।`;
-  const alertTitle = '⚠️ अनुपस्थिति सूचना | VidyaSetu';
+  const alertTitle = '⚠️ अनुपस्थिति सूचना | Pragnya Mitra';
 
   // Send TARGETED push notifications to ONLY the absent students' parents (not all parents).
   // Resolve each absent student's parent_phone to a system_users account, then fetch FCM device

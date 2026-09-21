@@ -128,7 +128,7 @@ export function RequestFeatureModal({ isOpen, onClose, onSuccess }: RequestFeatu
 
             <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-100 flex items-start gap-2 text-[11px] text-blue-900 leading-relaxed">
               <Sparkles className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
-              <span>विद्या सेतु टीम आपकी आवश्यकता के आधार पर नया प्लगइन या कस्टम सर्विस तैयार करके आपके स्कूल को आवंटित कर सकती है।</span>
+              <span>Pragnya Mitra टीम आपकी आवश्यकता के आधार पर नया प्लगइन या कस्टम सर्विस तैयार करके आपके स्कूल को आवंटित कर सकती है।</span>
             </div>
 
             <div className="pt-2 flex items-center justify-end gap-2">

@@ -5,8 +5,8 @@ class AppConfig {
   static const String defaultApiBaseUrl = 'https://pragnya.nasven.com';
   static const String platformBaseDomain = 'pragnya.nasven.com';
   
-  static const String appName = 'विद्या सेतु (VidyaSetu)';
-  static const String appTagline = 'विद्यालय प्रबंधन एवं छात्र उपस्थिति पोर्टल';
+  static const String appName = 'Pragnya Mitra';
+  static const String appTagline = 'School Management System';
   static const String appVersion = '1.2.0';
 
   static const _storage = FlutterSecureStorage();

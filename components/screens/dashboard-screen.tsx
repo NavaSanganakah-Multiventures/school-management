@@ -184,7 +184,7 @@ export function DashboardScreen({
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
-              {schoolProfile?.schoolName || 'विद्या सेतु सीनियर सेकेंडरी स्कूल'}
+              {schoolProfile?.schoolName || 'Pragnya Mitra सीनियर सेकेंडरी स्कूल'}
             </h1>
             <p className="text-xs text-slate-300 mt-1">
               नमस्ते, <strong className="text-white font-semibold">{currentUser?.fullName}</strong> ({currentUser?.designation}) • प्रशासनिक पोर्टल

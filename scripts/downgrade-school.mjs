@@ -1,5 +1,5 @@
 /**
- * VidyaSetu Multi-Tenant Architecture — Downgrade Script (Enterprise -> Shared)
+ * Pragnya Mitra Multi-Tenant Architecture — Downgrade Script (Enterprise -> Shared)
  * 
  * Migrates a school's operational data from its dedicated D1 database back
  * to the shared platform D1 database while guaranteeing school_id tenant scoping,

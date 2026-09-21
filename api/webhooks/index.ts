@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { getDB, loadSubscriptionPlanById } from '../db';
-import { verifyRazorpayWebhookSignature } from '../lib/razorpay';
+import { verifyRazorpayWebhookSignature, getRazorpayWebhookSecret } from '../lib/razorpay';
 import { activateSubscriptionFromPayment } from '../lib/billing-activation';
+import { activateFeePaymentFromRazorpay } from '../lib/fee-payment';
 import { getAuthUser } from '../lib/auth';
 
 export const webhooksApp = new Hono<{ Bindings: any }>();
@@ -15,7 +16,7 @@ webhooksApp.post('/razorpay', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
 
-  const webhookSecret = (c.env && c.env.RAZORPAY_WEBHOOK_SECRET) || '';
+  const webhookSecret = await getRazorpayWebhookSecret(c.env);
   if (!webhookSecret) {
     console.error('[webhook/razorpay] RAZORPAY_WEBHOOK_SECRET कॉन्फ़िगर नहीं है।');
     return c.json({ success: false, message: 'वेबहुक सीक्रेट कॉन्फ़िगर नहीं है।' }, 500);
@@ -75,6 +76,7 @@ webhooksApp.post('/razorpay', async (c) => {
   let billingCycle = String(notes.billing_cycle || '');
   let paymentType = String(notes.type || 'subscription');
   let pluginId = String(notes.plugin_id || '');
+  let feeInvoiceId = String(notes.invoice_id || '');
   let razorpay_order_id = inner.order_id || (orderEntity && orderEntity.id) || '';
   let razorpay_payment_id = inner.id || (paymentEntity && paymentEntity.id) || '';
   let razorpay_payment_link_id = inner.payment_link_id || notes.payment_link_id || '';
@@ -142,6 +144,28 @@ webhooksApp.post('/razorpay', async (c) => {
       } catch (e: any) {
         return c.json({ success: false, message: 'प्लगइन एक्टिवेशन विफल: ' + (e?.message || ''), schoolId, pluginId }, 500);
       }
+    }
+
+    // Student fee payment — mark the fee invoice paid.
+    if (paymentType === 'student_fee') {
+      const feeResult = await activateFeePaymentFromRazorpay({
+        db,
+        env: c.env,
+        schoolId,
+        invoiceId: feeInvoiceId,
+        razorpay_order_id,
+        razorpay_payment_id,
+        razorpay_payment_link_id,
+        paidAmountINR,
+        webhookReceivedAt: nowIso,
+      });
+      try {
+        await db.prepare('UPDATE razorpay_webhook_events SET processed=1, processed_at=? WHERE id=?').bind(nowIso, logId).run();
+      } catch (_) {}
+      if (feeResult.success) {
+        return c.json({ success: true, message: feeResult.alreadyPaid ? 'duplicate (already paid)' : feeResult.message, schoolId, invoiceId: feeInvoiceId });
+      }
+      return c.json({ success: false, message: feeResult.error || 'फीस भुगतान दर्ज करने में विफल।', schoolId }, 500);
     }
 
     // Subscription payment — activate the school subscription.

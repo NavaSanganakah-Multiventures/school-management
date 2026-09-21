@@ -130,7 +130,7 @@ export async function resolveTenantFromDB(db: any, host: HostDetails, env?: any)
 
     return {
       schoolId: row.id,
-      schoolName: row.profile_name || row.school_name || 'विद्या सेतु स्कूल',
+      schoolName: row.profile_name || row.school_name || 'Pragnya Mitra स्कूल',
       subdomain: matchedSub,
       customDomain: row.custom_domain || undefined,
       dedicatedDomain: row.dedicated_domain || undefined,
@@ -167,7 +167,7 @@ export async function resolveTenant(c: any): Promise<ResolvedTenant> {
     const slug = env.SCHOOL_SLUG || '';
     return {
       schoolId: env.SCHOOL_ID,
-      schoolName: env.SCHOOL_NAME || 'विद्या सेतु स्कूल',
+      schoolName: env.SCHOOL_NAME || 'Pragnya Mitra स्कूल',
       subdomain: slug,
       dedicatedSlug: slug,
       dedicatedDomain: env.DEDICATED_DOMAIN || (slug ? `${slug}.${baseDomain}` : undefined),
@@ -199,7 +199,7 @@ export async function resolveTenant(c: any): Promise<ResolvedTenant> {
   // Absolute fallback
   return {
     schoolId: (env && env.DEFAULT_SCHOOL_ID) || 'school-01',
-    schoolName: (env && env.DEFAULT_SCHOOL_NAME) || 'विद्या सेतु स्कूल (VidyaSetu)',
+    schoolName: (env && env.DEFAULT_SCHOOL_NAME) || 'Pragnya Mitra School',
     subdomain: '',
     status: 'Active',
     isDedicated: false,

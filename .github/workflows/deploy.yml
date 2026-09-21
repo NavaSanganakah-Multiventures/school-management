@@ -1,4 +1,4 @@
-name: Deploy VidyaSetu (Next.js + Cloudflare Worker)
+name: Deploy Pragnya Mitra (Next.js + Cloudflare Worker)
 
 on:
   push:

@@ -88,8 +88,8 @@ function roleColor(role: UserRole) {
 function readStoredUser(): CurrentUser | null {
   if (typeof window === 'undefined') return null;
   try {
-    const saved = localStorage.getItem('vidyasetu_user');
-    const token = localStorage.getItem('vidyasetu_token');
+    const saved = localStorage.getItem('pragnya_mitra_user');
+    const token = localStorage.getItem('pragnya_mitra_token');
     if (!token) return null;
 
     // Validate JWT expiration timestamp on load
@@ -105,8 +105,8 @@ function readStoredUser(): CurrentUser | null {
         );
         const payload = JSON.parse(jsonPayload);
         if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-          localStorage.removeItem('vidyasetu_user');
-          localStorage.removeItem('vidyasetu_token');
+          localStorage.removeItem('pragnya_mitra_user');
+          localStorage.removeItem('pragnya_mitra_token');
           return null;
         }
       }
@@ -195,7 +195,7 @@ export function SchoolCrmShell() {
   }, [currentUser]);
 
   const [schoolProfile, setSchoolProfile] = useState<any>({
-    schoolName: 'विद्या सेतु स्कूल प्रबंधन',
+    schoolName: 'Pragnya Mitra स्कूल प्रबंधन',
     affiliationNumber: '',
     boardName: '',
     academicSession: '2026-2027',
@@ -208,10 +208,10 @@ export function SchoolCrmShell() {
     const originalFetch = (window as any).fetch;
     (window as any).fetch = function (input: any, init: any) {
       const headers = new Headers(init && init.headers ? init.headers : {});
-      const token = localStorage.getItem('vidyasetu_token');
+      const token = localStorage.getItem('pragnya_mitra_token');
       if (token) headers.set('Authorization', 'Bearer ' + token);
       try {
-        const user = JSON.parse(localStorage.getItem('vidyasetu_user') || 'null');
+        const user = JSON.parse(localStorage.getItem('pragnya_mitra_user') || 'null');
         if (user && user.schoolId) headers.set('X-School-Id', user.schoolId);
       } catch (e) {}
       const newInit = Object.assign({}, init, { headers });
@@ -219,7 +219,7 @@ export function SchoolCrmShell() {
         if (res.status === 401) {
           const url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
           if (!url.includes('/api/auth/login') && !url.includes('/api/auth/register') && !url.includes('/api/auth/reset')) {
-            window.dispatchEvent(new CustomEvent('vidyasetu-auth-expired', {
+            window.dispatchEvent(new CustomEvent('pragnya-mitra-auth-expired', {
               detail: { message: 'आपका लॉगिन सत्र समाप्त हो गया है। कृपया पुनः लॉगिन करें।' }
             }));
           }
@@ -233,11 +233,11 @@ export function SchoolCrmShell() {
       handleLogout(msg);
     };
 
-    window.addEventListener('vidyasetu-auth-expired', handleSessionExpired);
+    window.addEventListener('pragnya-mitra-auth-expired', handleSessionExpired);
 
     return () => {
       (window as any).fetch = originalFetch;
-      window.removeEventListener('vidyasetu-auth-expired', handleSessionExpired);
+      window.removeEventListener('pragnya-mitra-auth-expired', handleSessionExpired);
     };
   }, []);
 
@@ -334,7 +334,7 @@ export function SchoolCrmShell() {
             body: body,
             icon: '/icon.svg',
             badge: '/icon.svg',
-            tag: 'vidyasetu-' + Date.now(),
+            tag: 'pragnya-mitra-' + Date.now(),
           });
         }
       } catch (_) {}
@@ -376,8 +376,8 @@ export function SchoolCrmShell() {
   const handleLogout = async (reason?: string | React.MouseEvent) => {
     lastRegisteredUserIdRef.current = null;
     try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) {}
-    localStorage.removeItem('vidyasetu_user');
-    localStorage.removeItem('vidyasetu_token');
+    localStorage.removeItem('pragnya_mitra_user');
+    localStorage.removeItem('pragnya_mitra_token');
     setCurrentUser(null);
     setActivePlugins([]);
     setAuthScreen('login');
@@ -398,8 +398,8 @@ export function SchoolCrmShell() {
       phone: user.phone,
       schoolId: user.schoolId,
     };
-    localStorage.setItem('vidyasetu_user', JSON.stringify(normalized));
-    localStorage.setItem('vidyasetu_token', token);
+    localStorage.setItem('pragnya_mitra_user', JSON.stringify(normalized));
+    localStorage.setItem('pragnya_mitra_token', token);
     setCurrentUser(normalized);
     setActiveTab(normalized.role === 'SuperAdmin' ? 'admin' : 'dashboard');
   };
@@ -412,7 +412,7 @@ export function SchoolCrmShell() {
           <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
             <School className="h-5 w-5 text-white animate-pulse" />
           </div>
-          <span className="text-lg font-bold tracking-tight">विद्या सेतु स्कूल प्रबंधन</span>
+          <span className="text-lg font-bold tracking-tight">Pragnya Mitra स्कूल प्रबंधन</span>
         </div>
         <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
           <span className="h-2 w-2 rounded-full bg-blue-500 animate-ping" />
@@ -493,7 +493,7 @@ export function SchoolCrmShell() {
               <School className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-base font-black tracking-tight text-slate-900 line-clamp-1">{schoolProfile.schoolName || 'विद्या सेतु स्कूल प्रबंधन'}</h1>
+              <h1 className="text-base font-black tracking-tight text-slate-900 line-clamp-1">{schoolProfile.schoolName || 'Pragnya Mitra स्कूल प्रबंधन'}</h1>
               <p className="text-[11px] text-slate-500 hidden sm:block">सत्र: {schoolProfile.academicSession || '2026-2027'} • भूमिका: {roleEmoji(userRole)}</p>
             </div>
           </div>
@@ -601,7 +601,7 @@ export function SchoolCrmShell() {
           </div>
 
           <div className="p-4 border-t border-slate-100 text-slate-500 text-[11px] space-y-1 bg-slate-50/50">
-            <p className="font-bold text-slate-700">विद्या सेतु स्कूल प्रबंधन</p>
+            <p className="font-bold text-slate-700">Pragnya Mitra स्कूल प्रबंधन</p>
             <p className="text-[10px] text-slate-500">सुरक्षित एवं अधिकृत पोर्टल</p>
           </div>
         </aside>

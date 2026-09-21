@@ -1,9 +1,9 @@
--- VidyaSetu School Management â D1 schema (reference)
+-- Pragnya Mitra School Management â D1 schema (reference)
 -- This file mirrors db_migrations/0001..0013 (all migrations, in order).
 -- Apply changes via wrangler migrations; use this file only as a human-readable
 -- reference of the migration sequence and final schema.
 -- Migration: 0001_initial_schema.sql
--- Description: Initial schema setup for Cloudflare D1 database (VidyaSetu School Management)
+-- Description: Initial schema setup for Cloudflare D1 database (Pragnya Mitra School Management)
 
 CREATE TABLE IF NOT EXISTS classes (
     id TEXT PRIMARY KEY,
@@ -196,8 +196,8 @@ CREATE TABLE IF NOT EXISTS principal_history (
 CREATE TABLE IF NOT EXISTS school_tenants (
     id TEXT PRIMARY KEY,
     school_name TEXT NOT NULL,
-    subdomain TEXT UNIQUE NOT NULL,       -- e.g. 'vidyasetu', 'delhi-public'
-    custom_domain TEXT,                   -- e.g. 'vidyasetuschool.edu.in'
+    subdomain TEXT UNIQUE NOT NULL,       -- e.g. 'pragnya-mitra', 'delhi-public'
+    custom_domain TEXT,                   -- e.g. 'pragnyamitra.edu.in'
     contact_email TEXT NOT NULL,
     contact_phone TEXT NOT NULL,
     status TEXT DEFAULT 'Active' CHECK(status IN ('Active', 'Suspended', 'Trial')),
@@ -248,7 +248,7 @@ CREATE TABLE IF NOT EXISTS subscription_addons (
 CREATE TABLE IF NOT EXISTS school_custom_domains (
     id TEXT PRIMARY KEY,
     school_id TEXT NOT NULL,
-    domain_name TEXT NOT NULL,           -- e.g. 'vidyasetuschool.edu.in'
+    domain_name TEXT NOT NULL,           -- e.g. 'pragnyamitra.edu.in'
     spf_record_status TEXT DEFAULT 'Verified' CHECK(spf_record_status IN ('Verified', 'Pending', 'Failed')),
     dkim_record_status TEXT DEFAULT 'Verified' CHECK(dkim_record_status IN ('Verified', 'Pending', 'Failed')),
     mx_record_status TEXT DEFAULT 'Verified' CHECK(mx_record_status IN ('Verified', 'Pending', 'Failed')),

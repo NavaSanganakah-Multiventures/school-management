@@ -37,6 +37,8 @@ export function isAuthorizedPlatformEmail(email: string, env: any): boolean {
     normalized.endsWith('@nasven.com') ||
     normalized.endsWith('@vidyasetu.com') ||
     normalized.endsWith('@vidyasetu.app') ||
+    normalized.endsWith('@pragnyamitra.app') ||
+    normalized.endsWith('@pragnyamitra.com') ||
     normalized.endsWith('@navasanganakah.com')
   );
 }
@@ -1324,7 +1326,7 @@ adminApp.post('/plugins/send-payment-link', async (c) => {
   if (school.contact_email) {
     const emailRes = await sendNotificationEmail(c.env, {
       to: school.contact_email,
-      subject: `💳 विद्या सेतु — "${plugin.name}" प्लगइन पेमेंट लिंक`,
+      subject: `💳 Pragnya Mitra — "${plugin.name}" प्लगइन पेमेंट लिंक`,
       title: `पेमेंट लिंक: ${plugin.name}`,
       badge: `${plugin.name} • ${billingCycle} • ₹${total}`,
       message: `नमस्ते,\n\nआपके विद्यालय "${school.school_name}" के लिए "${plugin.name}" प्लगइन का पेमेंट लिंक तैयार है।\n\nराशि: ₹${annualPrice} + 18% GST = ₹${total}\n\nकृपया नीचे दिए बटन पर क्लिक करके भुगतान पूरा करें। भुगतान होते ही प्लगइन स्वचालित सक्रिय हो जाएगा।`,
@@ -1545,7 +1547,7 @@ adminApp.post('/schools/send-payment-link', async (c) => {
   if (school.contact_email) {
     const emailRes = await sendNotificationEmail(c.env, {
       to: school.contact_email,
-      subject: `💳 विद्या सेतु — "${school.school_name}" के लिए ${plan.name} सदस्यता पेमेंट लिंक`,
+      subject: `💳 Pragnya Mitra — "${school.school_name}" के लिए ${plan.name} सदस्यता पेमेंट लिंक`,
       title: `पेमेंट लिंक: ${plan.name} प्लान`,
       badge: `${plan.name} • ${billingCycle} • ₹${total}`,
       message: `नमस्ते,\n\nआपके विद्यालय "${school.school_name}" के लिए ${plan.name} प्लान की सदस्यता (${billingCycle}) का पेमेंट लिंक तैयार है।\n\nराशि: ₹${basePrice} + 18% GST = ₹${total}\n\nकृपया नीचे दिए बटन पर क्लिक करके सुरक्षित Razorpay पेज पर भुगतान पूरा करें। भुगतान होते ही आपका प्लान स्वचालित सक्रिय हो जाएगा।`,
@@ -1796,7 +1798,7 @@ adminApp.post('/razorpay/plans/create', async (c) => {
     interval,
     amountINR: baseAmount,
     name: plan.name + ' (' + billingCycle + ')',
-    description: plan.name + ' सदस्यता — विद्या सेतु',
+    description: plan.name + ' सदस्यता — Pragnya Mitra',
     notes: { platform_plan_id: planId, billing_cycle: billingCycle },
   });
   if (result.error) return c.json({ success: false, message: result.error }, 400);
@@ -1843,7 +1845,7 @@ adminApp.post('/razorpay/plans/sync-all', async (c) => {
         interval: cyc.interval,
         amountINR: cyc.amount,
         name: plan.name + ' (' + cyc.cycle + ')',
-        description: plan.name + ' सदस्यता — विद्या सेतु',
+        description: plan.name + ' सदस्यता — Pragnya Mitra',
         notes: { platform_plan_id: plan.id, billing_cycle: cyc.cycle },
       });
       if (result.error) { results.push({ planId: plan.id, cycle: cyc.cycle, status: 'error', error: result.error }); continue; }

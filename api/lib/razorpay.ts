@@ -26,11 +26,38 @@ function hexFromBytes(bytes: any) {
   return Array.from(bytes).map(function (b: any) { return b.toString(16).padStart(2, '0'); }).join('');
 }
 
+// Razorpay keys resolve from env secrets first, then fall back to CONFIG_KV
+// (so keys can be stored in KV instead of plaintext worker secrets).
+
+export async function getRazorpayKeyId(env: any): Promise<string> {
+  if (env && env.RAZORPAY_KEY_ID) return String(env.RAZORPAY_KEY_ID).trim();
+  if (env && env.CONFIG_KV) {
+    try { return String((await env.CONFIG_KV.get('RAZORPAY_KEY_ID')) || '').trim(); } catch (_) {}
+  }
+  return '';
+}
+
+export async function getRazorpayKeySecret(env: any): Promise<string> {
+  if (env && env.RAZORPAY_KEY_SECRET) return String(env.RAZORPAY_KEY_SECRET).trim();
+  if (env && env.CONFIG_KV) {
+    try { return String((await env.CONFIG_KV.get('RAZORPAY_KEY_SECRET')) || '').trim(); } catch (_) {}
+  }
+  return '';
+}
+
+export async function getRazorpayWebhookSecret(env: any): Promise<string> {
+  if (env && env.RAZORPAY_WEBHOOK_SECRET) return String(env.RAZORPAY_WEBHOOK_SECRET).trim();
+  if (env && env.CONFIG_KV) {
+    try { return String((await env.CONFIG_KV.get('RAZORPAY_WEBHOOK_SECRET')) || '').trim(); } catch (_) {}
+  }
+  return '';
+}
+
 export async function createRazorpayOrder(c: any, amountINR: any, receipt: any) {
-  const keyId = (c.env && c.env.RAZORPAY_KEY_ID) || '';
-  const keySecret = (c.env && c.env.RAZORPAY_KEY_SECRET) || '';
+  const keyId = await getRazorpayKeyId(c.env);
+  const keySecret = await getRazorpayKeySecret(c.env);
   if (!keyId || !keySecret) {
-    return { error: 'Razorpay कुंजियाँ कॉन्फ़िगर नहीं हैं। GitHub Secrets में RAZORPAY_KEY_ID और RAZORPAY_KEY_SECRET सेट करें।' };
+    return { error: 'Razorpay कुंजियाँ कॉन्फ़िगर नहीं हैं। RAZORPAY_KEY_ID और RAZORPAY_KEY_SECRET (env या CONFIG_KV में) सेट करें।' };
   }
   const amountPaise = Math.round(amountINR * 100);
   try {
@@ -40,7 +67,7 @@ export async function createRazorpayOrder(c: any, amountINR: any, receipt: any) 
         'Content-Type': 'application/json',
         Authorization: 'Basic ' + btoa(keyId + ':' + keySecret),
       },
-      body: JSON.stringify({ amount: amountPaise, currency: 'INR', receipt: receipt, notes: { source: 'vidyasetu' } }),
+      body: JSON.stringify({ amount: amountPaise, currency: 'INR', receipt: receipt, notes: { source: 'pragnya-mitra' } }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -56,15 +83,15 @@ export async function createRazorpayOrder(c: any, amountINR: any, receipt: any) 
 // Razorpay Subscriptions API (recurring billing + mandates)
 // ==========================================
 
-function getRazorpayAuth(env: any): { keyId: string; keySecret: string; authHeader: string } | null {
-  const keyId = (env && env.RAZORPAY_KEY_ID) || '';
-  const keySecret = (env && env.RAZORPAY_KEY_SECRET) || '';
+async function getRazorpayAuth(env: any): Promise<{ keyId: string; keySecret: string; authHeader: string } | null> {
+  const keyId = await getRazorpayKeyId(env);
+  const keySecret = await getRazorpayKeySecret(env);
   if (!keyId || !keySecret) return null;
   return { keyId, keySecret, authHeader: 'Basic ' + btoa(keyId + ':' + keySecret) };
 }
 
 async function razorpayFetch(env: any, path: string): Promise<any> {
-  const auth = getRazorpayAuth(env);
+  const auth = await getRazorpayAuth(env);
   if (!auth) return { error: 'Razorpay कुंजियाँ कॉन्फ़िगर नहीं हैं।' };
   try {
     const res = await fetch('https://api.razorpay.com/v1/' + path, {
@@ -79,7 +106,7 @@ async function razorpayFetch(env: any, path: string): Promise<any> {
 }
 
 async function razorpayPost(env: any, path: string, body: any): Promise<any> {
-  const auth = getRazorpayAuth(env);
+  const auth = await getRazorpayAuth(env);
   if (!auth) return { error: 'Razorpay कुंजियाँ कॉन्फ़िगर नहीं हैं।' };
   try {
     const res = await fetch('https://api.razorpay.com/v1/' + path, {
@@ -114,7 +141,7 @@ export async function createRazorpayPlan(env: any, input: {
       currency: 'INR',
       description: input.description || input.name,
     },
-    notes: Object.assign({ source: 'vidyasetu' }, input.notes || {}),
+    notes: Object.assign({ source: 'pragnya-mitra' }, input.notes || {}),
   });
   if (data.error) return { error: data.error };
   return { id: data.id, itemId: (data.item && data.item.id) || data.item_id || '', period: input.period, amount: amountPaise };
@@ -139,7 +166,7 @@ export async function createRazorpaySubscription(env: any, input: {
     total_count: input.totalCycles,
     quantity: input.quantity || 1,
     customer_notify: 1,
-    notes: Object.assign({ source: 'vidyasetu' }, input.notes || {}),
+    notes: Object.assign({ source: 'pragnya-mitra' }, input.notes || {}),
   };
   if (input.customerId) {
     body.customer_id = input.customerId;
@@ -157,7 +184,7 @@ export async function fetchRazorpaySubscription(env: any, subscriptionId: string
 
 // Cancel a subscription
 export async function cancelRazorpaySubscription(env: any, subscriptionId: string, cancelAtCycle: boolean = false): Promise<any> {
-  const auth = getRazorpayAuth(env);
+  const auth = await getRazorpayAuth(env);
   if (!auth) return { error: 'Razorpay कुंजियाँ कॉन्फ़िगर नहीं हैं।' };
   try {
     const res = await fetch('https://api.razorpay.com/v1/subscriptions/' + subscriptionId + '/cancel', {
@@ -190,7 +217,7 @@ export async function fetchRazorpayMandate(env: any, mandateId: string): Promise
 
 // Revoke a mandate (stops auto-debit permanently)
 export async function revokeRazorpayMandate(env: any, mandateId: string): Promise<any> {
-  const auth = getRazorpayAuth(env);
+  const auth = await getRazorpayAuth(env);
   if (!auth) return { error: 'Razorpay कुंजियाँ कॉन्फ़िगर नहीं हैं।' };
   try {
     const res = await fetch('https://api.razorpay.com/v1/mandates/' + mandateId + '/revoke', {
@@ -217,7 +244,7 @@ export async function createRazorpayCustomer(env: any, input: {
   const custBody: any = {
     name: input.name,
     email: input.email || '',
-    notes: Object.assign({ source: 'vidyasetu' }, input.notes || {}),
+    notes: Object.assign({ source: 'pragnya-mitra' }, input.notes || {}),
   };
   if (sanitizedContact) custBody.contact = sanitizedContact;
   const data = await razorpayPost(env, 'customers', custBody);
@@ -273,10 +300,10 @@ export interface RazorpayPaymentLinkInput {
 // Create a Razorpay Payment Link (short_url) that can be sent to a school via email/FCM.
 // The school clicks the link and pays — no login or in-app checkout required.
 export async function createRazorpayPaymentLink(c: any, input: RazorpayPaymentLinkInput): Promise<{ error?: string; id?: string; shortUrl?: string; status?: string; referenceId?: string }> {
-  const keyId = (c.env && c.env.RAZORPAY_KEY_ID) || (c && c.RAZORPAY_KEY_ID) || '';
-  const keySecret = (c.env && c.env.RAZORPAY_KEY_SECRET) || (c && c.RAZORPAY_KEY_SECRET) || '';
+  const keyId = await getRazorpayKeyId(c.env || c);
+  const keySecret = await getRazorpayKeySecret(c.env || c);
   if (!keyId || !keySecret) {
-    return { error: 'Razorpay कुंजियाँ कॉन्फ़िगर नहीं हैं। RAZORPAY_KEY_ID और RAZORPAY_KEY_SECRET सेट करें।' };
+    return { error: 'Razorpay कुंजियाँ कॉन्फ़िगर नहीं हैं। RAZORPAY_KEY_ID और RAZORPAY_KEY_SECRET (env या CONFIG_KV में) सेट करें।' };
   }
   if (!input.amountINR || input.amountINR <= 0) {
     return { error: 'पेमेंट लिंक के लिए राशि अमान्य है।' };
@@ -289,7 +316,7 @@ export async function createRazorpayPaymentLink(c: any, input: RazorpayPaymentLi
     reference_id: input.referenceId,
     description: input.description,
     reminder_enable: true,
-    notes: Object.assign({ source: 'vidyasetu' }, input.notes || {}),
+    notes: Object.assign({ source: 'pragnya-mitra' }, input.notes || {}),
   };
   const sanitizedContact = sanitizeRazorpayContact(input.customerContact);
   if (input.customerName || input.customerEmail || sanitizedContact) {

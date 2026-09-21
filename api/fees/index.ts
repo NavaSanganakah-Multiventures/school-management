@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
+import { createRazorpayOrder, createRazorpayPaymentLink, verifyRazorpaySignature, getRazorpayKeyId, getRazorpayKeySecret } from '../lib/razorpay';
+import { activateFeePaymentFromRazorpay } from '../lib/fee-payment';
 
 const feesApp = new Hono<{ Bindings: any }>();
 
@@ -281,6 +283,144 @@ feesApp.post('/structure', async (c) => {
   ).run();
 
   return c.json({ success: true, message: 'कक्षा के लिए फीस स्ट्रक्चर सफलतापूर्वक सेट किया गया।' });
+});
+
+// POST /api/fees/create-order - real Razorpay order for online fee payment
+feesApp.post('/create-order', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  const schoolId = getRequestSchoolId(c, authUser);
+  const body = await c.req.json().catch(() => ({}));
+  const invoiceId = body.invoiceId;
+
+  const row = await db.prepare('SELECT * FROM fee_invoices WHERE school_id = ? AND id = ?').bind(schoolId, invoiceId).first();
+  if (!row) return c.json({ success: false, message: 'चालान नहीं मिला।' }, 404);
+  if (row.status === 'Paid') return c.json({ success: false, message: 'यह चालान पहले ही भुगतान हो चुका है।' }, 400);
+
+  const remaining = Number(row.total_amount) - Number(row.paid_amount);
+  let payAmt: number;
+  if (body.amount === undefined || body.amount === null || body.amount === '') {
+    payAmt = remaining;
+  } else {
+    payAmt = Number(body.amount);
+  }
+  if (!Number.isFinite(payAmt) || payAmt <= 0) {
+    return c.json({ success: false, message: 'भुगतान राशि धनात्मक संख्या होनी चाहिए।' }, 400);
+  }
+  if (payAmt > remaining + 1e-9) {
+    return c.json({ success: false, message: 'भुगतान राशि शेष राशि से अधिक नहीं हो सकती (शेष: ₹' + remaining.toLocaleString('en-IN') + ')।' }, 400);
+  }
+
+  const receipt = 'VS-FEE-' + String(row.invoice_number).replace(/[^a-zA-Z0-9]/g, '') + '-' + Date.now();
+  const order = await createRazorpayOrder(c, payAmt, receipt);
+  if (order.error) return c.json({ success: false, message: order.error }, 400);
+
+  await db.prepare('UPDATE fee_invoices SET razorpay_order_id = ? WHERE id = ? AND school_id = ?')
+    .bind(order.id, invoiceId, schoolId).run();
+
+  return c.json({
+    success: true,
+    message: 'Razorpay ऑर्डर बन गया। पेमेंट पूरा करें।',
+    order: { id: order.id, amount: payAmt, currency: 'INR', keyId: await getRazorpayKeyId(c.env) },
+    invoiceId,
+  });
+});
+
+// POST /api/fees/verify - verify Razorpay signature and mark the invoice paid
+feesApp.post('/verify', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  const body = await c.req.json().catch(() => ({}));
+  const razorpay_order_id = body.razorpay_order_id;
+  const razorpay_payment_id = body.razorpay_payment_id;
+  const razorpay_signature = body.razorpay_signature;
+
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    return c.json({ success: false, message: 'पेमेंट विवरण अधूरा है।' }, 400);
+  }
+
+  const secret = await getRazorpayKeySecret(c.env);
+  const ok = await verifyRazorpaySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature, secret);
+  if (!ok) return c.json({ success: false, message: 'पेमेंट सिग्नेचर वेरिफिकेशन विफल।' }, 400);
+
+  const schoolId = getRequestSchoolId(c, authUser);
+  const result = await activateFeePaymentFromRazorpay({
+    db,
+    env: c.env,
+    schoolId,
+    razorpay_order_id,
+    razorpay_payment_id,
+  });
+
+  if (!result.success) {
+    return c.json({ success: false, message: result.error || 'भुगतान दर्ज करने में त्रुटि।' }, 500);
+  }
+  if (result.alreadyPaid) {
+    return c.json({ success: true, message: result.message });
+  }
+  return c.json({
+    success: true,
+    message: result.message,
+    invoice: result.invoice,
+  });
+});
+
+// POST /api/fees/payment-link - create a Razorpay payment link for a parent
+feesApp.post('/payment-link', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  const schoolId = getRequestSchoolId(c, authUser);
+  const body = await c.req.json().catch(() => ({}));
+  const invoiceId = body.invoiceId;
+
+  const row = await db.prepare('SELECT * FROM fee_invoices WHERE school_id = ? AND id = ?').bind(schoolId, invoiceId).first();
+  if (!row) return c.json({ success: false, message: 'चालान नहीं मिला।' }, 404);
+  if (row.status === 'Paid') return c.json({ success: false, message: 'यह चालान पहले ही भुगतान हो चुका है।' }, 400);
+
+  const remaining = Number(row.total_amount) - Number(row.paid_amount);
+  let payAmt: number;
+  if (body.amount === undefined || body.amount === null || body.amount === '') {
+    payAmt = remaining;
+  } else {
+    payAmt = Number(body.amount);
+  }
+  if (!Number.isFinite(payAmt) || payAmt <= 0) {
+    return c.json({ success: false, message: 'भुगतान राशि धनात्मक संख्या होनी चाहिए।' }, 400);
+  }
+  if (payAmt > remaining + 1e-9) {
+    return c.json({ success: false, message: 'भुगतान राशि शेष राशि से अधिक नहीं हो सकती (शेष: ₹' + remaining.toLocaleString('en-IN') + ')।' }, 400);
+  }
+
+  const referenceId = 'VSFEE' + Date.now().toString(36) + crypto.randomUUID().split('-').join('').slice(0, 6);
+  const link = await createRazorpayPaymentLink(c, {
+    amountINR: payAmt,
+    description: row.title + ' — ' + row.student_name + ' (' + row.invoice_number + ')',
+    referenceId,
+    customerName: row.student_name,
+    customerEmail: body.studentEmail || '',
+    customerContact: body.studentPhone || '',
+    notes: { school_id: schoolId, invoice_id: invoiceId, type: 'student_fee' },
+  });
+  if (link.error || !link.shortUrl) {
+    return c.json({ success: false, message: link.error || 'पेमेंट लिंक बनाने में त्रुटि।' }, 400);
+  }
+
+  await db.prepare('UPDATE fee_invoices SET razorpay_payment_link_id = ?, razorpay_payment_link_url = ? WHERE id = ? AND school_id = ?')
+    .bind(link.id || '', link.shortUrl, invoiceId, schoolId).run();
+
+  return c.json({
+    success: true,
+    message: 'पेमेंट लिंक बन गया।',
+    shortUrl: link.shortUrl,
+    linkId: link.id || '',
+    invoiceId,
+  });
 });
 
 export default feesApp;

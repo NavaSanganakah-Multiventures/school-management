@@ -82,7 +82,7 @@ class _SuperAdminLoginScreenState extends State<SuperAdminLoginScreen> {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'विद्या सेतु सुपर एडमिन',
+                  'Pragnya Mitra Super Admin',
                   style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 6),
