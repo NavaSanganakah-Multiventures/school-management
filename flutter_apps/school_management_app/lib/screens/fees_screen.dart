@@ -21,7 +21,7 @@ class _FeesScreenState extends State<FeesScreen> {
   List<FeeInvoiceModel> _invoices = [];
   String? _statusFilter;
 
-  bool get _isAdmin => widget.user.role == UserRole.director || widget.user.role == UserRole.principal;
+  bool get _isAdmin => widget.user.isAdminRole;
 
   @override
   void initState() {

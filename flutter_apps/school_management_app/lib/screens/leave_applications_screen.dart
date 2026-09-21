@@ -18,7 +18,7 @@ class _LeaveApplicationsScreenState extends State<LeaveApplicationsScreen> {
   bool _loading = true;
   String? _error;
   List<LeaveApplicationModel> _apps = [];
-  bool get _isAdmin => widget.user.role == UserRole.director || widget.user.role == UserRole.principal || widget.user.role == UserRole.staff;
+  bool get _isAdmin => widget.user.canManageAcademics;
 
   @override
   void initState() {

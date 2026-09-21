@@ -21,7 +21,7 @@ class _SchoolProfileScreenState extends State<SchoolProfileScreen> {
   String? _error;
   SchoolProfileModel? _profile;
   final _ctrl = <String, TextEditingController>{};
-  bool get _isAdmin => widget.user.role == UserRole.director;
+  bool get _isAdmin => widget.user.canEditSchoolProfile;
 
   @override
   void initState() {
