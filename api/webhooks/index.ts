@@ -264,7 +264,7 @@ webhooksApp.post('/razorpay', async (c) => {
 
         // Create an invoice for this cycle
         const invoiceId = 'binv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
-        const invoiceNumber = 'VS-INV-REC-' + Date.now();
+        const invoiceNumber = 'PM-INV-REC-' + Date.now();
         const amountINR = (rawSubscription.amount || 0) / 100;
         const gst = +(amountINR * 0.18).toFixed(2);
         const total = +(amountINR + gst).toFixed(2);

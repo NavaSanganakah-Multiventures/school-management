@@ -96,7 +96,7 @@ export async function activateSubscriptionFromPayment(input: ActivateFromPayment
     subtotal = price;
     const gst = +(price * 0.18).toFixed(2);
     const total = +(price + gst).toFixed(2);
-    const invoiceNumber = 'VS-INV-' + Date.now() + '-' + (crypto.randomUUID().split('-').join('').slice(0, 8));
+    const invoiceNumber = 'PM-INV-' + Date.now() + '-' + (crypto.randomUUID().split('-').join('').slice(0, 8));
     const now = new Date().toISOString();
     const invoiceId = 'binv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
     try {

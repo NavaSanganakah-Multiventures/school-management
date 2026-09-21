@@ -362,7 +362,7 @@ app.post('/test-notification', async (c) => {
         },
         webpush: {
           fcmOptions: {
-            link: c.env.APP_BASE_URL || 'https://pragnya.navasanganakah.com'
+            link: c.env.APP_BASE_URL || 'https://pragnya.nasven.com'
           }
         }
       };

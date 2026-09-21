@@ -163,7 +163,7 @@ function platformFields(priority: string): Record<string, any> {
   return {
     android: {
       priority: priority === 'normal' ? 'NORMAL' : 'HIGH',
-      notification: { sound: 'default', channel_id: 'vidyasetu_alerts' },
+      notification: { sound: 'default', channel_id: 'pragnya_mitra_alerts' },
     },
     webpush: {
       headers: { TTL: '86400' },

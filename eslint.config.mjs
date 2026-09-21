@@ -6,6 +6,18 @@ export default defineConfig([
     extends: [...next],
   },
   {
+    ignores: [
+      ".wrangler/**",
+      ".kilo/**",
+      ".kiro/**",
+      "node_modules/**",
+      ".next/**",
+      "out/**",
+      ".dev.vars",
+      ".dev.vars.*",
+    ],
+  },
+  {
     rules: {
       // React Compiler-era rules are too strict for the current codebase.
       // Disabled until the UI adopts React Compiler patterns.
