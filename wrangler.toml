@@ -10,10 +10,13 @@ compatibility_flags = ["nodejs_compat"]
 pattern = "*.pragnya.nasven.com/*"
 zone_name = "nasven.com"
 
-# Cloudflare Workers + Assets: static frontend (out/) + Worker API (api/index.ts)
+# Cloudflare Workers + Assets: Flutter web frontend + Worker API (api/index.ts)
+# Frontend is built with `flutter build web --release` (see .github/workflows/deploy.yml).
+# SPA fallback serves index.html for client-side routes.
 [assets]
-directory = "./out"
+directory = "./flutter_apps/school_management_app/build/web"
 binding = "ASSETS"
+not_found_handling = "single-page-application"
 
 # Production bindings (top-level — used by `npx wrangler deploy` without --env)
 [[d1_databases]]
