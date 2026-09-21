@@ -25,7 +25,7 @@ export async function notifyFeePayment(db: any, env: any, invoice: any, schoolId
     try {
       await sendNotificationEmail(env, {
         to: studentEmail,
-        subject: `✅ विद्या सेतु — फीस भुगतान प्राप्त (${invoiceNumber})`,
+        subject: `✅ Pragnya Mitra — फीस भुगतान प्राप्त (${invoiceNumber})`,
         title: 'फीस भुगतान प्राप्त — रसीद',
         badge: 'भुगतान सफल',
         message: `नमस्ते,\n\n"${studentName}" के लिए फीस भुगतान सफलतापूर्वक प्राप्त हो गया है।\n\n` +
@@ -48,7 +48,7 @@ export async function notifyFeePayment(db: any, env: any, invoice: any, schoolId
       `${studentName} के चालान ${invoiceNumber} पर ₹${paidAmount.toLocaleString('en-IN')} का भुगतान प्राप्त हुआ।`,
       'General',
       'Staff',
-      'सिस्टम (VidyaSetu)',
+      'सिस्टम (Pragnya Mitra)',
       new Date().toISOString().split('T')[0],
       'Normal',
       'Sent',

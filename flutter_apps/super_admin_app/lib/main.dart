@@ -12,7 +12,7 @@ class SuperAdminApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'विद्या सेतु सुपर एडमिन',
+      title: 'Pragnya Mitra Super Admin',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,

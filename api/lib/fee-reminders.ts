@@ -79,7 +79,7 @@ export async function processFeeReminders(env: any, passedDb?: any): Promise<Fee
       if (studentEmail) {
         const emailRes = await sendNotificationEmail(env, {
           to: studentEmail,
-          subject: `🔔 विद्या सेतु — फीस अनुस्मारक (${inv.invoice_number})`,
+          subject: `🔔 Pragnya Mitra — फीस अनुस्मारक (${inv.invoice_number})`,
           title: `फीस भुगतान अनुस्मारक — ${inv.title}`,
           badge: dueLabel,
           message: `नमस्ते,\n\n"${inv.student_name}" के लिए फीस चालान ${inv.invoice_number} का भुगतान ${inv.due_date} तक देय है।\n\nशेष राशि: ₹${remaining.toLocaleString('en-IN')}\n\nकृपया समय पर भुगतान करें।`,

@@ -17,16 +17,16 @@ void main() async {
   // Firebase init runs after the first frame (non-blocking, with a timeout),
   // so it never delays app startup on slow networks.
   scheduleFirebaseInit();
-  runApp(const VidyaSetuApp());
+  runApp(const PragnyaMitraApp());
 }
 
-class VidyaSetuApp extends StatelessWidget {
-  const VidyaSetuApp({super.key});
+class PragnyaMitraApp extends StatelessWidget {
+  const PragnyaMitraApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'विद्या सेतु (VidyaSetu)',
+      title: 'Pragnya Mitra',
       debugShowCheckedModeBanner: false,
       navigatorKey: appNavigatorKey,
       theme: ThemeData(
