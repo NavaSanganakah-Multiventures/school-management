@@ -196,6 +196,8 @@ export function AdminConsoleScreen() {
   const [pluginTrialsLoading, setPluginTrialsLoading] = useState(false);
   const [recurringSubs, setRecurringSubs] = useState<any[]>([]);
   const [recurringSubsLoading, setRecurringSubsLoading] = useState(false);
+  const [razorpayPlans, setRazorpayPlans] = useState<any[]>([]);
+  const [razorpayPlansLoading, setRazorpayPlansLoading] = useState(false);
   const [trialModal, setTrialModal] = useState<{ schoolId: string; schoolName: string } | null>(null);
   const [trialForm, setTrialForm] = useState({ pluginId: '', trialDays: '7' });
   const [pluginPaymentModal, setPluginPaymentModal] = useState<{ schoolId: string; schoolName: string; pluginId: string; pluginName: string } | null>(null);
@@ -336,11 +338,20 @@ export function AdminConsoleScreen() {
     } catch (_) {} finally { setRecurringSubsLoading(false); }
   }, []);
 
+  const loadRazorpayPlans = useCallback(async () => {
+    setRazorpayPlansLoading(true);
+    try {
+      const res = await fetch('/api/admin/razorpay/plans').then((r) => r.json()).catch(() => ({}));
+      if (res.success) setRazorpayPlans(res.plans || []);
+    } catch (_) {} finally { setRazorpayPlansLoading(false); }
+  }, []);
+
   useEffect(() => {
     if (activeTab === 'transactions') loadTransactions(txnStatusFilter);
     if (activeTab === 'plugins') loadPluginTrials();
     if (activeTab === 'subscriptions') loadRecurringSubs();
-  }, [activeTab, txnStatusFilter, loadTransactions, loadPluginTrials, loadRecurringSubs]);
+    if (activeTab === 'plans') loadRazorpayPlans();
+  }, [activeTab, txnStatusFilter, loadTransactions, loadPluginTrials, loadRecurringSubs, loadRazorpayPlans]);
 
   // Send Razorpay payment link to a school (email + FCM)
   const sendPaymentLink = async () => {
@@ -888,6 +899,27 @@ export function AdminConsoleScreen() {
     try {
       const data = await post('/api/admin/subscriptions/resume', { schoolId });
       if (data.success) { flashSuccess(data.message || 'सदस्यता फिर से शुरू।'); await loadRecurringSubs(); }
+      else setErrorMsg(data.message || 'विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
+  // Razorpay Plan management
+  const syncRazorpayPlan = async (planId: string, billingCycle: string) => {
+    setBusyId(`sync-plan-${planId}-${billingCycle}`);
+    try {
+      const data = await post('/api/admin/razorpay/plans/create', { planId, billingCycle });
+      if (data.success) { flashSuccess(data.message || 'Razorpay प्लान बनाया गया।'); await loadRazorpayPlans(); }
+      else setErrorMsg(data.message || 'विफल।');
+    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
+    finally { setBusyId(null); }
+  };
+
+  const syncAllRazorpayPlans = async () => {
+    setBusyId('sync-all-plans');
+    try {
+      const data = await post('/api/admin/razorpay/plans/sync-all', {});
+      if (data.success) { flashSuccess(data.message || 'सिंक पूर्ण।'); await loadRazorpayPlans(); }
       else setErrorMsg(data.message || 'विफल।');
     } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
     finally { setBusyId(null); }
@@ -2464,6 +2496,73 @@ export function AdminConsoleScreen() {
               </table>
             </div>
           )}
+
+          {/* Razorpay Plan Management */}
+          <div className="mt-6 p-5 rounded-2xl bg-violet-50 border border-violet-200">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4 text-violet-600" />
+                  Razorpay प्लान प्रबंधन
+                </h3>
+                <p className="text-xs text-slate-500">Razorpay पर recurring प्लान बनाएं और सिंक करें (auto-debit के लिए आवश्यक)</p>
+              </div>
+              <button onClick={syncAllRazorpayPlans} disabled={busyId === 'sync-all-plans'}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
+                {busyId === 'sync-all-plans' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                सभी सिंक करें
+              </button>
+            </div>
+
+            <div className="overflow-x-auto bg-white rounded-xl border border-violet-100 shadow-xs">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr className="text-left text-[11px] uppercase tracking-wider text-slate-500">
+                    <th className="py-2.5 px-3 font-bold">प्लेटफॉर्म प्लान</th>
+                    <th className="py-2.5 px-3 font-bold">चक्र</th>
+                    <th className="py-2.5 px-3 font-bold">राशि</th>
+                    <th className="py-2.5 px-3 font-bold">Razorpay Plan ID</th>
+                    <th className="py-2.5 px-3 font-bold">बनाया गया</th>
+                    <th className="py-2.5 px-3 font-bold">स्थिति</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {razorpayPlansLoading && (
+                    <tr><td colSpan={6} className="py-6 text-center text-slate-400">लोड हो रहा है...</td></tr>
+                  )}
+                  {!razorpayPlansLoading && razorpayPlans.length === 0 && (
+                    <tr><td colSpan={6} className="py-6 text-center text-slate-400">अभी तक कोई Razorpay प्लान नहीं बनाया गया। सभी सिंक करें बटन दबाएं।</td></tr>
+                  )}
+                  {razorpayPlans.map((rp) => (
+                    <tr key={rp.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                      <td className="py-3 pr-3 font-bold text-slate-900 text-xs">{rp.platform_plan_id}</td>
+                      <td className="py-3 px-3 text-xs text-slate-600">{rp.period === 'yearly' ? 'वार्षिक' : 'मासिक'}</td>
+                      <td className="py-3 px-3 text-xs text-slate-700 font-semibold">₹{(rp.amount / 100).toLocaleString('en-IN')}</td>
+                      <td className="py-3 px-3 text-[10px] font-mono text-violet-700">{rp.razorpay_plan_id}</td>
+                      <td className="py-3 px-3 text-[10px] text-slate-400">{rp.created_at ? new Date(rp.created_at).toLocaleDateString('hi-IN') : '—'}</td>
+                      <td className="py-3 px-3"><span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">सक्रिय</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {plans.filter((p: any) => !p.isTrial && p.active !== false).map((p: any) => (
+                <div key={p.id} className="flex items-center gap-1">
+                  <span className="text-xs font-bold text-slate-600">{p.name}:</span>
+                  {['monthly', 'quarterly', 'annual'].map((cyc) => (
+                    <button key={cyc}
+                      onClick={() => syncRazorpayPlan(p.id, cyc)}
+                      disabled={busyId === `sync-plan-${p.id}-${cyc}`}
+                      className="px-2 py-1 rounded-lg text-[10px] font-bold bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition cursor-pointer disabled:opacity-50">
+                      {busyId === `sync-plan-${p.id}-${cyc}` ? '...' : cyc === 'monthly' ? 'मासिक' : cyc === 'quarterly' ? 'त्रैमासिक' : 'वार्षिक'}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
         </>
       )}
 
