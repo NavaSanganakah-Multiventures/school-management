@@ -3,7 +3,8 @@ import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { isClassTeacher } from '../lib/permissions';
 import { logActivity } from '../lib/activity-logger';
-import { broadcastAlert } from '../notifications';
+import { buildTokenMessage, isFcmConfigured, isRealFcmToken, sendFcmMessage } from '../lib/fcm';
+import { isWebPushConfigured, sendWebPushNotification } from '../lib/webpush';
 
 const attendanceApp = new Hono<{ Bindings: any }>();
 
@@ -424,24 +425,103 @@ attendanceApp.post('/notify-absentees', async (c) => {
 
   const senderName = await resolveMarkedBy(db, authUser);
   const alertBody = customMessage || `सादर नमस्कार, आपका पाल्य आज (${targetDate}) विद्यालय में अनुपस्थित है। कृपया अनुपस्थिति का कारण विद्यालय को सूचित करें।`;
+  const alertTitle = '⚠️ अनुपस्थिति सूचना | VidyaSetu';
 
-  // Send push notification via broadcastAlert to Parents topic
-  try {
-    await broadcastAlert(db, c.env, {
-      title: '⚠️ अनुपस्थिति सूचना | VidyaSetu',
-      body: alertBody,
-      schoolId,
-      targetRole: 'Parents',
-      priority: 'high',
-      data: {
+  // Send TARGETED push notifications to ONLY the absent students' parents (not all parents).
+  // Previously this used broadcastAlert with targetRole 'Parents' which sent to every parent
+  // subscribed to the school's parents topic. Now we resolve each absent student's parent_phone
+  // to a system_users account, then fetch FCM device tokens / web push subscriptions for those
+  // specific parent users only.
+  let tokenSuccess = 0;
+  let tokenFailed = 0;
+  let webPushSent = 0;
+  let webPushFailed = 0;
+  let notifiedParentCount = 0;
+
+  const parentPhones = Array.from(new Set(
+    absentStudents
+      .map((s: any) => String(s.parent_phone || '').trim())
+      .filter((p: string) => p.length >= 7)
+  ));
+
+  if (parentPhones.length > 0) {
+    // Resolve parent user accounts by phone number
+    const phonePlaceholders = parentPhones.map(() => '?').join(',');
+    const userRows = await db.prepare(
+      'SELECT id FROM system_users WHERE school_id = ? AND role = ? AND phone IN (' + phonePlaceholders + ')'
+    ).bind(schoolId, 'Parents', ...parentPhones).all().catch(() => ({ results: [] }));
+
+    const parentUserIds = (userRows.results || []).map((r: any) => String(r.id));
+    notifiedParentCount = parentUserIds.length;
+
+    if (parentUserIds.length > 0) {
+      const userIdPlaceholders = parentUserIds.map(() => '?').join(',');
+      const dataPayload: Record<string, string> = {
         type: 'absentee_alert',
         date: targetDate,
         className: className || 'All',
         absentCount: String(absentStudents.length),
-      },
-    });
-  } catch (pushErr) {
-    console.warn('[Attendance] broadcastAlert push error:', pushErr);
+        schoolId,
+        priority: 'high',
+      };
+
+      // FCM direct tokens for the absent students' parents
+      if (isFcmConfigured(c.env)) {
+        const tokenRows = await db.prepare(
+          'SELECT device_token FROM fcm_device_tokens WHERE school_id = ? AND is_active = 1 AND user_id IN (' + userIdPlaceholders + ')'
+        ).bind(schoolId, ...parentUserIds).all().catch(() => ({ results: [] }));
+
+        const tokens = (tokenRows.results || [])
+          .map((r: any) => String(r.device_token || ''))
+          .filter((t: string) => isRealFcmToken(t));
+
+        for (let i = 0; i < tokens.length; i++) {
+          try {
+            const r = await sendFcmMessage(c.env, buildTokenMessage(tokens[i], alertTitle, alertBody, dataPayload, 'high'));
+            if (r.success) {
+              tokenSuccess++;
+            } else {
+              tokenFailed++;
+              const errStr = r.error || '';
+              if (errStr.includes('UNREGISTERED') || errStr.includes('INVALID_ARGUMENT') || errStr.includes('NOT_FOUND')) {
+                await db.prepare('UPDATE fcm_device_tokens SET is_active = 0 WHERE device_token = ?').bind(tokens[i]).run().catch(() => {});
+              }
+            }
+          } catch (e: any) {
+            tokenFailed++;
+          }
+        }
+      }
+
+      // Web Push subscriptions for the absent students' parents
+      const webPushRows = await db.prepare(
+        'SELECT id, endpoint, p256dh, auth FROM web_push_subscriptions WHERE school_id = ? AND is_active = 1 AND user_id IN (' + userIdPlaceholders + ')'
+      ).bind(schoolId, ...parentUserIds).all().catch(() => ({ results: [] }));
+
+      const webPushSubs = webPushRows.results || [];
+      if (webPushSubs.length > 0 && isWebPushConfigured(c.env)) {
+        const webPayload = {
+          notification: { title: alertTitle, body: alertBody },
+          data: dataPayload,
+        };
+        for (let i = 0; i < webPushSubs.length; i++) {
+          const sub = webPushSubs[i] as any;
+          try {
+            const r = await sendWebPushNotification(c.env, { endpoint: String(sub.endpoint), keys: { p256dh: String(sub.p256dh), auth: String(sub.auth) } }, webPayload);
+            if (r.success) {
+              webPushSent++;
+            } else {
+              webPushFailed++;
+              if (r.status === 404 || r.status === 410) {
+                await db.prepare('UPDATE web_push_subscriptions SET is_active = 0 WHERE id = ?').bind(String(sub.id)).run().catch(() => {});
+              }
+            }
+          } catch (e) {
+            webPushFailed++;
+          }
+        }
+      }
+    }
   }
 
   // Log activity
@@ -466,8 +546,13 @@ attendanceApp.post('/notify-absentees', async (c) => {
   return c.json({
     success: true,
     count: absentStudents.length,
-    notifiedCount: absentStudents.length,
-    message: `${absentStudents.length} अभिभावकों को अनुपस्थिति अलर्ट सफलतापूर्वक प्रेषित कर दिया गया।`,
+    notifiedCount: notifiedParentCount,
+    tokenSuccess,
+    tokenFailed,
+    webPushSent,
+    message: notifiedParentCount > 0
+      ? `${notifiedParentCount} अभिभावकों को अनुपस्थिति अलर्ट सफलतापूर्वक प्रेषित कर दिया गया।`
+      : `${absentStudents.length} छात्र अनुपस्थित हैं, किंतु किसी के अभिभावक का पंजीकृत डिवाइस नहीं मिला।`,
   });
 });
 

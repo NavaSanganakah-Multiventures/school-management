@@ -55,4 +55,31 @@ class AuthService {
     _currentUser = null;
     await _api.clearAuth();
   }
+
+  /// Clears the in-memory user (used by the global 401 handler).
+  void clearCurrentUser() {
+    _currentUser = null;
+  }
+
+  /// Fetches the current authenticated user profile from the server.
+  Future<UserModel?> refreshProfile() async {
+    try {
+      final res = await _api.get('/api/auth/me');
+      if (res['success'] == true && res['user'] != null) {
+        final user = UserModel.fromJson(res['user'] as Map<String, dynamic>);
+        _currentUser = user;
+        await _storage.write(key: 'user_profile', value: jsonEncode(user.toJson()));
+        return user;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> forgotPassword(String email) async {
+    await _api.post('/api/auth/forgot-password', body: {'email': email.trim()});
+  }
+
+  Future<void> resetPassword(String token, String password) async {
+    await _api.post('/api/auth/reset-password', body: {'token': token, 'password': password});
+  }
 }

@@ -205,9 +205,16 @@ class _ActivityLogSheetState extends State<ActivityLogSheet> {
                               separatorBuilder: (_, __) => const SizedBox(height: 10),
                               itemBuilder: (context, index) {
                                 final item = _logs[index];
-                                final actionType = item['action_type']?.toString();
+                                // Backend returns camelCase: actionType, actionTitle,
+                                // description, userName, userRole, createdAt.
+                                final actionType = item['action_type']?.toString() ?? item['actionType']?.toString();
                                 final color = _getActionColor(actionType);
                                 final icon = _getActionIcon(actionType);
+                                final actionTitle = item['action_title']?.toString() ?? item['actionTitle']?.toString();
+                                final details = item['details']?.toString() ?? item['description']?.toString() ?? '';
+                                final createdAt = item['created_at']?.toString() ?? item['createdAt']?.toString();
+                                final performedByName = item['performed_by_name']?.toString() ?? item['userName']?.toString();
+                                final performedByRole = item['performed_by_role']?.toString() ?? item['userRole']?.toString();
 
                                 return Container(
                                   padding: const EdgeInsets.all(12),
@@ -240,7 +247,7 @@ class _ActivityLogSheetState extends State<ActivityLogSheet> {
                                               children: [
                                                 Expanded(
                                                   child: Text(
-                                                    item['action_title'] ?? 'कार्य विवरण',
+                                                    actionTitle ?? 'कार्य विवरण',
                                                     style: const TextStyle(
                                                       fontWeight: FontWeight.bold,
                                                       fontSize: 13,
@@ -249,20 +256,20 @@ class _ActivityLogSheetState extends State<ActivityLogSheet> {
                                                   ),
                                                 ),
                                                 Text(
-                                                  _formatTimestamp(item['created_at']),
+                                                  _formatTimestamp(createdAt),
                                                   style: const TextStyle(fontSize: 10, color: Colors.grey),
                                                 ),
                                               ],
                                             ),
                                             const SizedBox(height: 4),
                                             Text(
-                                              item['details'] ?? '',
+                                              details,
                                               style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                                             ),
-                                            if (item['performed_by_name'] != null && !isTeacher) ...[
+                                            if (performedByName != null && performedByName.isNotEmpty && !isTeacher) ...[
                                               const SizedBox(height: 4),
                                               Text(
-                                                'कर्ता: ${item['performed_by_name']} (${item['performed_by_role'] ?? ""})',
+                                                'कर्ता: $performedByName ($performedByRole)',
                                                 style: TextStyle(fontSize: 11, color: Colors.indigo.shade700, fontWeight: FontWeight.w500),
                                               ),
                                             ],
