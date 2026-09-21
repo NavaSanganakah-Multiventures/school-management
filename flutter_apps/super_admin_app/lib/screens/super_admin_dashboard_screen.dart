@@ -24,11 +24,11 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
   Future<void> _loadDashboard() async {
     setState(() => _isLoading = true);
     try {
-      final tenantsRes = await _api.get('/api/admin/tenants');
+      final tenantsRes = await _api.get('/api/admin/schools');
 
       setState(() {
         if (tenantsRes['success'] == true) {
-          _tenants = tenantsRes['tenants'] ?? [];
+          _tenants = tenantsRes['schools'] ?? [];
         }
         _isLoading = false;
       });
@@ -57,7 +57,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
     if (confirm != true) return;
 
     try {
-      final res = await _api.post('/api/admin/tenants/$tenantId/approve');
+      final res = await _api.post('/api/admin/registrations/approve', body: {'schoolId': tenantId});
       if (res['success'] == true) {
         _loadDashboard();
         if (mounted) {
@@ -78,7 +78,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final totalTenants = _tenants.length;
-    final pendingCount = _tenants.where((t) => t['registration_status'] == 'Pending_Approval').length;
+    final pendingCount = _tenants.where((t) => t['registrationStatus'] == 'Pending_Approval').length;
 
     return Scaffold(
       appBar: AppBar(
@@ -157,7 +157,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final t = _tenants[index];
-                          final isPending = t['registration_status'] == 'Pending_Approval';
+                          final isPending = t['registrationStatus'] == 'Pending_Approval';
                           final status = t['status'] ?? 'Active';
 
                           return Container(
@@ -178,7 +178,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        t['school_name'] ?? 'अज्ञात स्कूल',
+                                        t['schoolName'] ?? 'अज्ञात स्कूल',
                                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                                       ),
                                     ),
@@ -201,18 +201,18 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  'ईमेल: ${t['contact_email'] ?? "—"} • फोन: ${t['contact_phone'] ?? "—"}',
+                                  'ईमेल: ${t['contactEmail'] ?? "—"} • फोन: ${t['contactPhone'] ?? "—"}',
                                   style: const TextStyle(fontSize: 12, color: Colors.black54),
                                 ),
                                 Text(
-                                  'सबडोमेन: ${t['subdomain'] ?? "—"} • प्लान: ${t['plan_id'] ?? "Trial"}',
+                                  'सबडोमेन: ${t['subdomain'] ?? "—"} • प्लान: ${t['planId'] ?? "trial"}',
                                   style: const TextStyle(fontSize: 11, color: Colors.grey),
                                 ),
 
                                 if (isPending) ...[
                                   const SizedBox(height: 12),
                                   ElevatedButton.icon(
-                                    onPressed: () => _approveTenant(t['id'], t['school_name'] ?? 'स्कूल'),
+                                    onPressed: () => _approveTenant(t['id'], t['schoolName'] ?? 'स्कूल'),
                                     icon: const Icon(Icons.check, size: 16),
                                     label: const Text('स्कूल अनुमोदन करें और 7-दिन ट्रायल शुरू करें', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                                     style: ElevatedButton.styleFrom(

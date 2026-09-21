@@ -28,6 +28,7 @@ import internalApp from './internal';
 import featuresApp from './features';
 import webhooksApp from './webhooks';
 import { processTrialExpirations, processPluginTrialExpirations, processSubscriptionRenewals } from './lib/trial-expiration';
+import { processFeeReminders } from './lib/fee-reminders';
 
 const app = new Hono<{ Bindings: any }>().basePath('/api');
 
@@ -116,6 +117,7 @@ const worker = {
         processTrialExpirations(env),
         processPluginTrialExpirations(env),
         processSubscriptionRenewals(env),
+        processFeeReminders(env),
       ]);
       if (ctx && typeof ctx.waitUntil === 'function') {
         ctx.waitUntil(task);

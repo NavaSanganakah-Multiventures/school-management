@@ -29,6 +29,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
   DateTime _selectedDate = DateTime.now();
   String _selectedClass = 'Class 10';
   List<String> _availableClasses = [];
+  List<String> _allClasses = [];
   List<AttendanceRecordModel> _records = [];
   bool _isLoadingAttendance = true;
   String _statusFilter = 'All'; // 'All', 'Absent', 'Present', 'Leave', 'Unmarked'
@@ -52,6 +53,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
   }
 
   String get _formattedDate => DateFormat('yyyy-MM-dd').format(_selectedDate);
+  String get _classLabel => _selectedClass == 'All' ? 'सभी कक्षाओं' : _selectedClass;
 
   Future<void> _loadInitialData() async {
     setState(() => _isLoadingAttendance = true);
@@ -60,8 +62,12 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
       if (res['success'] == true) {
         final classes = List<String>.from(res['classes'] ?? []);
         final assigned = List<String>.from(res['assignedClasses'] ?? []);
+        final allClasses = List<String>.from(res['allClasses'] ?? []);
         setState(() {
           _availableClasses = classes;
+          _allClasses = allClasses.isNotEmpty
+              ? allClasses
+              : (classes.isNotEmpty ? classes : <String>[]);
           if (assigned.isNotEmpty) {
             _selectedClass = assigned.first;
           } else if (classes.isNotEmpty) {
@@ -188,7 +194,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('अनुपस्थित अभिभावक अलर्ट'),
         content: Text(
-          'क्या आप आज अनुपस्थित $_selectedClass के ${absentees.length} छात्रों के अभिभावकों के मोबाइल पर त्वरित पुश अलर्ट भेजना चाहते हैं?',
+          'क्या आप आज $_classLabel में अनुपस्थित ${absentees.length} छात्रों के अभिभावकों के मोबाइल पर त्वरित पुश अलर्ट भेजना चाहते हैं?',
         ),
         actions: [
           TextButton(
@@ -270,6 +276,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
     final parentCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
     String gender = 'Male';
+    String dialogClass = _selectedClass == 'All' ? (_availableClasses.isNotEmpty ? _availableClasses.first : 'Class 1') : _selectedClass;
     DateTime? dob;
     bool isSaving = false;
 
@@ -295,7 +302,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('नया छात्र प्रवेश', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    Text('कक्षा: $_selectedClass', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                    Text('कक्षा व विवरण भरें', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
                   ],
                 ),
               ),
@@ -306,6 +313,21 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                DropdownButtonFormField<String>(
+                  initialValue: dialogClass,
+                  decoration: const InputDecoration(
+                    labelText: 'कक्षा *',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                  items: (_allClasses.isNotEmpty ? _allClasses : _availableClasses)
+                      .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                      .toList(),
+                  onChanged: (val) {
+                    if (val != null) setDialogState(() => dialogClass = val);
+                  },
+                ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: nameCtrl,
                   decoration: const InputDecoration(
@@ -438,7 +460,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                       try {
                         await StudentService().addStudent({
                           'fullName': name,
-                          'className': _selectedClass,
+                          'className': dialogClass,
                           'fatherName': parent,
                           'parentPhone': phone,
                           'scholarNumber': scholarCtrl.text.trim(),
@@ -451,7 +473,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text('छात्र $name को कक्षा $_selectedClass में सफलतापूर्वक प्रवेशित किया गया।'),
+                              content: Text('छात्र $name को कक्षा $dialogClass में सफलतापूर्वक प्रवेशित किया गया।'),
                               backgroundColor: Colors.green,
                             ),
                           );
@@ -649,15 +671,18 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                   ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
-                      value: _availableClasses.contains(_selectedClass) ? _selectedClass : null,
+                      value: (_selectedClass == 'All' || _availableClasses.contains(_selectedClass)) ? _selectedClass : null,
                       hint: const Text('कक्षा चुनें', style: TextStyle(color: Colors.white70, fontSize: 12)),
                       dropdownColor: const Color(0xFF1E293B),
                       icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
                       isExpanded: true,
                       style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                      items: _availableClasses.map((c) {
-                        return DropdownMenuItem(value: c, child: Text(c));
-                      }).toList(),
+                      items: [
+                        const DropdownMenuItem(value: 'All', child: Text('सभी कक्षाएं (All)')),
+                        ..._availableClasses.map((c) {
+                          return DropdownMenuItem(value: c, child: Text(c));
+                        }),
+                      ],
                       onChanged: (val) {
                         if (val != null) {
                           setState(() => _selectedClass = val);
@@ -772,7 +797,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                         _searchQuery.isNotEmpty
                             ? 'खोज के अनुरूप कोई छात्र नहीं मिला।'
                             : _statusFilter == 'All'
-                                ? '$_selectedClass में कोई छात्र नहीं मिला।'
+                                ? '$_classLabel में कोई छात्र नहीं मिला।'
                                 : '$_statusFilter श्रेणी में कोई छात्र नहीं है।',
                         style: const TextStyle(color: Colors.grey),
                       ),
@@ -907,18 +932,43 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             color: Colors.white,
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text(
-                    '$_selectedClass के विद्यार्थी (${students.length})',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '$_classLabel के विद्यार्थी (${students.length})',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: _openAddStudentDialog,
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text('प्रवेश जोड़ें', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
                 ),
-                TextButton.icon(
-                  onPressed: _openAddStudentDialog,
-                  icon: const Icon(Icons.add, size: 16),
-                  label: const Text('प्रवेश जोड़ें', style: TextStyle(fontSize: 12)),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: (_selectedClass == 'All' || _availableClasses.contains(_selectedClass)) ? _selectedClass : null,
+                  decoration: const InputDecoration(
+                    labelText: 'कक्षा चुनें',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  items: [
+                    const DropdownMenuItem(value: 'All', child: Text('सभी कक्षाएं (All)')),
+                    ..._availableClasses.map((c) => DropdownMenuItem(value: c, child: Text(c))),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) {
+                      setState(() => _selectedClass = val);
+                      _loadAttendance();
+                    }
+                  },
                 ),
               ],
             ),

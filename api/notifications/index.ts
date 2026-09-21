@@ -10,6 +10,7 @@ import {
   sendFcmMessage,
 } from '../lib/fcm';
 import { isWebPushConfigured, sendWebPushNotification } from '../lib/webpush';
+import { sendSchoolEmail } from '../lib/email';
 
 const notificationsApp = new Hono();
 
@@ -52,6 +53,35 @@ interface BroadcastOptions {
   targetRole?: string;
   priority?: string;
   data?: Record<string, any>;
+}
+
+async function sendBroadcastEmails(db: any, env: any, schoolId: string, targetRole: string, title: string, body: string): Promise<{ attempted: number; sent: number }> {
+  if (!db || !env) return { attempted: 0, sent: 0 };
+  const emails = new Set<string>();
+  const wantParents = targetRole === 'All' || targetRole === 'Parents' || targetRole === 'Students';
+  const wantStaff = targetRole === 'All' || targetRole === 'Teachers';
+
+  if (wantParents) {
+    try {
+      const rows = await db.prepare("SELECT email FROM students WHERE school_id = ? AND status = 'Active' AND email != '' AND email IS NOT NULL").bind(schoolId).all();
+      (rows.results || []).forEach((r: any) => { if (r.email) emails.add(String(r.email).trim().toLowerCase()); });
+    } catch (_) {}
+  }
+  if (wantStaff) {
+    try {
+      const rows = await db.prepare("SELECT email FROM system_users WHERE school_id = ? AND status = 'Active' AND email != '' AND email IS NOT NULL").bind(schoolId).all();
+      (rows.results || []).forEach((r: any) => { if (r.email) emails.add(String(r.email).trim().toLowerCase()); });
+    } catch (_) {}
+  }
+
+  let sent = 0;
+  let attempted = 0;
+  for (const to of emails) {
+    attempted++;
+    const res = await sendSchoolEmail(env, { schoolId, to, subject: title, title, message: body });
+    if (res.sent) sent++;
+  }
+  return { attempted, sent };
 }
 
 export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions): Promise<{ status: number; payload: any }> {
@@ -211,7 +241,22 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
   }
 
   const anyPushConfigured = fcmConfigured || webPushConfigured;
-  const anySuccess = !!topicResult.success || tokenSuccess > 0 || webPushSent > 0;
+
+  // Email channel (only when the caller requested an email dispatch mode).
+  let emailAttempted = 0;
+  let emailSent = 0;
+  const emailMode = (opts.data && opts.data.emailDispatchMode) || '';
+  if (emailMode && emailMode !== 'fcm_only') {
+    try {
+      const emailResult = await sendBroadcastEmails(db, env, activeSchoolId, targetRole, opts.title, opts.body);
+      emailAttempted = emailResult.attempted;
+      emailSent = emailResult.sent;
+    } catch (e: any) {
+      console.error('[broadcast] email dispatch failed:', e && e.message);
+    }
+  }
+
+  const anySuccess = !!topicResult.success || tokenSuccess > 0 || webPushSent > 0 || emailSent > 0;
   const overallStatus = anyPushConfigured ? (anySuccess ? 'Success' : 'Failed') : 'NotConfigured';
   const fcmMessageId = (topicResult.messageId || topicResult.name || '');
 
@@ -238,6 +283,8 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
     webPushSent: webPushSent,
     webPushFailed: webPushFailed,
     webPushErrors: webPushErrors.slice(0, 10),
+    emailAttempted: emailAttempted,
+    emailSent: emailSent,
   };
   console.log('[FCM] broadcast diag ' + JSON.stringify(diag));
 
@@ -256,7 +303,7 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
       resolvedTopicKey,
       allTargetDevices.length ? (allTargetDevices.length + ' devices') : (webPushSubs.length ? (webPushSubs.length + ' web push') : ''),
       overallStatus,
-      JSON.stringify({ schoolId: activeSchoolId, fcmProjectId: fcmProjectId, targetRole: targetRole, topic: resolvedTopicKey, topicSuccess: !!topicResult.success, fcmConfigured: fcmConfigured, webPushConfigured: webPushConfigured, deviceCount: allTargetDevices.length, webCount: webCount, mobileCount: mobileCount, directCount: directTokens.length, topicDedupCount: tokenSkipped, tokenSuccess: tokenSuccess, tokenFailed: tokenFailed, tokenErrors: tokenErrors.slice(0, 5), webPushSubscriptionCount: webPushSubs.length, webPushSent: webPushSent, webPushFailed: webPushFailed, webPushErrors: webPushErrors.slice(0, 5) }),
+      JSON.stringify({ schoolId: activeSchoolId, fcmProjectId: fcmProjectId, targetRole: targetRole, topic: resolvedTopicKey, topicSuccess: !!topicResult.success, fcmConfigured: fcmConfigured, webPushConfigured: webPushConfigured, deviceCount: allTargetDevices.length, webCount: webCount, mobileCount: mobileCount, directCount: directTokens.length, topicDedupCount: tokenSkipped, tokenSuccess: tokenSuccess, tokenFailed: tokenFailed, tokenErrors: tokenErrors.slice(0, 5), webPushSubscriptionCount: webPushSubs.length, webPushSent: webPushSent, webPushFailed: webPushFailed, webPushErrors: webPushErrors.slice(0, 5), emailAttempted: emailAttempted, emailSent: emailSent }),
       timestamp,
       activeSchoolId,
     ).run();

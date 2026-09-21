@@ -9,10 +9,21 @@ interface PayFeeModalProps {
   onPaymentSuccess: (updatedInvoice: any) => void;
 }
 
+function loadScript(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('स्क्रिप्ट लोड नहीं हुई'));
+    document.body.appendChild(s);
+  });
+}
+
 export function PayFeeModal({ invoice, onClose, onPaymentSuccess }: PayFeeModalProps) {
   const [method, setMethod] = useState('UPI');
   const [isProcessing, setIsProcessing] = useState(false);
   const [receiptData, setReceiptData] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
   if (!invoice) return null;
 
@@ -20,38 +31,100 @@ export function PayFeeModal({ invoice, onClose, onPaymentSuccess }: PayFeeModalP
 
   const handlePayment = async () => {
     setIsProcessing(true);
+    setError(null);
     try {
-      const res = await fetch('/api/fees/pay', {
+      // Cash / counter — record manually (no gateway).
+      if (method === 'Cash') {
+        const res = await fetch('/api/fees/pay', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoiceId: invoice.id, amount: dueAmount, paymentMethod: 'Cash' }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setReceiptData({
+            ...data.invoice,
+            txId: data.invoice?.transactionId || '',
+            paymentMethod: data.invoice?.paymentMethod || 'Cash',
+          });
+          onPaymentSuccess(data.invoice);
+        } else {
+          setError(data.message || 'भुगतान दर्ज करने में त्रुटि हुई।');
+        }
+        return;
+      }
+
+      // Online (UPI / Card) — real Razorpay checkout.
+      const res = await fetch('/api/fees/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoiceId: invoice.id,
-          amount: dueAmount,
-          paymentMethod: method,
-        }),
+        body: JSON.stringify({ invoiceId: invoice.id, amount: dueAmount }),
       });
       const data = await res.json();
-      if (data.success) {
-        setReceiptData({
-          ...data.invoice,
-          txId: `TXN-UPI-${Date.now().toString().slice(-8)}`,
-          paymentMethod: method,
-        });
-        onPaymentSuccess(data.invoice);
+      if (!res.ok || !data.success || !data.order) {
+        setError(data.message || 'ऑर्डर बनाने में समस्या हुई।');
+        return;
       }
-    } catch {
-      const updated = {
-        ...invoice,
-        paidAmount: invoice.totalAmount,
-        status: 'Paid',
-        paidAt: new Date().toISOString().split('T')[0],
-      };
-      setReceiptData({
-        ...updated,
-        txId: `TXN-LOCAL-${Date.now().toString().slice(-6)}`,
-        paymentMethod: method,
+      const order = data.order;
+      if (!order.keyId) {
+        setError('Razorpay Key ID कॉन्फ़िगर नहीं है। व्यवस्थापक से संपर्क करें।');
+        return;
+      }
+      if (!(window as any).Razorpay) {
+        await loadScript('https://checkout.razorpay.com/v1/checkout.js');
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const rzp = new (window as any).Razorpay({
+          key: order.keyId,
+          amount: Math.round(order.amount * 100),
+          currency: 'INR',
+          name: 'VidyaSetu',
+          description: invoice.title,
+          order_id: order.id,
+          theme: { color: '#1e3a8a' },
+          handler: async (response: any) => {
+            try {
+              const vRes = await fetch('/api/fees/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                }),
+              });
+              const vData = await vRes.json();
+              if (vData.success) {
+                setReceiptData({
+                  ...vData.invoice,
+                  txId: vData.invoice?.transactionId || response.razorpay_payment_id,
+                  paymentMethod: method,
+                });
+                onPaymentSuccess(vData.invoice);
+                resolve();
+              } else {
+                setError(vData.message || 'पेमेंट वेरिफिकेशन विफल।');
+                reject(new Error(vData.message || 'verification failed'));
+              }
+            } catch (e) {
+              setError('पेमेंट सत्यापन में समस्या हुई।');
+              reject(e);
+            }
+          },
+          modal: {
+            ondismiss: () => {
+              setError('भुगतान रद्द कर दिया गया।');
+              reject(new Error('cancelled'));
+            },
+          },
+        });
+        rzp.open();
       });
-      onPaymentSuccess(updated);
+    } catch (e: any) {
+      if (e && e.message !== 'cancelled') {
+        setError('चेकआउट खोलने में समस्या हुई। कृपया पुनः प्रयास करें।');
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -77,7 +150,7 @@ export function PayFeeModal({ invoice, onClose, onPaymentSuccess }: PayFeeModalP
                 <CheckCircle2 className="h-7 w-7" />
               </div>
               <h4 className="text-base font-bold text-slate-800">भुगतान सफल रहा!</h4>
-              <p className="text-xs text-slate-500">रसीद जनरेट हो गई है एवं एसएमएस भेजा गया।</p>
+              <p className="text-xs text-slate-500">रसीद जनरेट हो गई है एवं ईमेल रसीद भेजी गई है।</p>
             </div>
 
             <div className="p-4 bg-slate-50 border border-dashed border-slate-300 rounded-xl space-y-2 text-xs">
@@ -145,6 +218,12 @@ export function PayFeeModal({ invoice, onClose, onPaymentSuccess }: PayFeeModalP
                 ))}
               </div>
             </div>
+
+            {error && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800">
+                {error}
+              </div>
+            )}
 
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
               <button

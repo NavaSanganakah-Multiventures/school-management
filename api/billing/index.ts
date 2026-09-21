@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getDB, SUBSCRIPTION_PLANS, loadSubscriptionPlans, loadSubscriptionPlanById, BillingCycle } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { provisionDedicatedWorker } from '../lib/provisioning';
-import { createRazorpayOrder, verifyRazorpaySignature, createRazorpayPlan, createRazorpaySubscription, createRazorpayCustomer, fetchRazorpaySubscription, cancelRazorpaySubscription, pauseRazorpaySubscription, resumeRazorpaySubscription } from '../lib/razorpay';
+import { createRazorpayOrder, verifyRazorpaySignature, createRazorpayPlan, createRazorpaySubscription, createRazorpayCustomer, fetchRazorpaySubscription, cancelRazorpaySubscription, pauseRazorpaySubscription, resumeRazorpaySubscription, getRazorpayKeyId, getRazorpayKeySecret } from '../lib/razorpay';
 import { checkSingleSchoolTrialStatus } from '../lib/trial-expiration';
 import { activateSubscriptionFromPayment } from '../lib/billing-activation';
 
@@ -56,8 +56,8 @@ billingApp.get('/plans', async (c) => {
 });
 
 // GET /api/billing/razorpay/config - client-safe Razorpay key id
-billingApp.get('/razorpay/config', (c) => {
-  return c.json({ success: true, keyId: (c.env && c.env.RAZORPAY_KEY_ID) || '' });
+billingApp.get('/razorpay/config', async (c) => {
+  return c.json({ success: true, keyId: await getRazorpayKeyId(c.env) });
 });
 
 // GET /api/billing/subscription - current school subscription
@@ -165,7 +165,7 @@ billingApp.post('/subscribe', async (c) => {
   return c.json({
     success: true,
     message: 'Razorpay ऑर्डर बन गया। पेमेंट पूरा करें।',
-    order: { id: order.id, amount: total, currency: 'INR', keyId: (c.env && c.env.RAZORPAY_KEY_ID) || '' },
+    order: { id: order.id, amount: total, currency: 'INR', keyId: await getRazorpayKeyId(c.env) },
     plan: { id: plan.id, name: plan.name },
     billingCycle,
     amount: total,
@@ -187,7 +187,7 @@ billingApp.post('/razorpay/verify', async (c) => {
     return c.json({ success: false, message: 'पेमेंट विवरण अधूरा है।' }, 400);
   }
 
-  const secret = (c.env && c.env.RAZORPAY_KEY_SECRET) || '';
+  const secret = await getRazorpayKeySecret(c.env);
   const ok = await verifyRazorpaySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature, secret);
   if (!ok) return c.json({ success: false, message: 'पेमेंट सिग्नेचर वेरिफिकेशन विफल।' }, 400);
 
