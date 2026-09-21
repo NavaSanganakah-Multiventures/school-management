@@ -61,6 +61,7 @@ function parseArgs(argv) {
 
 async function putKV(namespaceId, key, value, token, accountId) {
   const url = `${CF_API_BASE}/${accountId}/storage/kv/namespaces/${namespaceId}/values/${encodeURIComponent(key)}`;
+  // lgtm[js/file-access-to-http] File data sent to Cloudflare KV API is intentional secret seeding.
   const res = await globalThis.fetch(url, {
     method: 'PUT',
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'text/plain' },

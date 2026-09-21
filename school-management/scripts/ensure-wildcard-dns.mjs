@@ -31,6 +31,7 @@ function envOrThrow(name) {
 
 async function cf(url, { method = 'GET', body } = {}) {
   const token = envOrThrow('CLOUDFLARE_API_TOKEN');
+  // lgtm[js/file-access-to-http] DNS config from file sent to Cloudflare API is intentional deployment automation.
   const response = await fetch(url, {
     method,
     headers: {

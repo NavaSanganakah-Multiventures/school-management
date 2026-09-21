@@ -30,6 +30,7 @@ function envOrThrow(name) {
 
 async function cf(url, { method = 'GET', body } = {}) {
   const token = envOrThrow('CLOUDFLARE_API_TOKEN');
+  // lgtm[js/file-access-to-http] File data sent to Cloudflare API is intentional deployment configuration.
   const response = await fetch(url, {
     method,
     headers: {

@@ -53,6 +53,7 @@ async function getExistingKVId(kvName) {
 
 async function createKVNamespace(kvName) {
   const { token, baseUrl } = cfAccount();
+  // lgtm[js/file-access-to-http] KV namespace name derived from registry file sent to Cloudflare API is intentional provisioning.
   const res = await globalThis.fetch(baseUrl + '/storage/kv/namespaces', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
@@ -170,7 +171,23 @@ async function main() {
   }
 
   if (updated) {
-    fs.writeFileSync(REGISTRY_FILE, JSON.stringify(registry, null, 2));
+    // Read-merge-write to avoid TOCTOU race: re-read the file and patch in our changes
+    // so we don't overwrite concurrent modifications.
+    try {
+      const fresh = JSON.parse(fs.readFileSync(REGISTRY_FILE, 'utf-8'));
+      for (const school of registry.schools) {
+        const target = fresh.schools.find((s) => s.slug === school.slug);
+        if (target) {
+          if (school.d1DatabaseId) target.d1DatabaseId = school.d1DatabaseId;
+          if (school.r2BucketName) target.r2BucketName = school.r2BucketName;
+          if (school.kvNamespaceId) target.kvNamespaceId = school.kvNamespaceId;
+        }
+      }
+      fs.writeFileSync(REGISTRY_FILE, JSON.stringify(fresh, null, 2));
+    } catch {
+      // Fallback: if re-read fails (file deleted mid-run), write our in-memory state.
+      fs.writeFileSync(REGISTRY_FILE, JSON.stringify(registry, null, 2));
+    }
     console.log(`\nUpdated ${REGISTRY_FILE} with new resource IDs.`);
   } else {
     console.log(`\nNo new resources needed to be provisioned.`);
