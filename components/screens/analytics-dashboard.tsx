@@ -27,6 +27,7 @@ interface ExamAnalytics {
   topperStudentId: string | null;
   subjectWiseAnalysis?: SubjectAnalysis[];
   classWiseAnalysis?: ClassAnalysis[];
+  gradeDistribution?: { range: string; label: string; count: number }[];
 }
 
 interface SubjectAnalysis {
@@ -271,19 +272,17 @@ export function AnalyticsDashboard({ examId, className, section }: AnalyticsDash
 
               <div className="mt-4 grid grid-cols-3 gap-3">
                 <div className="text-center">
-                  <div className="text-xs text-slate-500 mb-1">Pass Rate Trend</div>
+                  <div className="text-xs text-slate-500 mb-1">Pass Rate</div>
                   <div className="flex items-center justify-center gap-1">
-                    <TrendingUp className="h-4 w-4 text-emerald-500" />
-                    <span className="font-bold text-emerald-700">+5.2%</span>
-                    <span className="text-xs text-slate-500">vs last exam</span>
+                    <CheckCircle className="h-4 w-4 text-emerald-500" />
+                    <span className="font-bold text-emerald-700">{analytics.passPercentage}%</span>
                   </div>
                 </div>
                 <div className="text-center">
-                  <div className="text-xs text-slate-500 mb-1">Avg Score Trend</div>
+                  <div className="text-xs text-slate-500 mb-1">Average Score</div>
                   <div className="flex items-center justify-center gap-1">
                     <TrendingUp className="h-4 w-4 text-blue-500" />
-                    <span className="font-bold text-blue-700">+2.8%</span>
-                    <span className="text-xs text-slate-500">improvement</span>
+                    <span className="font-bold text-blue-700">{analytics.averagePercentage}%</span>
                   </div>
                 </div>
                 <div className="text-center">
@@ -306,14 +305,22 @@ export function AnalyticsDashboard({ examId, className, section }: AnalyticsDash
                 Grade Distribution
               </h2>
               <div className="space-y-3">
-                {[
-                  { range: '90-100%', label: 'A+ (Outstanding)', color: 'bg-purple-500', count: Math.floor(analytics.totalStudents * 0.1) },
-                  { range: '75-89%', label: 'A (Excellent)', color: 'bg-blue-500', count: Math.floor(analytics.totalStudents * 0.2) },
-                  { range: '60-74%', label: 'B+ (Good)', color: 'bg-emerald-500', count: Math.floor(analytics.totalStudents * 0.3) },
-                  { range: '45-59%', label: 'B (Satisfactory)', color: 'bg-amber-500', count: Math.floor(analytics.totalStudents * 0.25) },
-                  { range: '33-44%', label: 'C (Pass)', color: 'bg-orange-500', count: Math.floor(analytics.totalStudents * 0.1) },
-                  { range: 'Below 33%', label: 'D (Fail)', color: 'bg-rose-500', count: Math.max(0, analytics.totalStudents - analytics.studentsPassed) },
-                ].map((item, idx) => (
+                {(analytics.gradeDistribution && analytics.gradeDistribution.length > 0
+                  ? analytics.gradeDistribution.map((g, idx) => ({
+                      ...g,
+                      color: ['bg-purple-500', 'bg-blue-500', 'bg-emerald-500', 'bg-amber-500', 'bg-orange-500', 'bg-rose-500'][idx] || 'bg-slate-500',
+                    }))
+                  : [
+                      { range: '90-100%', label: 'A+ (Outstanding)', color: 'bg-purple-500', count: 0 },
+                      { range: '75-89%', label: 'A (Excellent)', color: 'bg-blue-500', count: 0 },
+                      { range: '60-74%', label: 'B+ (Good)', color: 'bg-emerald-500', count: 0 },
+                      { range: '45-59%', label: 'B (Satisfactory)', color: 'bg-amber-500', count: 0 },
+                      { range: '33-44%', label: 'C (Pass)', color: 'bg-orange-500', count: 0 },
+                      { range: 'Below 33%', label: 'D (Fail)', color: 'bg-rose-500', count: 0 },
+                    ]
+                ).map((item, idx) => {
+                  const safeTotal = analytics.totalStudents || 1;
+                  return (
                   <div key={idx} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
@@ -322,23 +329,24 @@ export function AnalyticsDashboard({ examId, className, section }: AnalyticsDash
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-slate-800 font-bold">{item.count}</span>
-                        <span className="text-slate-500">({Math.round((item.count / analytics.totalStudents) * 100)}%)</span>
+                        <span className="text-slate-500">({Math.round((item.count / safeTotal) * 100)}%)</span>
                       </div>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
                       <div 
                         className={`h-full ${item.color} rounded-full`}
-                        style={{ width: `${Math.max(5, (item.count / analytics.totalStudents) * 100)}%` }}
+                        style={{ width: `${Math.max(5, (item.count / safeTotal) * 100)}%` }}
                       />
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="mt-6 pt-4 border-t border-slate-200">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-600">Grade Diversity Index</span>
-                  <span className="font-bold text-slate-900">0.78</span>
+                  <span className="text-slate-600">Total Graded</span>
+                  <span className="font-bold text-slate-900">{analytics.totalStudents}</span>
                 </div>
                 <div className="flex items-center justify-between text-xs mt-1">
                   <span className="text-slate-600">Pass-Fail Ratio</span>

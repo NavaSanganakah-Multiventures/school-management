@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'services/auth_service.dart';
+import 'services/firebase_init.dart';
+import 'services/api_client.dart';
 import 'models/user_model.dart';
 import 'screens/login_screen.dart';
 import 'screens/director_dashboard_screen.dart';
@@ -7,8 +10,13 @@ import 'screens/principal_dashboard_screen.dart';
 import 'screens/teacher_attendance_screen.dart';
 import 'screens/parent_portal_screen.dart';
 
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Firebase init runs after the first frame (non-blocking, with a timeout),
+  // so it never delays app startup on slow networks.
+  scheduleFirebaseInit();
   runApp(const VidyaSetuApp());
 }
 
@@ -20,6 +28,7 @@ class VidyaSetuApp extends StatelessWidget {
     return MaterialApp(
       title: 'विद्या सेतु (VidyaSetu)',
       debugShowCheckedModeBanner: false,
+      navigatorKey: appNavigatorKey,
       theme: ThemeData(
         useMaterial3: true,
         fontFamily: 'Roboto',
@@ -48,6 +57,16 @@ class _AuthGatekeeperState extends State<AuthGatekeeper> {
   @override
   void initState() {
     super.initState();
+    // Wire up the global 401 auto-logout: clear session and bounce to login.
+    ApiClient.onAuthFailure = () {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        AuthService().clearCurrentUser();
+        appNavigatorKey.currentState?.pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (_) => false,
+        );
+      });
+    };
     _checkExistingSession();
   }
 

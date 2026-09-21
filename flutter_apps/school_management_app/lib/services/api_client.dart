@@ -12,6 +12,10 @@ class ApiClient {
 
   final _storage = const FlutterSecureStorage();
 
+  /// Global callback invoked when a request returns 401 (token expired/invalid).
+  /// Set by the app shell to force a logout + redirect to login screen.
+  static VoidCallback? onAuthFailure;
+
   Future<String?> getToken() async {
     return await _storage.read(key: 'jwt_token');
   }
@@ -51,6 +55,15 @@ class ApiClient {
     );
   }
 
+  /// Whether a 401 should trigger the global auto-logout. We skip auth
+  /// endpoints (login/forgot/reset) and only fire when a token was present,
+  /// so a wrong-password 401 shows an inline error instead of a forced logout.
+  Future<bool> _shouldAutoLogout(String path) async {
+    if (path.contains('/api/auth/')) return false;
+    final token = await getToken();
+    return token != null && token.isNotEmpty;
+  }
+
   Future<dynamic> get(String path, {Map<String, dynamic>? queryParams, String? schoolId}) async {
     try {
       final url = await _buildUri(path, queryParams);
@@ -61,7 +74,7 @@ class ApiClient {
       }
 
       final response = await http.get(url, headers: headers);
-      return _processResponse(response);
+      return _processResponse(response, path);
     } on SocketException catch (_) {
       throw ApiException('इंटरनेट कनेक्शन अनुपलब्ध है। कृपया अपना नेटवर्क कनेक्शन जांचें।');
     } catch (e) {
@@ -84,7 +97,7 @@ class ApiClient {
         headers: headers,
         body: body != null ? jsonEncode(body) : null,
       );
-      return _processResponse(response);
+      return _processResponse(response, path);
     } on SocketException catch (_) {
       throw ApiException('इंटरनेट कनेक्शन अनुपलब्ध है। कृपया अपना नेटवर्क कनेक्शन जांचें।');
     } catch (e) {
@@ -93,7 +106,49 @@ class ApiClient {
     }
   }
 
-  dynamic _processResponse(http.Response response) {
+  Future<dynamic> put(String path, {dynamic body, String? schoolId}) async {
+    try {
+      final url = await _buildUri(path);
+      final headers = await _buildHeaders(schoolId: schoolId);
+
+      if (kDebugMode) {
+        debugPrint('[ApiClient PUT] $url');
+      }
+
+      final response = await http.put(
+        url,
+        headers: headers,
+        body: body != null ? jsonEncode(body) : null,
+      );
+      return _processResponse(response, path);
+    } on SocketException catch (_) {
+      throw ApiException('इंटरनेट कनेक्शन अनुपलब्ध है। कृपया अपना नेटवर्क कनेक्शन जांचें।');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('नेटवर्क त्रुटि: सर्वर से संपर्क नहीं हो सका ($e)');
+    }
+  }
+
+  Future<dynamic> delete(String path, {String? schoolId}) async {
+    try {
+      final url = await _buildUri(path);
+      final headers = await _buildHeaders(schoolId: schoolId);
+
+      if (kDebugMode) {
+        debugPrint('[ApiClient DELETE] $url');
+      }
+
+      final response = await http.delete(url, headers: headers);
+      return _processResponse(response, path);
+    } on SocketException catch (_) {
+      throw ApiException('इंटरनेट कनेक्शन अनुपलब्ध है। कृपया अपना नेटवर्क कनेक्शन जांचें।');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('नेटवर्क त्रुटि: सर्वर से संपर्क नहीं हो सका ($e)');
+    }
+  }
+
+  Future<dynamic> _processResponse(http.Response response, String path) async {
     dynamic body;
     try {
       body = jsonDecode(response.body);
@@ -104,6 +159,17 @@ class ApiClient {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return body;
     } else {
+      if (response.statusCode == 401) {
+        // Token expired or invalid — force logout via global callback,
+        // but only for non-auth routes when a token was actually present
+        // (so a wrong-password 401 shows an inline error instead).
+        if (await _shouldAutoLogout(path)) {
+          try {
+            await clearAuth();
+          } catch (_) {}
+          onAuthFailure?.call();
+        }
+      }
       final msg = body is Map && body.containsKey('message')
           ? body['message']
           : (body is Map && body.containsKey('error') ? body['error'] : 'सर्वर त्रुटि (Status ${response.statusCode})');

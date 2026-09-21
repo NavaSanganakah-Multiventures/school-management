@@ -342,6 +342,7 @@ export function StudentsScreen({ userRole, currentUser }: StudentsScreenProps) {
       <IssueTcModal
         isOpen={!!tcStudent}
         student={tcStudent}
+        userRole={userRole}
         onClose={() => setTcStudent(null)}
         onSuccess={(updated) => {
           handleStudentUpdated(updated);

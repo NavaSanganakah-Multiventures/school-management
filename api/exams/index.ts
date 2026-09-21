@@ -247,7 +247,7 @@ examsApp.get('/report-card/:studentId', async (c) => {
   const st = await db.prepare('SELECT * FROM students WHERE school_id = ? AND id = ?').bind(schoolId, studentId).first();
   if (!st) return c.json({ success: false, message: 'छात्र रिकॉर्ड नहीं मिला।' }, 404);
 
-  let query = 'SELECT em.subject, em.max_marks, em.marks_obtained, em.grade, em.remarks, em.updated_at, e.id as exam_id, e.exam_name, e.academic_year, e.term FROM exam_marks em LEFT JOIN exams e ON e.id = em.exam_id WHERE em.student_id = ? AND em.school_id = ?';
+  let query = 'SELECT em.subject, em.max_marks, em.marks_obtained, em.grade, em.remarks, em.updated_at, e.id as exam_id, e.exam_name, e.academic_year, e.term, COALESCE(es.passing_marks, 33) as passing_marks FROM exam_marks em LEFT JOIN exams e ON e.id = em.exam_id LEFT JOIN exam_subjects es ON es.exam_id = em.exam_id AND es.subject_name = em.subject AND es.school_id = em.school_id WHERE em.student_id = ? AND em.school_id = ?';
   const params: any[] = [studentId, schoolId];
   if (examId) {
     query += ' AND em.exam_id = ?';
@@ -280,14 +280,17 @@ examsApp.get('/report-card/:studentId', async (c) => {
   const subjects = marks.map((m: any) => {
     const marksObtained = Number(m.marks_obtained) || 0;
     const maxMarks = Number(m.max_marks) || 100;
+    const passingMarks = Number(m.passing_marks) || 33;
     const percentage = maxMarks > 0 ? (marksObtained / maxMarks) * 100 : 0;
     return {
       subject: m.subject,
       marks: marksObtained,
       maxMarks: maxMarks,
+      passingMarks: passingMarks,
       grade: m.grade || gradeFor(percentage),
-      remarks: m.remarks || '',
+      remarks: m.remarks || (marksObtained >= passingMarks ? 'उत्तीर्ण' : 'अनुत्तीर्ण'),
       percentage: +percentage.toFixed(1),
+      isPassed: marksObtained >= passingMarks,
     };
   });
 
@@ -334,7 +337,7 @@ examsApp.get('/report-card/:studentId', async (c) => {
     maxTotal,
     percentage,
     finalGrade: gradeFor(percentage),
-    result: percentage >= 33 ? 'उत्तीर्ण (PASS)' : 'अनुत्तीर्ण (FAIL)',
+    result: subjects.every((s: any) => s.isPassed) ? 'उत्तीर्ण (PASS)' : 'अनुत्तीर्ण (FAIL)',
     division,
     lastUpdated,
     hasData: true,
@@ -634,6 +637,16 @@ examsApp.get('/analytics/:examId', async (c) => {
   // Count students who actually scored above 90%
   const studentsAbove90 = studentResults.filter(s => s.percentage >= 90).length;
 
+  // Compute real grade distribution from actual student percentages
+  const gradeDistribution = [
+    { range: '90-100%', label: 'A+ (Outstanding)', count: studentResults.filter(s => s.percentage >= 90).length },
+    { range: '75-89%', label: 'A (Excellent)', count: studentResults.filter(s => s.percentage >= 75 && s.percentage < 90).length },
+    { range: '60-74%', label: 'B+ (Good)', count: studentResults.filter(s => s.percentage >= 60 && s.percentage < 75).length },
+    { range: '45-59%', label: 'B (Satisfactory)', count: studentResults.filter(s => s.percentage >= 45 && s.percentage < 60).length },
+    { range: '33-44%', label: 'C (Pass)', count: studentResults.filter(s => s.percentage >= 33 && s.percentage < 45).length },
+    { range: 'Below 33%', label: 'D (Fail)', count: studentResults.filter(s => s.percentage < 33).length },
+  ];
+
   return c.json({
     success: true,
     analytics: {
@@ -650,6 +663,7 @@ examsApp.get('/analytics/:examId', async (c) => {
       topperStudentId: topper?.studentId || null,
       subjectWiseAnalysis,
       classWiseAnalysis,
+      gradeDistribution,
     },
   });
 });

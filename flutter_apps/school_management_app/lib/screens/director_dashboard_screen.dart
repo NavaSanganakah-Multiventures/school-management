@@ -7,6 +7,17 @@ import '../widgets/activity_log_sheet.dart';
 import 'login_screen.dart';
 import 'principal_dashboard_screen.dart';
 import 'teacher_attendance_screen.dart';
+import 'exams_screen.dart';
+import 'fees_screen.dart';
+import 'staff_management_screen.dart';
+import 'subjects_screen.dart';
+import 'leave_applications_screen.dart';
+import 'school_profile_screen.dart';
+import 'notifications_screen.dart';
+import 'lms_screen.dart';
+import 'ai_screen.dart';
+import 'billing_screen.dart';
+import 'settings_screen.dart';
 
 class DirectorDashboardScreen extends StatefulWidget {
   final UserModel user;
@@ -303,6 +314,96 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
             color: const Color(0xFF78350F),
             onTap: () => ActivityLogSheet.show(context, user: widget.user),
           ),
+          const SizedBox(height: 10),
+
+          _buildOperationTile(
+            title: 'परीक्षा एवं अंक प्रविष्टि',
+            subtitle: 'परीक्षाएं देखें, अंक दर्ज करें, रिपोर्ट कार्ड व विश्लेषण',
+            icon: Icons.assignment_turned_in_rounded,
+            color: const Color(0xFF7C2D12),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExamsScreen(user: widget.user))),
+          ),
+          const SizedBox(height: 10),
+
+          _buildOperationTile(
+            title: 'फीस प्रबंधन',
+            subtitle: 'बिल बनाएं, भुगतान दर्ज करें, फीस संरचना सेट करें',
+            icon: Icons.payments_rounded,
+            color: const Color(0xFF065F46),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => FeesScreen(user: widget.user))),
+          ),
+          const SizedBox(height: 10),
+
+          _buildOperationTile(
+            title: 'स्टाफ प्रबंधन',
+            subtitle: 'स्टाफ जोड़ें, क्लास टीचर असाइन करें',
+            icon: Icons.badge_rounded,
+            color: const Color(0xFF6D28D9),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StaffManagementScreen(user: widget.user))),
+          ),
+          const SizedBox(height: 10),
+
+          _buildOperationTile(
+            title: 'विषय एवं मैपिंग',
+            subtitle: 'विषय बनाएं और कक्षाओं से जोड़ें',
+            icon: Icons.menu_book_rounded,
+            color: const Color(0xFF1F2937),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SubjectsScreen(user: widget.user))),
+          ),
+          const SizedBox(height: 10),
+
+          _buildOperationTile(
+            title: 'अवकाश आवेदन',
+            subtitle: 'अभिभावकों के अवकाश आवेदन स्वीकार/अस्वीकार करें',
+            icon: Icons.event_available_rounded,
+            color: const Color(0xFF0F766E),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => LeaveApplicationsScreen(user: widget.user))),
+          ),
+          const SizedBox(height: 10),
+
+          _buildOperationTile(
+            title: 'विद्यालय प्रोफ़ाइल',
+            subtitle: 'विद्यालय की पहचान व संपर्क जानकारी संपादित करें',
+            icon: Icons.school_rounded,
+            color: const Color(0xFF1E3A8A),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SchoolProfileScreen(user: widget.user))),
+          ),
+          const SizedBox(height: 10),
+
+          _buildOperationTile(
+            title: 'सूचना प्रसारण',
+            subtitle: 'अभिभावकों/विद्यार्थियों/शिक्षकों को पुश सूचना भेजें',
+            icon: Icons.campaign_rounded,
+            color: const Color(0xFFB45309),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => NotificationsScreen(user: widget.user))),
+          ),
+          const SizedBox(height: 10),
+
+          _buildOperationTile(
+            title: 'पाठ्यक्रम (LMS)',
+            subtitle: 'कोर्स, पाठ व असाइनमेंट प्रबंधित करें',
+            icon: Icons.video_library_rounded,
+            color: const Color(0xFF7E22CE),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => LmsScreen(user: widget.user))),
+          ),
+          const SizedBox(height: 10),
+
+          _buildOperationTile(
+            title: 'AI सहायक',
+            subtitle: 'छात्र जोड़ने व रिपोर्ट विश्लेषण में सहायता',
+            icon: Icons.smart_toy_rounded,
+            color: const Color(0xFF4338CA),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AiScreen(user: widget.user))),
+          ),
+          const SizedBox(height: 10),
+
+          _buildOperationTile(
+            title: 'सदस्यता एवं बिलिंग',
+            subtitle: 'प्लान देखें, सदस्यता चुनें व चालान इतिहास',
+            icon: Icons.workspace_premium_rounded,
+            color: const Color(0xFF1E293B),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BillingScreen(user: widget.user))),
+          ),
         ],
       ),
     );
@@ -357,6 +458,28 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                 _buildInfoRow('ऐप वर्शन', AppConfig.appVersion),
               ],
             ),
+          ),
+          const SizedBox(height: 20),
+
+          // Quick links to school profile + settings
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SchoolProfileScreen(user: widget.user))),
+                  icon: const Icon(Icons.school, size: 18),
+                  label: const Text('विद्यालय प्रोफ़ाइल', style: TextStyle(fontSize: 12)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(user: widget.user))),
+                  icon: const Icon(Icons.settings, size: 18),
+                  label: const Text('सेटिंग्स', style: TextStyle(fontSize: 12)),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 20),
 

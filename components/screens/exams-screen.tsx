@@ -17,10 +17,13 @@ import {
   RefreshCw,
   Clock,
   Bell,
+  Download,
+  FileText,
 } from 'lucide-react';
 import { MarksEntryModal } from '../modals/marks-entry-modal';
 import { AcademicSetupPanel } from './academic-setup-panel';
 import { AnalyticsDashboard } from './analytics-dashboard';
+import { CBSETemplate, StateBoardTemplate, ModernTemplate } from '../report-templates';
 
 export function ExamsScreen() {
   const [activeMainTab, setActiveMainTab] = useState<'exams' | 'setup' | 'analytics'>('exams');
@@ -47,6 +50,11 @@ export function ExamsScreen() {
   const [newExamStartDate, setNewExamStartDate] = useState('');
   const [newExamEndDate, setNewExamEndDate] = useState('');
   const [savingExam, setSavingExam] = useState(false);
+
+  // Report card template state
+  const [selectedTemplate, setSelectedTemplate] = useState<'cbse' | 'state' | 'modern'>('cbse');
+  const [schoolName, setSchoolName] = useState<string>('');
+  const reportCardRef = useRef<HTMLDivElement>(null);
 
   // Initial load
   useEffect(() => {
@@ -195,6 +203,52 @@ export function ExamsScreen() {
   const handlePrint = () => {
     window.print();
   };
+
+  const handleDownloadPDF = async () => {
+    if (!reportCardRef.current) return;
+    try {
+      const html2pdf = (await import('html2pdf.js')).default;
+      const filename = `${reportCard?.studentName || 'marksheets'}_${reportCard?.className || ''}_${reportCard?.term || ''}.pdf`
+        .replace(/\s+/g, '_')
+        .replace(/[\/\\]/g, '-');
+      const opt = {
+        margin: [10, 10, 10, 10] as [number, number, number, number],
+        filename,
+        image: { type: 'jpeg' as const, quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const },
+      };
+      await html2pdf().set(opt).from(reportCardRef.current).save();
+    } catch (error) {
+      console.error('PDF download failed:', error);
+      alert('PDF डाउनलोड में त्रुटि। कृपया पुनः प्रयास करें।');
+    }
+  };
+
+  // Load school preferences for default template
+  useEffect(() => {
+    (async () => {
+      try {
+        const [prefsRes, profileRes] = await Promise.all([
+          fetch('/api/exams/school-preferences'),
+          fetch('/api/school-profile'),
+        ]);
+        const prefsData = await prefsRes.json();
+        const profileData = await profileRes.json();
+        if (prefsData.success && prefsData.preferences?.default_report_template_id) {
+          const t = prefsData.preferences.default_report_template_id.replace('template_', '');
+          if (t === 'cbse' || t === 'state' || t === 'modern') {
+            setSelectedTemplate(t as any);
+          }
+        }
+        if (profileData.success && profileData.profile?.school_name) {
+          setSchoolName(profileData.profile.school_name);
+        }
+      } catch {
+        //
+      }
+    })();
+  }, []);
 
   // Format time ago
   const formatTimeAgo = (timestamp: string) => {
@@ -430,12 +484,24 @@ export function ExamsScreen() {
             </div>
 
             <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs font-bold text-slate-700 whitespace-nowrap">टेम्पलेट:</label>
+                <select
+                  value={selectedTemplate}
+                  onChange={(e) => setSelectedTemplate(e.target.value as any)}
+                  className="text-xs rounded-xl border border-slate-300 bg-white px-3 py-2 font-medium text-slate-800 focus:border-blue-500 focus:outline-hidden"
+                >
+                  <option value="cbse">CBSE फॉर्मेट</option>
+                  <option value="state">राज्य बोर्ड फॉर्मेट</option>
+                  <option value="modern">मॉडर्न डिजिटल</option>
+                </select>
+              </div>
               <button
                 onClick={() => setIsMarksModalOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-colors cursor-pointer"
               >
                 <Edit3 className="h-3.5 w-3.5" />
-                <span>इस छात्र के अंक बदलें</span>
+                <span>अंक बदलें</span>
               </button>
               <button
                 onClick={() => refreshData(true)}
@@ -446,12 +512,20 @@ export function ExamsScreen() {
                 <span>Refresh</span>
               </button>
               <button
+                onClick={handleDownloadPDF}
+                disabled={!reportCard}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-40"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span>PDF डाउनलोड</span>
+              </button>
+              <button
                 onClick={handlePrint}
                 disabled={!reportCard}
                 className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-40"
               >
                 <Printer className="h-3.5 w-3.5" />
-                <span>मार्कशीट प्रिंट करें</span>
+                <span>प्रिंट</span>
               </button>
             </div>
           </div>
@@ -462,172 +536,17 @@ export function ExamsScreen() {
               मार्कशीट डेटा लोड हो रहा है...
             </div>
           ) : reportCard ? (
-            <div className="rounded-3xl border-2 border-slate-300 bg-white p-6 sm:p-8 shadow-md space-y-6 print:border-none print:shadow-none print:p-2 print:m-0">
-              {/* Institutional Header */}
-              <div className="border-b-2 border-slate-900 pb-5 text-center relative">
-                <div className="flex items-center justify-center gap-2 text-blue-900 font-extrabold text-xs tracking-widest uppercase mb-1">
-                  <School className="h-4 w-4" />
-                  <span>शिक्षा संवर्धन संस्थान • मान्यता प्राप्त</span>
-                </div>
-                <h2 className="text-xl sm:text-2xl font-black text-slate-950 tracking-tight">
-                  विद्या सेतु उच्चतर माध्यमिक विद्यालय
-                </h2>
-                <p className="text-xs font-bold text-slate-700 mt-0.5">
-                  VIDYASETU HIGHER SECONDARY SCHOOL
-                </p>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  सीबीएसई / राज्य शिक्षा मंडल संबद्धता क्रमांक: 1030894 • स्कूल कोड: 50812
-                </p>
-                <div className="inline-block mt-3 px-4 py-1 rounded-full bg-slate-900 text-white text-xs font-black tracking-wider uppercase">
-                  शैक्षणिक प्रगति पत्रक / CUMULATIVE PROGRESS REPORT ({reportCard.academicYear || '2026-27'})
-                </div>
-              </div>
-
-              {/* Student Profile Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs">
-                <div>
-                  <span className="text-[10px] text-slate-400 font-semibold uppercase">विद्यार्थी का नाम:</span>
-                  <p className="font-bold text-slate-900 text-sm mt-0.5">{reportCard.studentName}</p>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 font-semibold uppercase">स्कॉलर / अनुक्रमांक:</span>
-                  <p className="font-bold text-slate-900 text-sm mt-0.5">
-                    SR: {reportCard.scholarNumber} | रोल: {reportCard.rollNumber}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 font-semibold uppercase">कक्षा व वर्ग:</span>
-                  <p className="font-bold text-slate-900 text-sm mt-0.5">
-                    {reportCard.className} - सेक्शन {reportCard.section}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 font-semibold uppercase">परीक्षा सत्र:</span>
-                  <p className="font-bold text-blue-900 text-sm mt-0.5">{reportCard.term}</p>
-                </div>
-                {reportCard.fatherName && (
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-semibold uppercase">पिता का नाम:</span>
-                    <p className="font-semibold text-slate-800 mt-0.5">{reportCard.fatherName}</p>
-                  </div>
+            <div className="rounded-3xl border-2 border-slate-300 bg-white p-6 sm:p-8 shadow-md print:border-none print:shadow-none print:p-2 print:m-0">
+              <div ref={reportCardRef} className="print-target">
+                {selectedTemplate === 'cbse' && (
+                  <CBSETemplate data={reportCard} schoolName={schoolName || undefined} />
                 )}
-                {reportCard.motherName && (
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-semibold uppercase">माता का नाम:</span>
-                    <p className="font-semibold text-slate-800 mt-0.5">{reportCard.motherName}</p>
-                  </div>
+                {selectedTemplate === 'state' && (
+                  <StateBoardTemplate data={reportCard} schoolName={schoolName || undefined} />
                 )}
-                {reportCard.dob && (
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-semibold uppercase">जन्म दिनांक:</span>
-                    <p className="font-semibold text-slate-800 mt-0.5">{reportCard.dob}</p>
-                  </div>
+                {selectedTemplate === 'modern' && (
+                  <ModernTemplate data={reportCard} schoolName={schoolName || undefined} />
                 )}
-                <div>
-                  <span className="text-[10px] text-slate-400 font-semibold uppercase">परिणाम स्थिति:</span>
-                  <p className={`font-black mt-0.5 ${reportCard.percentage >= 33 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                    {reportCard.result}
-                  </p>
-                </div>
-              </div>
-
-              {/* Subject Marks Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left border border-slate-300 rounded-xl overflow-hidden">
-                  <thead className="bg-slate-900 text-white font-bold text-[11px]">
-                    <tr>
-                      <th className="p-3 w-12 text-center">क्र.सं.</th>
-                      <th className="p-3">विषय का नाम</th>
-                      <th className="p-3 text-center w-24">पूर्णांक</th>
-                      <th className="p-3 text-center w-24">उत्तीर्णांक</th>
-                      <th className="p-3 text-center w-24">प्राप्तांक</th>
-                      <th className="p-3 text-center w-20">ग्रेड</th>
-                      <th className="p-3 w-36">टिप्पणी</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 font-medium">
-                    {reportCard.subjects.map((sub: any, idx: number) => (
-                      <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
-                        <td className="p-2.5 text-center font-mono text-slate-400">{idx + 1}</td>
-                        <td className="p-2.5 font-bold text-slate-900">{sub.subject}</td>
-                        <td className="p-2.5 text-center font-mono text-slate-600">{sub.maxMarks}</td>
-                        <td className="p-2.5 text-center font-mono text-slate-400">33</td>
-                        <td className="p-2.5 text-center font-mono font-bold text-blue-900 text-sm">
-                          {sub.marks}
-                        </td>
-                        <td className="p-2.5 text-center font-bold">
-                          <span className="inline-block px-2 py-0.5 rounded bg-blue-50 text-blue-900 font-bold text-[11px]">
-                            {sub.grade}
-                          </span>
-                        </td>
-                        <td className="p-2.5 text-slate-500 text-[11px]">{sub.remarks || 'उत्तीर्ण'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300">
-                    <tr>
-                      <td colSpan={2} className="p-3 text-right text-slate-900 font-bold">
-                        महायोग:
-                      </td>
-                      <td className="p-3 text-center font-mono text-slate-900 font-bold">
-                        {reportCard.maxTotal}
-                      </td>
-                      <td className="p-3 text-center font-mono text-slate-500">—</td>
-                      <td className="p-3 text-center font-mono font-black text-blue-900 text-base">
-                        {reportCard.totalMarks}
-                      </td>
-                      <td className="p-3 text-center font-black text-blue-900">
-                        {reportCard.finalGrade}
-                      </td>
-                      <td className="p-3 text-[11px] text-emerald-800 font-bold">
-                        {reportCard.percentage}% ({reportCard.division})
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-
-              {/* Performance & Grading Scale Footer */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-[11px] space-y-1">
-                  <span className="font-bold text-slate-700 block mb-1">ग्रेडिंग पैमाना:</span>
-                  <p className="text-slate-600">A+ (90%-100%): असाधारण • A (75%-89%): अति उत्तम</p>
-                  <p className="text-slate-600">B+ (60%-74%): उत्तम • B (45%-59%): संतोषजनक • C (33%-44%): उत्तीर्ण</p>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">
-                      अंतिम परिणाम सारांश
-                    </span>
-                    <h4 className="font-black text-emerald-950 text-base mt-0.5">
-                      {reportCard.result} — {reportCard.division}
-                    </h4>
-                    <p className="text-[11px] text-emerald-700 mt-0.5">प्राप्तांक प्रतिशत: {reportCard.percentage}%</p>
-                  </div>
-                  <div className="h-12 w-12 rounded-full bg-emerald-600 text-white flex items-center justify-center font-black text-lg shadow-sm">
-                    {reportCard.finalGrade}
-                  </div>
-                </div>
-              </div>
-
-              {/* Signatures */}
-              <div className="pt-8 grid grid-cols-3 gap-4 text-center text-xs text-slate-700">
-                <div>
-                  <div className="h-12 border-b border-dashed border-slate-400 mb-2"></div>
-                  <p className="font-bold">कक्षा अध्यापक हस्ताक्षर</p>
-                  <span className="text-[10px] text-slate-400">Class Teacher</span>
-                </div>
-                <div>
-                  <div className="h-12 border-b border-dashed border-slate-400 mb-2"></div>
-                  <p className="font-bold">परीक्षा प्रभारी हस्ताक्षर</p>
-                  <span className="text-[10px] text-slate-400">Exam Controller</span>
-                </div>
-                <div>
-                  <div className="h-12 border-b border-dashed border-slate-400 mb-2"></div>
-                  <p className="font-bold">प्राचार्य हस्ताक्षर व मुद्रा</p>
-                  <span className="text-[10px] text-slate-400">Principal & Seal</span>
-                </div>
               </div>
             </div>
           ) : (
