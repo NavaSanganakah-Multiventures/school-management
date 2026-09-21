@@ -22,7 +22,7 @@ class ExamModel {
       id: json['id']?.toString() ?? '',
       name: json['name'] ?? '',
       academicYear: json['academicYear']?.toString(),
-      term: json['term']?.toString(),
+      term: json['term']?.toString() ?? json['classes']?.toString(),
       startDate: json['startDate']?.toString(),
       endDate: json['endDate']?.toString(),
       status: json['status'] ?? 'Active',

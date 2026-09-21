@@ -19,7 +19,7 @@ class _SubjectsScreenState extends State<SubjectsScreen> {
   String? _error;
   List<SubjectModel> _subjects = [];
   List<ClassSubjectModel> _classSubjects = [];
-  bool get _isAdmin => widget.user.role == UserRole.director || widget.user.role == UserRole.principal;
+  bool get _isAdmin => widget.user.isAdminRole;
 
   @override
   void initState() {

@@ -32,7 +32,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
   StudentModel? _student;
 
   final _ctrl = <String, TextEditingController>{};
-  bool get _isAdmin => widget.user.role == UserRole.director || widget.user.role == UserRole.principal;
+  bool get _isAdmin => widget.user.isAdminRole;
 
   @override
   void initState() {

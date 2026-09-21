@@ -21,7 +21,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   List<StaffModel> _staff = [];
   List<ClassModel> _classes = [];
   final _searchCtrl = TextEditingController();
-  bool get _isAdmin => widget.user.role == UserRole.director || widget.user.role == UserRole.principal;
+  bool get _isAdmin => widget.user.canManageStaff;
 
   @override
   void initState() {

@@ -1,12 +1,9 @@
 -- 0034: Relax system_users.role CHECK to allow 'Parents' and 'Students' roles.
 -- SQLite cannot ALTER a CHECK constraint in place, so the table must be rebuilt.
---
--- NOTE (D1 compatibility): Cloudflare D1 rejects explicit SQL transaction
--- control (BEGIN TRANSACTION / COMMIT) with error 7500, and applies each
--- migration file inside its own implicit transaction. PRAGMA foreign_keys
--- is also not usable in D1 migrations. There are no foreign-key references
--- to system_users in this schema, so the rebuild is safe without disabling
--- FK enforcement. Statements are listed plainly; D1 wraps them atomically.
+
+PRAGMA foreign_keys=off;
+
+BEGIN TRANSACTION;
 
 CREATE TABLE system_users_new (
     id TEXT PRIMARY KEY,
@@ -33,3 +30,7 @@ FROM system_users;
 
 DROP TABLE system_users;
 ALTER TABLE system_users_new RENAME TO system_users;
+
+COMMIT;
+
+PRAGMA foreign_keys=on;

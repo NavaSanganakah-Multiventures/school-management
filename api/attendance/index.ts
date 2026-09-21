@@ -15,20 +15,6 @@ function classListWhereClause(classNames: string[]): { clause: string; params: a
   return { clause: ' AND s.class_name IN (' + placeholders + ')', params: classNames };
 }
 
-function allowedClassesForUser(authUser: any, targetClass: string | null, assignedClasses: string[]): string[] | null {
-  const isAdmin = authUser.role === 'Director' || authUser.role === 'Principal' || authUser.role === 'SuperAdmin';
-  if (isAdmin) {
-    if (targetClass && targetClass !== 'All') return [targetClass];
-    return null;
-  }
-  let allowed = assignedClasses;
-  if (targetClass && targetClass !== 'All') {
-    if (!allowed.includes(targetClass)) return [];
-    allowed = [targetClass];
-  }
-  return allowed;
-}
-
 async function canMarkAttendanceForClass(db: any, schoolId: string, authUser: any, className: string): Promise<boolean> {
   if (authUser.role === 'Director' || authUser.role === 'Principal' || authUser.role === 'SuperAdmin') return true;
   if (authUser.role !== 'Staff') return false;
@@ -107,7 +93,7 @@ attendanceApp.get('/', async (c) => {
       parentName: s.parent_name || 'अभिभावक',
       parentPhone: s.parent_phone || '',
       date,
-      status: s.status || 'Present',
+      status: s.status || 'Unmarked',
       remarks: s.remarks || '',
       markedBy: s.marked_by || 'कक्षा अध्यापक (Class Teacher)',
     };
@@ -117,12 +103,14 @@ attendanceApp.get('/', async (c) => {
   const present = list.filter((r) => r.status === 'Present').length;
   const absent = list.filter((r) => r.status === 'Absent').length;
   const leave = list.filter((r) => r.status === 'Leave').length;
-  const rate = total > 0 ? Math.round((present / total) * 100) : 0;
+  const unmarked = list.filter((r) => r.status === 'Unmarked').length;
+  const marked = total - unmarked;
+  const rate = marked > 0 ? Math.round((present / marked) * 100) : 0;
 
   return c.json({
     success: true,
     date,
-    stats: { total, present, absent, leave, rate },
+    stats: { total, present, absent, leave, unmarked, rate },
     records: list,
     assignedClasses,
     canMark,
@@ -352,12 +340,15 @@ attendanceApp.post('/mark-all-present', async (c) => {
 
   const markedBy = await resolveMarkedBy(db, authUser);
 
-  for (const s of students) {
+  const stmts = students.map((s) => {
     const id = 'att-' + s.id + '-' + targetDate;
-    await db.prepare(
+    return db.prepare(
       'INSERT INTO attendance (id, student_id, date, status, remarks, marked_by, school_id) VALUES (?,?,?,?,?,?,?) ' +
       'ON CONFLICT(id) DO UPDATE SET status=excluded.status, marked_by=excluded.marked_by'
-    ).bind(id, s.id, targetDate, 'Present', '', markedBy, schoolId).run();
+    ).bind(id, s.id, targetDate, 'Present', '', markedBy, schoolId);
+  });
+  if (stmts.length > 0) {
+    await db.batch(stmts);
   }
 
   await logActivity(db, {
