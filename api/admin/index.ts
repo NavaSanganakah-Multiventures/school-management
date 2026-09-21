@@ -35,8 +35,6 @@ export function isAuthorizedPlatformEmail(email: string, env: any): boolean {
   // Fallback when PLATFORM_ADMIN_EMAIL is not yet bound to env (e.g. dev/setup):
   return (
     normalized.endsWith('@nasven.com') ||
-    normalized.endsWith('@vidyasetu.com') ||
-    normalized.endsWith('@vidyasetu.app') ||
     normalized.endsWith('@pragnyamitra.app') ||
     normalized.endsWith('@pragnyamitra.com') ||
     normalized.endsWith('@navasanganakah.com')
@@ -1503,7 +1501,7 @@ adminApp.post('/schools/send-payment-link', async (c) => {
   const gst = +(basePrice * 0.18).toFixed(2);
   const total = +(basePrice + gst).toFixed(2);
 
-  const referenceId = 'VS-' + schoolId + '-' + Date.now();
+  const referenceId = 'PM-' + schoolId + '-' + Date.now();
   const linkResult = await createRazorpayPaymentLink(c, {
     amountINR: total,
     description: plan.name + ' सदस्यता (' + billingCycle + ') — ' + school.school_name,
@@ -1518,7 +1516,7 @@ adminApp.post('/schools/send-payment-link', async (c) => {
     return c.json({ success: false, message: linkResult.error }, 400);
   }
 
-  const invoiceNumber = 'VS-INV-' + Date.now() + '-' + (crypto.randomUUID().split('-').join('').slice(0, 8));
+  const invoiceNumber = 'PM-INV-' + Date.now() + '-' + (crypto.randomUUID().split('-').join('').slice(0, 8));
   const now = new Date().toISOString();
   const invoiceId = 'binv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
 

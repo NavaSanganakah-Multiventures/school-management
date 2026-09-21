@@ -145,11 +145,11 @@ billingApp.post('/subscribe', async (c) => {
 
   const gst = +(amount * 0.18).toFixed(2);
   const total = +(amount + gst).toFixed(2);
-  const receipt = 'VS-' + schoolId + '-' + Date.now();
+  const receipt = 'PM-' + schoolId + '-' + Date.now();
   const order = await createRazorpayOrder(c, total, receipt);
   if (order.error) return c.json({ success: false, message: order.error }, 400);
 
-  const invoiceNumber = 'VS-INV-' + Date.now() + '-' + (crypto.randomUUID().split('-').join('').slice(0, 8));
+  const invoiceNumber = 'PM-INV-' + Date.now() + '-' + (crypto.randomUUID().split('-').join('').slice(0, 8));
   const now = new Date().toISOString();
 
   try {

@@ -313,7 +313,7 @@ feesApp.post('/create-order', async (c) => {
     return c.json({ success: false, message: 'भुगतान राशि शेष राशि से अधिक नहीं हो सकती (शेष: ₹' + remaining.toLocaleString('en-IN') + ')।' }, 400);
   }
 
-  const receipt = 'VS-FEE-' + String(row.invoice_number).replace(/[^a-zA-Z0-9]/g, '') + '-' + Date.now();
+  const receipt = 'PM-FEE-' + String(row.invoice_number).replace(/[^a-zA-Z0-9]/g, '') + '-' + Date.now();
   const order = await createRazorpayOrder(c, payAmt, receipt);
   if (order.error) return c.json({ success: false, message: order.error }, 400);
 

@@ -81,7 +81,7 @@ async function resolvePaymentLink(env: any, db: any, school: any): Promise<{ url
   }
 
   // Store a pending invoice so the webhook resolves it on payment.
-  const invoiceNumber = 'VS-INV-' + Date.now() + '-' + (crypto.randomUUID().split('-').join('').slice(0, 8));
+  const invoiceNumber = 'PM-INV-' + Date.now() + '-' + (crypto.randomUUID().split('-').join('').slice(0, 8));
   const now = new Date().toISOString();
   const invoiceId = 'binv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
   try {

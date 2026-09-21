@@ -199,7 +199,7 @@ export async function resolveTenant(c: any): Promise<ResolvedTenant> {
   // Absolute fallback
   return {
     schoolId: (env && env.DEFAULT_SCHOOL_ID) || 'school-01',
-    schoolName: (env && env.DEFAULT_SCHOOL_NAME) || 'Pragnya Mitra School',
+    schoolName: (env && (env.DEFAULT_SCHOOL_NAME || env.SCHOOL_NAME)) || 'Pragnya Mitra School',
     subdomain: '',
     status: 'Active',
     isDedicated: false,
