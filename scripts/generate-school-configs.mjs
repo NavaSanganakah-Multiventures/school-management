@@ -74,10 +74,12 @@ function main() {
 
     lines.push(
       '',
-      '# Static frontend (out/) — auto-served like the shared worker.',
+      '# Static Flutter web frontend — auto-served like the shared worker.',
+      '# SPA fallback serves index.html for client-side routes.',
       '[assets]',
-      'directory = "./out"',
+      'directory = "./flutter_apps/school_management_app/build/web"',
       'binding = "ASSETS"',
+      'not_found_handling = "single-page-application"',
       '',
       '[vars]',
       'ENVIRONMENT = ' + JSON.stringify(PLATFORM_VARS.ENVIRONMENT),

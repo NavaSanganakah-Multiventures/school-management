@@ -1,4 +1,4 @@
-name: Deploy Pragnya Mitra (Next.js + Cloudflare Worker)
+name: Deploy Pragnya Mitra (Flutter Web + Cloudflare Worker)
 
 on:
   push:
@@ -21,8 +21,19 @@ jobs:
       - run: npm install
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm run build
       - run: test -f api/index.ts
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+      - name: Build Flutter web (release)
+        run: |
+          cd flutter_apps/school_management_app
+          flutter pub get
+          flutter build web --release --base-href /
+      - name: Verify Flutter web build output
+        run: test -f flutter_apps/school_management_app/build/web/index.html
 
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -49,7 +60,20 @@ jobs:
       - name: Generate Wrangler Configs
         run: node scripts/generate-school-configs.mjs
 
-      - run: npm run build
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Build Flutter web (release)
+        run: |
+          cd flutter_apps/school_management_app
+          flutter pub get
+          flutter build web --release --base-href /
+
+      - name: Verify Flutter web build output
+        run: test -f flutter_apps/school_management_app/build/web/index.html
 
       - name: Apply D1 database migrations (Platform/Shared)
         run: npx --yes wrangler@3.90.0 d1 migrations apply DB --remote
