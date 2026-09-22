@@ -1,0 +1,131 @@
+name: Android Release (Signed AAB + Play Store Upload)
+
+# Builds signed release App Bundles (.aab) for BOTH Flutter apps:
+#   - flutter_apps/school_management_app  (com.nasven.pragnya)
+#   - flutter_apps/super_admin_app        (com.nasven.pragnya.admin)
+#
+# Signing keys come from GitHub Secrets (restored to upload-keystore.jks locally).
+# Publishing to Google Play is OPT-IN (workflow_dispatch -> publish=true) and
+# only runs when PLAY_SERVICE_ACCOUNT_JSON secret is configured.
+#
+# Manual run:  Actions -> "Android Release" -> Run workflow
+#     track:   internal | alpha | beta | production   (default: internal)
+#     publish: true = also upload AABs to Google Play
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - flutter_apps/super_admin_app/**
+      - flutter_apps/school_management_app/**
+      - .github/workflows/release-android.yml
+  workflow_dispatch:
+    inputs:
+      track:
+        description: Google Play track to publish to
+        type: choice
+        options: [internal, alpha, beta, production]
+        default: internal
+      publish:
+        description: Also upload AABs to Google Play
+        type: choice
+        options: ['false', 'true']
+        default: 'false'
+
+permissions:
+  contents: read
+
+env:
+  TRACK: ${{ github.event.inputs.track || 'internal' }}
+  DO_PUBLISH: ${{ github.event.inputs.publish || 'false' }}
+  HAS_PLAY_CREDS: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+
+jobs:
+  android-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Restore signing keystores (from secrets)
+        run: |
+          set -euo pipefail
+          printf '%s' "${{ secrets.SCHOOL_ANDROID_KEYSTORE_BASE64 }}" | base64 -d > flutter_apps/school_management_app/android/app/upload-keystore.jks
+          printf '%s' "${{ secrets.ADMIN_ANDROID_KEYSTORE_BASE64 }}" | base64 -d > flutter_apps/super_admin_app/android/app/upload-keystore.jks
+          ls -la flutter_apps/*/android/app/upload-keystore.jks
+
+      - name: Write key.properties (school management app)
+        run: |
+          set -euo pipefail
+          cat > flutter_apps/school_management_app/android/key.properties <<'EOF'
+          ANDROID_KEYSTORE=upload-keystore.jks
+          ANDROID_KEYSTORE_PASSWORD=${{ secrets.SCHOOL_ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS=${{ secrets.SCHOOL_ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD=${{ secrets.SCHOOL_ANDROID_KEY_PASSWORD }}
+          EOF
+
+      - name: Write key.properties (super admin app)
+        run: |
+          set -euo pipefail
+          cat > flutter_apps/super_admin_app/android/key.properties <<'EOF'
+          ANDROID_KEYSTORE=upload-keystore.jks
+          ANDROID_KEYSTORE_PASSWORD=${{ secrets.ADMIN_ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS=${{ secrets.ADMIN_ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD=${{ secrets.ADMIN_ANDROID_KEY_PASSWORD }}
+          EOF
+
+      - name: Analyze + build school management AAB (release)
+        run: |
+          cd flutter_apps/school_management_app
+          flutter pub get
+          flutter analyze
+          flutter build appbundle --release
+
+      - name: Analyze + build super admin AAB (release)
+        run: |
+          cd flutter_apps/super_admin_app
+          flutter pub get
+          flutter analyze
+          flutter build appbundle --release
+
+      - name: Upload signed AABs as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-aabs
+          path: |
+            flutter_apps/school_management_app/build/app/outputs/bundle/release/*.aab
+            flutter_apps/super_admin_app/build/app/outputs/bundle/release/*.aab
+          if-no-files-found: error
+
+      - name: Publish school AAB to Google Play (${{ env.TRACK }})
+        if: env.DO_PUBLISH == 'true' && env.HAS_PLAY_CREDS == 'true'
+        shell: bash
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > /tmp/play-service-account.json
+          cd flutter_apps/school_management_app/android
+          PLAY_SERVICE_ACCOUNT_FILE=/tmp/play-service-account.json ./gradlew publishBundle -PplayTrack="$TRACK"
+
+      - name: Publish super admin AAB to Google Play (${{ env.TRACK }})
+        if: env.DO_PUBLISH == 'true' && env.HAS_PLAY_CREDS == 'true'
+        shell: bash
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > /tmp/play-service-account.json
+          cd flutter_apps/super_admin_app/android
+          PLAY_SERVICE_ACCOUNT_FILE=/tmp/play-service-account.json ./gradlew publishBundle -PplayTrack="$TRACK"

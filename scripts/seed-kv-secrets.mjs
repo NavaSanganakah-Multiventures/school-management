@@ -25,6 +25,11 @@ const DEFAULT_KV_NAMESPACE_ID = '393901911be84d558822c78070a82e94';
 
 // KV keys = GitHub repo secret names used by .github/workflows/deploy.yml.
 // CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID stay as GitHub secrets (access creds).
+//
+// NOTE: Android release signing secrets (ADMIN/SCHOOL_ANDROID_KEYSTORE_*,
+// PLAY_SERVICE_ACCOUNT_JSON) are intentionally NOT in this list — they are
+// CI-only secrets for .github/workflows/release-android.yml and must never be
+// written to KV. Use `gh secret set` directly for those.
 const SECRET_KEYS = [
   'RAZORPAY_KEY_ID',
   'RAZORPAY_KEY_SECRET',
