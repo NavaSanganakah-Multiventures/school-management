@@ -1,21 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../config/app_config.dart';
+import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
 import '../services/fcm_notification_service.dart';
 import '../models/user_model.dart';
-import 'director_dashboard_screen.dart';
-import 'principal_dashboard_screen.dart';
-import 'teacher_attendance_screen.dart';
-import 'parent_portal_screen.dart';
 
-class LoginScreen extends StatefulWidget {
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
@@ -62,6 +61,10 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final user = await AuthService().login(email, password);
 
+      // Publish auth state — the router redirect (refreshListenable) reacts
+      // to this change as well.
+      await ref.read(authControllerProvider.notifier).setUser(user);
+
       // Initialize FCM Notifications in background
       try {
         await FcmNotificationService().init(user);
@@ -69,7 +72,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      // AUTOMATIC ROLE-BASED ROUTING
+      // AUTOMATIC ROLE-BASED ROUTING (URL-addressable via go_router)
       _navigateToRoleDashboard(user);
     } catch (e) {
       setState(() {
@@ -85,35 +88,17 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _navigateToRoleDashboard(UserModel user) {
-    Widget destination;
-
-    switch (user.role) {
-      case UserRole.director:
-        destination = DirectorDashboardScreen(user: user);
-        break;
-      case UserRole.principal:
-        destination = PrincipalDashboardScreen(user: user);
-        break;
-      case UserRole.staff:
-        destination = TeacherAttendanceScreen(user: user);
-        break;
-      case UserRole.parents:
-      case UserRole.students:
-        destination = ParentPortalScreen(user: user);
-        break;
-      case UserRole.superAdmin:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('सुपर एडमिन कृपया "Pragnya Mitra Super Admin" ऐप का उपयोग करें।'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        return;
+    if (user.role == UserRole.superAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('सुपर एडमिन कृपया "Pragnya Mitra Super Admin" ऐप का उपयोग करें।'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
     }
 
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => destination),
-    );
+    context.go(dashboardPathForRole(user.role));
   }
 
   void _showServerSettingsModal() {

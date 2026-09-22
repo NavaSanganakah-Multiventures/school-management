@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import '../config/app_config.dart';
 import '../models/user_model.dart';
 import '../services/api_client.dart';
-import '../services/auth_service.dart';
+import '../routes/auth_actions.dart';
 import '../widgets/activity_log_sheet.dart';
 import '../widgets/responsive_layout.dart';
-import 'login_screen.dart';
 import 'principal_dashboard_screen.dart';
 import 'teacher_attendance_screen.dart';
 import 'exams_screen.dart';
@@ -193,10 +192,7 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: () async {
-                        await AuthService().logout();
-                        if (mounted) {
-                          Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
-                        }
+                        await performLogout(context);
                       },
                       icon: const Icon(Icons.logout, size: 16, color: Colors.white70),
                       label: const Text('लॉगआउट', style: TextStyle(color: Colors.white70, fontSize: 12)),
@@ -349,8 +345,7 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
             icon: const Icon(Icons.logout),
             tooltip: 'लॉगआउट',
             onPressed: () async {
-              await AuthService().logout();
-              if (context.mounted) Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
+              await performLogout(context);
             },
           ),
         ],
@@ -528,8 +523,7 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             onPressed: () async {
-              await AuthService().logout();
-              if (mounted) Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
+              await performLogout(context);
             },
             icon: const Icon(Icons.logout),
             label: const Text('सुरक्षित लॉगआउट करें'),

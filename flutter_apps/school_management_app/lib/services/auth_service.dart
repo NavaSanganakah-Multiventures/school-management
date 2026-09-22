@@ -14,6 +14,10 @@ class AuthService {
   UserModel? _currentUser;
   UserModel? get currentUser => _currentUser;
 
+  /// Caches a user in memory without a network round-trip.
+  /// Used by the Riverpod auth controller after login / session restore.
+  void cacheUser(UserModel user) => _currentUser = user;
+
   Future<UserModel> login(String identifier, String password) async {
     final response = await _api.post('/api/auth/login', body: {
       'email': identifier.trim(),
