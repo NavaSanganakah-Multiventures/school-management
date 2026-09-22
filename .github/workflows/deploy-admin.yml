@@ -1,0 +1,116 @@
+name: Deploy Super Admin Console (Flutter Web → Cloudflare Worker)
+
+# Builds the Super Admin Flutter web app and deploys it as a dedicated
+# Cloudflare Worker with static assets on admin.pragnya.nasven.com.
+#
+# Worker config: wrangler.admin.toml (route admin.pragnya.nasven.com/* takes
+# precedence over the platform wildcard in wrangler.toml).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - flutter_apps/super_admin_app/**
+      - wrangler.admin.toml
+      - api/**
+      - .github/workflows/deploy-admin.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Analyze Super Admin app
+        run: |
+          cd flutter_apps/super_admin_app
+          flutter pub get
+          flutter analyze
+
+      - name: Test Super Admin app
+        run: |
+          cd flutter_apps/super_admin_app
+          flutter test
+
+      - name: Build Super Admin Flutter web (release)
+        run: |
+          cd flutter_apps/super_admin_app
+          flutter build web --release --base-href / --no-wasm-dry-run
+
+      - name: Verify Flutter web build output
+        run: test -f flutter_apps/super_admin_app/build/web/index.html
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Build Super Admin Flutter web (release)
+        run: |
+          cd flutter_apps/super_admin_app
+          flutter pub get
+          flutter build web --release --base-href / --no-wasm-dry-run
+
+      - name: Verify Flutter web build output
+        run: test -f flutter_apps/super_admin_app/build/web/index.html
+
+      - name: Deploy Super Admin Worker (admin.pragnya.nasven.com)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerConfigPath: wrangler.admin.toml
+          command: deploy
+          packageManager: npm
+          postCommands: |
+            if [ -n "$RAZORPAY_KEY_ID" ]; then printf '%s' "$RAZORPAY_KEY_ID" | npx wrangler secret put RAZORPAY_KEY_ID -c wrangler.admin.toml; fi
+            if [ -n "$RAZORPAY_KEY_SECRET" ]; then printf '%s' "$RAZORPAY_KEY_SECRET" | npx wrangler secret put RAZORPAY_KEY_SECRET -c wrangler.admin.toml; fi
+            if [ -n "$AUTH_SECRET" ]; then printf '%s' "$AUTH_SECRET" | npx wrangler secret put AUTH_SECRET -c wrangler.admin.toml; fi
+            if [ -n "$PLATFORM_ADMIN_EMAIL" ]; then printf '%s' "$PLATFORM_ADMIN_EMAIL" | npx wrangler secret put PLATFORM_ADMIN_EMAIL -c wrangler.admin.toml; fi
+            if [ -n "$PLATFORM_ADMIN_PASSWORD" ]; then printf '%s' "$PLATFORM_ADMIN_PASSWORD" | npx wrangler secret put PLATFORM_ADMIN_PASSWORD -c wrangler.admin.toml; fi
+            if [ -n "$FCM_SERVICE_ACCOUNT_JSON" ]; then printf '%s' "$FCM_SERVICE_ACCOUNT_JSON" | npx wrangler secret put FCM_SERVICE_ACCOUNT_JSON -c wrangler.admin.toml; fi
+            if [ -n "$WEB_PUSH_VAPID_PRIVATE_KEY" ]; then printf '%s' "$WEB_PUSH_VAPID_PRIVATE_KEY" | npx wrangler secret put WEB_PUSH_VAPID_PRIVATE_KEY -c wrangler.admin.toml; fi
+            if [ -n "$FIREBASE_WEB_CONFIG_JSON" ]; then printf '%s' "$FIREBASE_WEB_CONFIG_JSON" | npx wrangler secret put FIREBASE_WEB_CONFIG_JSON -c wrangler.admin.toml; fi
+            if [ -n "$PROVISIONING_GITHUB_TOKEN" ]; then printf '%s' "$PROVISIONING_GITHUB_TOKEN" | npx wrangler secret put GITHUB_TOKEN -c wrangler.admin.toml; fi
+        env:
+          RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
+          RAZORPAY_KEY_SECRET: ${{ secrets.RAZORPAY_KEY_SECRET }}
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+          WEB_PUSH_VAPID_PRIVATE_KEY: ${{ secrets.WEB_PUSH_VAPID_PRIVATE_KEY }}
+          FIREBASE_WEB_CONFIG_JSON: ${{ secrets.FIREBASE_WEB_CONFIG_JSON }}
+          PROVISIONING_GITHUB_TOKEN: ${{ secrets.PROVISIONING_GITHUB_TOKEN }}
+
+      - name: Verify Super Admin console is live
+        run: |
+          for i in 1 2 3 4 5; do
+            echo "--- health check attempt $i ---"
+            RESP=$(curl -sS "https://admin.pragnya.nasven.com/api/health" || true)
+            echo "$RESP"
+            if echo "$RESP" | grep -q '"status":"online"'; then
+              echo "ADMIN_CONSOLE_OK"
+              break
+            fi
+            sleep 5
+          done
+        shell: bash

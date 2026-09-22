@@ -40,6 +40,16 @@ class SuperAdminApiClient {
     return _process(response);
   }
 
+  Future<dynamic> put(String path, {dynamic body}) async {
+    final response = await http.put(_uri(path), headers: await _headers(), body: body != null ? jsonEncode(body) : null);
+    return _process(response);
+  }
+
+  Future<dynamic> delete(String path) async {
+    final response = await http.delete(_uri(path), headers: await _headers());
+    return _process(response);
+  }
+
   dynamic _process(http.Response response) {
     dynamic body;
     try {

@@ -1,0 +1,52 @@
+# =============================================================================
+# Super Admin Console — Dedicated Worker (admin.pragnya.nasven.com)
+#
+# Serves the Flutter web Super Admin app (flutter_apps/super_admin_app)
+# as static assets + the full platform API (api/index.ts), so /api/admin/*
+# works on the same origin (no CORS issues for the Flutter app).
+#
+# Route precedence: admin.pragnya.nasven.com/* is more specific than the
+# platform wildcard (*.pragnya.nasven.com/*) in wrangler.toml, so Cloudflare
+# routes this subdomain to this worker instead of the shared school worker.
+#
+# IMPORTANT:
+#   - No IS_DEDICATED_WORKER / SCHOOL_ID vars → the /api/admin/* routes stay
+#     enabled (the shared worker explicitly blocks them on dedicated workers).
+#   - No [triggers] → cron (trial expiry etc.) stays exclusively on the
+#     platform worker to avoid duplicate processing.
+# =============================================================================
+name = "school-management-admin"
+main = "./api/index.ts"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Super Admin console domain — more specific than the *.pragnya.nasven.com wildcard.
+[[routes]]
+pattern = "admin.pragnya.nasven.com/*"
+zone_name = "nasven.com"
+
+# Super Admin Flutter web frontend — auto-served like the shared worker.
+# Build: cd flutter_apps/super_admin_app && flutter build web --release
+[assets]
+directory = "./flutter_apps/super_admin_app/build/web"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[vars]
+ENVIRONMENT = "production"
+APP_BASE_URL = "https://admin.pragnya.nasven.com"
+
+# Shared production data plane — SAME D1/R2/KV as the platform worker, so the
+# Super Admin console manages the real production tenants.
+[[d1_databases]]
+binding = "DB"
+database_id = "16648fed-788d-4780-a877-fac56d9b5d27"
+migrations_dir = "./db_migrations"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "school-management-production"
+
+[[kv_namespaces]]
+binding = "CONFIG_KV"
+id = "393901911be84d558822c78070a82e94"
