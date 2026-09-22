@@ -9,6 +9,10 @@ import '../screens/director_dashboard_screen.dart';
 import '../screens/principal_dashboard_screen.dart';
 import '../screens/teacher_attendance_screen.dart';
 import '../screens/parent_portal_screen.dart';
+import '../screens/students_list_screen.dart';
+import '../screens/classes_screen.dart';
+import '../screens/notices_screen.dart';
+import '../screens/analytics_dashboard_screen.dart';
 
 /// Global navigator key so the ApiClient 401 handler can navigate to login
 /// without a BuildContext.
@@ -83,6 +87,12 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       userRoute('/principal/dashboard', (u) => PrincipalDashboardScreen(user: u)),
       userRoute('/teacher/attendance', (u) => TeacherAttendanceScreen(user: u)),
       userRoute('/parent/portal', (u) => ParentPortalScreen(user: u)),
+
+      // Phase 2 — screen parity routes
+      userRoute('/students', (u) => StudentsListScreen(user: u)),
+      userRoute('/classes', (u) => ClassesScreen(user: u)),
+      userRoute('/notices', (u) => NoticesScreen(user: u)),
+      userRoute('/analytics', (u) => AnalyticsDashboardScreen(user: u)),
     ],
     errorBuilder: (context, state) => Scaffold(
       body: Center(

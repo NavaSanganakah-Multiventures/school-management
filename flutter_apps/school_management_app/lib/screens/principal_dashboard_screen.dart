@@ -15,6 +15,10 @@ import 'leave_applications_screen.dart';
 import 'notifications_screen.dart';
 import 'lms_screen.dart';
 import 'settings_screen.dart';
+import 'students_list_screen.dart';
+import 'classes_screen.dart';
+import 'notices_screen.dart';
+import 'analytics_dashboard_screen.dart';
 
 class PrincipalDashboardScreen extends StatefulWidget {
   final UserModel user;
@@ -505,12 +509,16 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
                     physics: const NeverScrollableScrollPhysics(),
                     childAspectRatio: 1.0,
                     children: [
+                      _moduleChip(Icons.people, 'विद्यार्थी', const Color(0xFF0369A1), () => Navigator.push(context, MaterialPageRoute(builder: (_) => StudentsListScreen(user: widget.user)))),
+                      _moduleChip(Icons.class_rounded, 'कक्षाएं', const Color(0xFF4338CA), () => Navigator.push(context, MaterialPageRoute(builder: (_) => ClassesScreen(user: widget.user)))),
+                      _moduleChip(Icons.campaign, 'नोटिस', const Color(0xFFB45309), () => Navigator.push(context, MaterialPageRoute(builder: (_) => NoticesScreen(user: widget.user)))),
                       _moduleChip(Icons.assignment_turned_in, 'परीक्षा', const Color(0xFF7C2D12), () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExamsScreen(user: widget.user)))),
+                      _moduleChip(Icons.bar_chart, 'एनालिटिक्स', const Color(0xFF0E7490), () => Navigator.push(context, MaterialPageRoute(builder: (_) => AnalyticsDashboardScreen(user: widget.user)))),
                       _moduleChip(Icons.payments, 'फीस', const Color(0xFF065F46), () => Navigator.push(context, MaterialPageRoute(builder: (_) => FeesScreen(user: widget.user)))),
                       _moduleChip(Icons.badge, 'स्टाफ', const Color(0xFF6D28D9), () => Navigator.push(context, MaterialPageRoute(builder: (_) => StaffManagementScreen(user: widget.user)))),
                       _moduleChip(Icons.menu_book, 'विषय', const Color(0xFF1F2937), () => Navigator.push(context, MaterialPageRoute(builder: (_) => SubjectsScreen(user: widget.user)))),
                       _moduleChip(Icons.event_available, 'अवकाश', const Color(0xFF0F766E), () => Navigator.push(context, MaterialPageRoute(builder: (_) => LeaveApplicationsScreen(user: widget.user)))),
-                      _moduleChip(Icons.campaign, 'सूचना', const Color(0xFFB45309), () => Navigator.push(context, MaterialPageRoute(builder: (_) => NotificationsScreen(user: widget.user)))),
+                      _moduleChip(Icons.notifications, 'सूचनाएं', const Color(0xFF9A3412), () => Navigator.push(context, MaterialPageRoute(builder: (_) => NotificationsScreen(user: widget.user)))),
                       _moduleChip(Icons.video_library, 'पाठ्यक्रम', const Color(0xFF7E22CE), () => Navigator.push(context, MaterialPageRoute(builder: (_) => LmsScreen(user: widget.user)))),
                       _moduleChip(Icons.settings, 'सेटिंग्स', const Color(0xFF334155), () => Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(user: widget.user)))),
                       _moduleChip(Icons.checklist_rtl, 'हाजिरी', const Color(0xFF4338CA), () => Navigator.push(context, MaterialPageRoute(builder: (_) => TeacherAttendanceScreen(user: widget.user)))),
