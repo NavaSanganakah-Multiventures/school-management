@@ -1,30 +1,41 @@
-// This is a basic Flutter widget test.
+// Basic smoke test for Pragnya Mitra School Management App.
 //
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// Verifies the app builds and the login screen renders correctly.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:vidyasetu_school_app/main.dart';
+import 'package:pragnya/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
+  testWidgets('App renders login screen on startup', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const PragnyaMitraApp());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    // Wait for async initialization to complete.
+    await tester.pumpAndSettle();
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    // Verify the login screen is displayed.
+    // The login screen should show the app title and login form.
+    expect(find.text('Pragnya Mitra'), findsOneWidget);
+    expect(find.text('School Management System'), findsOneWidget);
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // Verify login form elements exist.
+    expect(find.text('सुरक्षित लॉगिन'), findsOneWidget);
+    expect(find.byType(TextField), findsWidgets);
+  });
+
+  testWidgets('Login form shows email and password fields', (WidgetTester tester) async {
+    await tester.pumpWidget(const PragnyaMitraApp());
+    await tester.pumpAndSettle();
+
+    // Verify email/username field exists.
+    expect(find.text('ईमेल / यूज़रनेम'), findsOneWidget);
+
+    // Verify password field exists.
+    expect(find.text('पासवर्ड'), findsOneWidget);
+
+    // Verify login button exists.
+    expect(find.text('पोर्टल में प्रवेश करें'), findsOneWidget);
   });
 }

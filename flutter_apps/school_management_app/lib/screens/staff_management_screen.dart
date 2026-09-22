@@ -140,7 +140,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: const Color(0xFF6D28D9).withValues(alpha: 0.12),
+          backgroundColor: const Color(0xFF6D28D9).withOpacity(0.12),
           child: Text(s.name.isNotEmpty ? s.name[0].toUpperCase() : '?', style: const TextStyle(color: Color(0xFF6D28D9), fontWeight: FontWeight.bold)),
         ),
         title: Text(s.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),

@@ -1,4 +1,4 @@
-# vidyasetu_school_app
+# pragnya
 
 A new Flutter project.
 

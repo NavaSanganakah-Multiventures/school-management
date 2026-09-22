@@ -238,7 +238,7 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
+                          color: Colors.black.withOpacity(0.1),
                           blurRadius: 10,
                         ),
                       ],
@@ -302,7 +302,7 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
                               const SizedBox(height: 2),
                               Text(
                                 statusSub,
-                                style: TextStyle(fontSize: 11, color: statusColor.withValues(alpha: 0.9)),
+                                style: TextStyle(fontSize: 11, color: statusColor.withOpacity(0.9)),
                               ),
                             ],
                           ),
@@ -321,7 +321,7 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
                       border: Border.all(color: Colors.grey.shade200),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.02),
+                          color: Colors.black.withOpacity(0.02),
                           blurRadius: 8,
                         ),
                       ],
@@ -457,7 +457,7 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
                         border: Border.all(color: Colors.grey.shade200),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.02),
+                            color: Colors.black.withOpacity(0.02),
                             blurRadius: 6,
                           ),
                         ],
@@ -600,7 +600,7 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFF047857).withValues(alpha: 0.06),
+                color: const Color(0xFF047857).withOpacity(0.06),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Text(_schoolName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
@@ -641,7 +641,7 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
       margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
         onTap: onTap,
-        leading: CircleAvatar(backgroundColor: color.withValues(alpha: 0.12), child: Icon(icon, color: color)),
+        leading: CircleAvatar(backgroundColor: color.withOpacity(0.12), child: Icon(icon, color: color)),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
         subtitle: Text(subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey)),
         trailing: const Icon(Icons.chevron_right, color: Colors.grey),

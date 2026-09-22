@@ -49,7 +49,7 @@ class KpiCard extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 16,
-            backgroundColor: color.withValues(alpha: 0.12),
+            backgroundColor: color.withOpacity(0.12),
             child: Icon(icon, color: color, size: 18),
           ),
           const SizedBox(height: 8),
@@ -72,7 +72,7 @@ class StatusChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: c.withValues(alpha: 0.12),
+        color: c.withOpacity(0.12),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(

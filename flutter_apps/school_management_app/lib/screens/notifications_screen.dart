@@ -89,7 +89,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: const Color(0xFFB45309).withValues(alpha: 0.12),
+          backgroundColor: const Color(0xFFB45309).withOpacity(0.12),
           child: const Icon(Icons.notifications, color: Color(0xFFB45309), size: 20),
         ),
         title: Text(n.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),

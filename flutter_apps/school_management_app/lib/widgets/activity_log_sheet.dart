@@ -224,7 +224,7 @@ class _ActivityLogSheetState extends State<ActivityLogSheet> {
                                     border: Border.all(color: Colors.grey.shade200),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.black.withValues(alpha: 0.03),
+                                        color: Colors.black.withOpacity(0.03),
                                         blurRadius: 4,
                                         offset: const Offset(0, 2),
                                       ),
@@ -235,7 +235,7 @@ class _ActivityLogSheetState extends State<ActivityLogSheet> {
                                     children: [
                                       CircleAvatar(
                                         radius: 18,
-                                        backgroundColor: color.withValues(alpha: 0.12),
+                                        backgroundColor: color.withOpacity(0.12),
                                         child: Icon(icon, color: color, size: 20),
                                       ),
                                       const SizedBox(width: 12),
