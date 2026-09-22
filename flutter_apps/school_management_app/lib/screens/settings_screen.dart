@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import '../config/app_config.dart';
 import '../models/user_model.dart';
-import '../services/auth_service.dart';
+import '../routes/auth_actions.dart';
 import '../widgets/common_widgets.dart';
-import 'login_screen.dart';
 class SettingsScreen extends StatefulWidget {
   final UserModel user;
   const SettingsScreen({super.key, required this.user});
@@ -173,14 +172,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               // and force a fresh login.
                               final hostChanged = _currentServer != prevServer || _currentDomain != prevDomain;
                               if (hostChanged && newUrl != null) {
-                                await AuthService().logout();
                                 showSnack(context, 'सर्वर बदला। कृपया पुनः लॉगिन करें।');
-                                if (context.mounted) {
-                                  Navigator.of(context).pushAndRemoveUntil(
-                                    MaterialPageRoute(builder: (_) => const LoginScreen()),
-                                    (_) => false,
-                                  );
-                                }
+                                await performLogout(context);
                               } else {
                                 showSnack(context, 'सहेजा गया। लॉगिन करें।');
                               }
@@ -221,13 +214,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(foregroundColor: Colors.red.shade700, side: BorderSide(color: Colors.red.shade300)),
                 onPressed: () async {
-                  await AuthService().logout();
-                  if (context.mounted) {
-                    Navigator.of(context).pushAndRemoveUntil(
-                      MaterialPageRoute(builder: (_) => const LoginScreen()),
-                      (_) => false,
-                    );
-                  }
+                  await performLogout(context);
                 },
                 icon: const Icon(Icons.logout),
                 label: const Text('लॉगआउट'),

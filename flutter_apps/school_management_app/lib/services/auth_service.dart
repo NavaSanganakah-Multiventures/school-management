@@ -14,6 +14,10 @@ class AuthService {
   UserModel? _currentUser;
   UserModel? get currentUser => _currentUser;
 
+  /// Caches a user in memory without a network round-trip.
+  /// Used by the Riverpod auth controller after login / session restore.
+  void cacheUser(UserModel user) => _currentUser = user;
+
   Future<UserModel> login(String identifier, String password) async {
     final response = await _api.post('/api/auth/login', body: {
       'email': identifier.trim(),
@@ -25,7 +29,14 @@ class AuthService {
       await _api.saveToken(token);
 
       final userData = response['user'] as Map<String, dynamic>;
-      final user = UserModel.fromJson(userData);
+      final UserModel user;
+      try {
+        user = UserModel.fromJson(userData);
+      } on FormatException catch (e) {
+        // Unrecognized role — surface a clean message instead of the
+        // FormatException prefix. Never silently downgrade to staff.
+        throw ApiException(e.message);
+      }
       _currentUser = user;
 
       // Save user profile locally

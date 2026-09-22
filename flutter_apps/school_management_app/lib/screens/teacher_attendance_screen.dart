@@ -4,10 +4,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/user_model.dart';
 import '../models/attendance_model.dart';
 import '../services/api_client.dart';
-import '../services/auth_service.dart';
+import '../routes/auth_actions.dart';
 import '../services/student_service.dart';
 import '../widgets/activity_log_sheet.dart';
-import 'login_screen.dart';
 import 'exams_screen.dart';
 import 'leave_applications_screen.dart';
 import 'lms_screen.dart';
@@ -554,12 +553,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
             icon: const Icon(Icons.logout),
             tooltip: 'लॉगआउट',
             onPressed: () async {
-              await AuthService().logout();
-              if (context.mounted) {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                );
-              }
+              await performLogout(context);
             },
           ),
         ],

@@ -3,9 +3,8 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/user_model.dart';
 import '../services/api_client.dart';
-import '../services/auth_service.dart';
+import '../routes/auth_actions.dart';
 import '../services/school_profile_service.dart';
-import 'login_screen.dart';
 import 'leave_applications_screen.dart';
 import 'fees_screen.dart';
 import 'exams_screen.dart';
@@ -123,12 +122,7 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
             icon: const Icon(Icons.logout),
             tooltip: 'लॉगआउट',
             onPressed: () async {
-              await AuthService().logout();
-              if (context.mounted) {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                );
-              }
+              await performLogout(context);
             },
           ),
         ],
@@ -575,12 +569,7 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: () async {
-              await AuthService().logout();
-              if (mounted) {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                );
-              }
+              await performLogout(context);
             },
             icon: const Icon(Icons.logout),
             label: const Text('लॉगआउट करें'),
@@ -621,12 +610,7 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: () async {
-              await AuthService().logout();
-              if (mounted) {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                );
-              }
+              await performLogout(context);
             },
             icon: const Icon(Icons.logout),
             label: const Text('लॉगआउट करें'),

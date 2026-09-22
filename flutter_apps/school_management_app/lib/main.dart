@@ -1,37 +1,69 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'firebase_options.dart';
-import 'services/auth_service.dart';
-import 'services/fcm_notification_service.dart';
+import 'providers/auth_provider.dart';
+import 'routes/app_router.dart';
 import 'services/api_client.dart';
-import 'models/user_model.dart';
-import 'screens/login_screen.dart';
-import 'screens/director_dashboard_screen.dart';
-import 'screens/principal_dashboard_screen.dart';
-import 'screens/teacher_attendance_screen.dart';
-import 'screens/parent_portal_screen.dart';
+import 'services/auth_service.dart';
 
-final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+/// Wires the ApiClient's global 401 handler to Riverpod + go_router.
+///
+/// Kept in a Provider so it is installed exactly once, and torn down if the
+/// root provider tree is ever disposed.
+final _authFailureWireProvider = Provider<void>((ref) {
+  ApiClient.onAuthFailure = () {
+    // The HTTP callback fires outside the widget tree — hop back onto the
+    // framework's frame callback before touching providers/navigator.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = rootNavigatorKey.currentContext;
+      if (ctx == null) return; // App not built yet — nothing to redirect.
+      final container = ProviderScope.containerOf(ctx, listen: false);
+      container.read(authControllerProvider.notifier).clear();
+      container.read(goRouterProvider).go('/login');
+    });
+  };
+  ref.onDispose(() => ApiClient.onAuthFailure = null);
+});
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Initialize Firebase with static config from flutterfire configure
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+
+  // Firebase (Android/iOS/Web) — non-fatal: the app still works without it
+  // (FCM service already guards its own failures).
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('[Firebase] init skipped: $e');
+  }
+
+  // Restore the saved session *before* the first frame so the router's
+  // initial redirect already knows the user's role.
+  final savedUser = await AuthService().getSavedUser();
+
+  runApp(
+    ProviderScope(
+      overrides: [initialUserProvider.overrideWithValue(savedUser)],
+      child: const PragnyaMitraApp(),
+    ),
   );
-  runApp(const PragnyaMitraApp());
 }
 
-class PragnyaMitraApp extends StatelessWidget {
+class PragnyaMitraApp extends ConsumerWidget {
   const PragnyaMitraApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Install the global 401 → logout/redirect wiring (once).
+    ref.watch(_authFailureWireProvider);
+    final router = ref.watch(goRouterProvider);
+
+    return MaterialApp.router(
       title: 'Pragnya Mitra',
       debugShowCheckedModeBanner: false,
-      navigatorKey: appNavigatorKey,
+      routerConfig: router,
       theme: ThemeData(
         useMaterial3: true,
         fontFamily: 'Roboto',
@@ -41,76 +73,6 @@ class PragnyaMitraApp extends StatelessWidget {
         ),
         scaffoldBackgroundColor: const Color(0xFFF8FAFC),
       ),
-      home: const AuthGatekeeper(),
     );
-  }
-}
-
-class AuthGatekeeper extends StatefulWidget {
-  const AuthGatekeeper({super.key});
-
-  @override
-  State<AuthGatekeeper> createState() => _AuthGatekeeperState();
-}
-
-class _AuthGatekeeperState extends State<AuthGatekeeper> {
-  bool _checking = true;
-  UserModel? _user;
-
-  @override
-  void initState() {
-    super.initState();
-    // Wire up the global 401 auto-logout: clear session and bounce to login.
-    ApiClient.onAuthFailure = () {
-      SchedulerBinding.instance.addPostFrameCallback((_) {
-        AuthService().clearCurrentUser();
-        appNavigatorKey.currentState?.pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
-          (_) => false,
-        );
-      });
-    };
-    _checkExistingSession();
-  }
-
-  Future<void> _checkExistingSession() async {
-    final user = await AuthService().getSavedUser();
-    if (mounted) {
-      setState(() {
-        _user = user;
-        _checking = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_checking) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0F172A),
-        body: Center(
-          child: CircularProgressIndicator(color: Color(0xFF38BDF8)),
-        ),
-      );
-    }
-
-    if (_user == null) {
-      return const LoginScreen();
-    }
-
-    // Auto-detect saved role and route directly
-    switch (_user!.role) {
-      case UserRole.director:
-        return DirectorDashboardScreen(user: _user!);
-      case UserRole.principal:
-        return PrincipalDashboardScreen(user: _user!);
-      case UserRole.staff:
-        return TeacherAttendanceScreen(user: _user!);
-      case UserRole.parents:
-      case UserRole.students:
-        return ParentPortalScreen(user: _user!);
-      case UserRole.superAdmin:
-        return const LoginScreen();
-    }
   }
 }
