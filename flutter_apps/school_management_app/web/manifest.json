@@ -1,11 +1,11 @@
 {
-    "name": "Dheetantra",
-    "short_name": "Dheetantra",
+    "name": "Pragnya Mitra",
+    "short_name": "Pragnya Mitra",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Pragnya Mitra - School Management for Director, Principal, Teachers and Parents.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
