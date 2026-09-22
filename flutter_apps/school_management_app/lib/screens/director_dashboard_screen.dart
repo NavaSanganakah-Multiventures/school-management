@@ -18,6 +18,10 @@ import 'lms_screen.dart';
 import 'ai_screen.dart';
 import 'billing_screen.dart';
 import 'settings_screen.dart';
+import 'students_list_screen.dart';
+import 'classes_screen.dart';
+import 'notices_screen.dart';
+import 'analytics_dashboard_screen.dart';
 
 class DirectorDashboardScreen extends StatefulWidget {
   final UserModel user;
@@ -80,12 +84,16 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
       _NavModule('डैशबोर्ड', Icons.insights_rounded, null),
       _NavModule('उपस्थिति मॉनिटर', Icons.checklist_rounded, PrincipalDashboardScreen(user: widget.user)),
       _NavModule('हाजिरी रजिस्टर', Icons.edit_calendar_rounded, TeacherAttendanceScreen(user: widget.user)),
+      _NavModule('विद्यार्थी', Icons.people_rounded, StudentsListScreen(user: widget.user)),
+      _NavModule('कक्षा प्रबंधन', Icons.class_rounded, ClassesScreen(user: widget.user)),
+      _NavModule('नोटिस बोर्ड', Icons.campaign_rounded, NoticesScreen(user: widget.user)),
       _NavModule('परीक्षा एवं अंक', Icons.assignment_turned_in_rounded, ExamsScreen(user: widget.user)),
+      _NavModule('एनालिटिक्स', Icons.bar_chart_rounded, AnalyticsDashboardScreen(user: widget.user)),
       _NavModule('फीस प्रबंधन', Icons.payments_rounded, FeesScreen(user: widget.user)),
       _NavModule('स्टाफ प्रबंधन', Icons.badge_rounded, StaffManagementScreen(user: widget.user)),
       _NavModule('विषय', Icons.menu_book_rounded, SubjectsScreen(user: widget.user)),
       _NavModule('अवकाश', Icons.event_available_rounded, LeaveApplicationsScreen(user: widget.user)),
-      _NavModule('सूचनाएं', Icons.campaign_rounded, NotificationsScreen(user: widget.user)),
+      _NavModule('सूचनाएं', Icons.notifications_rounded, NotificationsScreen(user: widget.user)),
       _NavModule('पाठ्यक्रम (LMS)', Icons.video_library_rounded, LmsScreen(user: widget.user)),
       _NavModule('AI सहायक', Icons.smart_toy_rounded, AiScreen(user: widget.user)),
       _NavModule('बिलिंग', Icons.workspace_premium_rounded, BillingScreen(user: widget.user)),
