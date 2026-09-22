@@ -65,7 +65,7 @@ class _AiScreenState extends State<AiScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF4338CA).withValues(alpha: 0.06),
+                            color: const Color(0xFF4338CA).withOpacity(0.06),
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: SelectableText(_response, style: const TextStyle(fontSize: 14, height: 1.5)),

@@ -404,7 +404,7 @@ class _ReportCardTabState extends State<_ReportCardTab> {
                         const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(color: const Color(0xFF7C2D12).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+                          decoration: BoxDecoration(color: const Color(0xFF7C2D12).withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
                           child: Text(s.grade!, style: const TextStyle(fontSize: 11, color: Color(0xFF7C2D12), fontWeight: FontWeight.bold)),
                         ),
                       ],

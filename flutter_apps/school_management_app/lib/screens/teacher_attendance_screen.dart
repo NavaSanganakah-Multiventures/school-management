@@ -291,7 +291,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0F172A).withValues(alpha: 0.08),
+                  color: const Color(0xFF0F172A).withOpacity(0.08),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(Icons.person_add_rounded, color: Color(0xFF0F172A), size: 22),
@@ -314,7 +314,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 DropdownButtonFormField<String>(
-                  initialValue: dialogClass,
+                  value: dialogClass,
                   decoration: const InputDecoration(
                     labelText: 'कक्षा *',
                     isDense: true,
@@ -373,7 +373,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        initialValue: gender,
+                        value: gender,
                         decoration: const InputDecoration(
                           labelText: 'लिंग',
                           isDense: true,
@@ -822,7 +822,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.02),
+                                color: Colors.black.withOpacity(0.02),
                                 blurRadius: 4,
                                 offset: const Offset(0, 2),
                               ),
@@ -952,7 +952,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  initialValue: (_selectedClass == 'All' || _availableClasses.contains(_selectedClass)) ? _selectedClass : null,
+                  value: (_selectedClass == 'All' || _availableClasses.contains(_selectedClass)) ? _selectedClass : null,
                   decoration: const InputDecoration(
                     labelText: 'कक्षा चुनें',
                     isDense: true,
@@ -1084,7 +1084,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                         border: Border.all(color: Colors.grey.shade200),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.02),
+                            color: Colors.black.withOpacity(0.02),
                             blurRadius: 6,
                           ),
                         ],
@@ -1140,7 +1140,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
-            color: isSelected ? color.withValues(alpha: 0.15) : Colors.white,
+            color: isSelected ? color.withOpacity(0.15) : Colors.white,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: isSelected ? color : Colors.grey.shade300,

@@ -68,7 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         CircleAvatar(
                           radius: 26,
-                          backgroundColor: const Color(0xFF334155).withValues(alpha: 0.1),
+                          backgroundColor: const Color(0xFF334155).withOpacity(0.1),
                           child: Icon(Icons.person, color: const Color(0xFF334155), size: 28),
                         ),
                         const SizedBox(width: 14),

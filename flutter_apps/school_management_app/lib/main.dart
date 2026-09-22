@@ -1,7 +1,9 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'firebase_options.dart';
 import 'services/auth_service.dart';
-import 'services/firebase_init.dart';
+import 'services/fcm_notification_service.dart';
 import 'services/api_client.dart';
 import 'models/user_model.dart';
 import 'screens/login_screen.dart';
@@ -14,9 +16,10 @@ final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Firebase init runs after the first frame (non-blocking, with a timeout),
-  // so it never delays app startup on slow networks.
-  scheduleFirebaseInit();
+  // Initialize Firebase with static config from flutterfire configure
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const PragnyaMitraApp());
 }
 

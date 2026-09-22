@@ -101,7 +101,7 @@ class _FeesScreenState extends State<FeesScreen> {
         if (_summary != null)
           Container(
             padding: const EdgeInsets.all(16),
-            color: const Color(0xFF065F46).withValues(alpha: 0.06),
+            color: const Color(0xFF065F46).withOpacity(0.06),
             child: ResponsiveCenter(
               maxWidth: 720,
               child: GridView.count(

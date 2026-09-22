@@ -5,6 +5,7 @@ import '../models/user_model.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../widgets/activity_log_sheet.dart';
+import '../widgets/responsive_layout.dart';
 import 'login_screen.dart';
 import 'teacher_attendance_screen.dart';
 import 'exams_screen.dart';
@@ -48,11 +49,13 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
   }
 
   Future<void> _loadDashboardData() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       final statsRes = await _api.get('/api/dashboard-stats');
       final absentRes = await _api.get('/api/attendance/absentees-summary', queryParams: {'date': _today});
 
+      if (!mounted) return;
       setState(() {
         if (statsRes['success'] == true) {
           _stats = statsRes['stats'] ?? {};
@@ -63,14 +66,17 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
         _isLoading = false;
       });
     } catch (_) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
     }
   }
 
   Future<void> _loadNotices() async {
+    if (!mounted) return;
     setState(() => _isLoadingNotices = true);
     try {
       final res = await _api.get('/api/notices', queryParams: {'limit': '20'});
+      if (!mounted) return;
       if (res['success'] == true) {
         setState(() {
           _notices = res['notices'] ?? [];
@@ -78,6 +84,7 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
         });
       }
     } catch (_) {
+      if (!mounted) return;
       setState(() => _isLoadingNotices = false);
     }
   }
@@ -232,6 +239,37 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return ResponsiveLayout(
+      mobile: _buildMobileLayout(),
+      desktop: _buildDesktopLayout(),
+    );
+  }
+
+  void _navigateTo(Widget screen) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
+
+  // ====================== DESKTOP / WEB LAYOUT ======================
+  Widget _buildDesktopLayout() {
+    return WebShell(
+      user: widget.user,
+      selectedIndex: _currentTabIndex,
+      sidebarColor: const Color(0xFF1E1B4B),
+      onIndexChanged: (idx) {
+        setState(() => _currentTabIndex = idx);
+        if (idx == 2 && _notices.isEmpty) _loadNotices();
+      },
+      items: [
+        WebShellItem(label: 'अवलोकन', icon: Icons.dashboard_rounded, child: _buildOverviewTab()),
+        WebShellItem(label: 'अनुपस्थित छात्र', icon: Icons.person_off_rounded, child: _buildAbsenteeTab(), badge: _schoolAbsentees.isEmpty ? null : _schoolAbsentees.length, badgeColor: Colors.red),
+        WebShellItem(label: 'नोटिस बोर्ड', icon: Icons.campaign_rounded, child: _buildNoticesTab()),
+        WebShellItem(label: 'स्टाफ ऑडिट', icon: Icons.verified_user_rounded, child: ActivityLogSheet(user: widget.user)),
+      ],
+    );
+  }
+
+  // ====================== MOBILE LAYOUT ======================
+  Widget _buildMobileLayout() {
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -325,9 +363,12 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
             onRefresh: _loadDashboardData,
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 900),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                   // Welcome Banner
                   Container(
                     padding: const EdgeInsets.all(16),
@@ -342,7 +383,7 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.15),
+                            color: Colors.white.withOpacity(0.15),
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: const Icon(Icons.account_balance_rounded, color: Colors.white, size: 32),
@@ -524,7 +565,9 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
                 ],
               ),
             ),
-          );
+          ),
+        ),
+      );
   }
 
   // TAB 2: Absentee Roster with Search & Direct Call/WhatsApp
@@ -623,7 +666,7 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
                         border: Border.all(color: Colors.red.shade100),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.02),
+                            color: Colors.black.withOpacity(0.02),
                             blurRadius: 4,
                           ),
                         ],
@@ -775,7 +818,7 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
+        border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -784,7 +827,7 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
           const SizedBox(height: 4),
           Text(value, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w900)),
           const SizedBox(height: 2),
-          Text(sub, style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 10)),
+          Text(sub, style: TextStyle(color: color.withOpacity(0.8), fontSize: 10)),
         ],
       ),
     );
@@ -805,7 +848,7 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
           children: [
             CircleAvatar(
               radius: 18,
-              backgroundColor: color.withValues(alpha: 0.12),
+              backgroundColor: color.withOpacity(0.12),
               child: Icon(icon, color: color, size: 20),
             ),
             const SizedBox(height: 6),
