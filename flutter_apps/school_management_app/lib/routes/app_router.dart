@@ -32,6 +32,20 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     authRefresh.dispose();
   });
 
+  // Builds a route whose screen needs the signed-in user. Falls back to the
+  // login screen if auth vanished between redirect and build (e.g. a global
+  // 401 fired mid-navigation) instead of crashing on a null assertion.
+  GoRoute userRoute(String path, Widget Function(UserModel user) screen) {
+    return GoRoute(
+      path: path,
+      builder: (context, state) {
+        final user = ref.read(authControllerProvider);
+        if (user == null) return const LoginScreen();
+        return screen(user);
+      },
+    );
+  }
+
   return GoRouter(
     navigatorKey: rootNavigatorKey,
     initialLocation: '/login',
@@ -64,37 +78,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const LoginScreen(),
       ),
 
-      // ── Director ──────────────────────────────────────────────
-      GoRoute(
-        path: '/director/dashboard',
-        builder: (context, state) => DirectorDashboardScreen(
-          user: ref.read(authControllerProvider)!,
-        ),
-      ),
-
-      // ── Principal ─────────────────────────────────────────────
-      GoRoute(
-        path: '/principal/dashboard',
-        builder: (context, state) => PrincipalDashboardScreen(
-          user: ref.read(authControllerProvider)!,
-        ),
-      ),
-
-      // ── Teacher / Staff ───────────────────────────────────────
-      GoRoute(
-        path: '/teacher/attendance',
-        builder: (context, state) => TeacherAttendanceScreen(
-          user: ref.read(authControllerProvider)!,
-        ),
-      ),
-
-      // ── Parent / Student ──────────────────────────────────────
-      GoRoute(
-        path: '/parent/portal',
-        builder: (context, state) => ParentPortalScreen(
-          user: ref.read(authControllerProvider)!,
-        ),
-      ),
+      // Role dashboards (URL-addressable)
+      userRoute('/director/dashboard', (u) => DirectorDashboardScreen(user: u)),
+      userRoute('/principal/dashboard', (u) => PrincipalDashboardScreen(user: u)),
+      userRoute('/teacher/attendance', (u) => TeacherAttendanceScreen(user: u)),
+      userRoute('/parent/portal', (u) => ParentPortalScreen(user: u)),
     ],
     errorBuilder: (context, state) => Scaffold(
       body: Center(

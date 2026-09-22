@@ -88,6 +88,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   void _navigateToRoleDashboard(UserModel user) {
+    // Defensive: never navigate from a disposed widget if this helper is
+    // ever reused by another call site (deep link, gesture, etc.).
+    if (!context.mounted) return;
+
     if (user.role == UserRole.superAdmin) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show debugPrint;
+
 enum UserRole {
   director,
   principal,
@@ -14,6 +16,10 @@ UserRole parseUserRole(String? roleStr) {
   if (clean == 'superadmin') return UserRole.superAdmin;
   if (clean == 'parents' || clean == 'parent') return UserRole.parents;
   if (clean == 'students' || clean == 'student') return UserRole.students;
+  if (clean == 'staff' || clean == 'teacher') return UserRole.staff;
+  // Anything else is unexpected — keep the legacy staff fallback but log it
+  // loudly so backend role typos/migrations don't silently grant permissions.
+  debugPrint('[UserModel] Unrecognized role "$roleStr" — defaulting to staff');
   return UserRole.staff;
 }
 

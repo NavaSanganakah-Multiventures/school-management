@@ -58,11 +58,19 @@ class ApiClient {
     );
   }
 
+  /// Path fragments identifying authentication endpoints (login / refresh /
+  /// password reset). A 401 on these means bad credentials, not an expired
+  /// session — so they must never trigger the global auto-logout.
+  ///
+  /// Kept as a list so versioned or reorganised endpoints (e.g.
+  /// `/api/v2/auth/login`) only need a new entry here.
+  static const List<String> _authPathPrefixes = ['/api/auth/'];
+
   /// Whether a 401 should trigger the global auto-logout. We skip auth
   /// endpoints (login/forgot/reset) and only fire when a token was present,
   /// so a wrong-password 401 shows an inline error instead of a forced logout.
   Future<bool> _shouldAutoLogout(String path) async {
-    if (path.contains('/api/auth/')) return false;
+    if (_authPathPrefixes.any(path.contains)) return false;
     final token = await getToken();
     return token != null && token.isNotEmpty;
   }
