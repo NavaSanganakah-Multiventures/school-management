@@ -29,7 +29,14 @@ class AuthService {
       await _api.saveToken(token);
 
       final userData = response['user'] as Map<String, dynamic>;
-      final user = UserModel.fromJson(userData);
+      final UserModel user;
+      try {
+        user = UserModel.fromJson(userData);
+      } on FormatException catch (e) {
+        // Unrecognized role — surface a clean message instead of the
+        // FormatException prefix. Never silently downgrade to staff.
+        throw ApiException(e.message);
+      }
       _currentUser = user;
 
       // Save user profile locally

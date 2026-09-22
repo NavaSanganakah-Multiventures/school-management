@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart' show debugPrint;
-
 enum UserRole {
   director,
   principal,
@@ -17,10 +15,18 @@ UserRole parseUserRole(String? roleStr) {
   if (clean == 'parents' || clean == 'parent') return UserRole.parents;
   if (clean == 'students' || clean == 'student') return UserRole.students;
   if (clean == 'staff' || clean == 'teacher') return UserRole.staff;
-  // Anything else is unexpected — keep the legacy staff fallback but log it
-  // loudly so backend role typos/migrations don't silently grant permissions.
-  debugPrint('[UserModel] Unrecognized role "$roleStr" — defaulting to staff');
-  return UserRole.staff;
+  // Fail closed: the backend's system_users CHECK constraint only allows the
+  // roles handled above ('Director', 'Principal', 'Staff', 'Parents',
+  // 'Students' + platform 'SuperAdmin'), so anything else is a contract
+  // violation — a wrong/custom server, data corruption, or a backend
+  // migration this client does not know yet. Silently mapping it to staff
+  // would hand out teacher-level permissions (leave approval, marks, LMS),
+  // so refuse instead. Every caller already handles this safely: login
+  // surfaces the message, session restore and profile refresh fall back
+  // to /login.
+  throw FormatException(
+    'अस्वीकृत भूमिका: "${roleStr ?? ''}" — कृपया ऐप अपडेट करें या सपोर्ट से संपर्क करें।',
+  );
 }
 
 String roleToDisplayName(UserRole role) {
