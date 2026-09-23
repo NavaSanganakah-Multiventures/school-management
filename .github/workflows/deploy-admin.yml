@@ -77,8 +77,11 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerConfigPath: wrangler.admin.toml
-          command: deploy
+          # v3 has no `wranglerConfigPath` input; the config must go in the
+          # command itself (-c wrangler.admin.toml) or the default wrangler.toml
+          # (platform worker) gets deployed instead and the admin assets path
+          # fails validation.
+          command: deploy -c wrangler.admin.toml
           packageManager: npm
           postCommands: |
             if [ -n "$RAZORPAY_KEY_ID" ]; then printf '%s' "$RAZORPAY_KEY_ID" | npx wrangler secret put RAZORPAY_KEY_ID -c wrangler.admin.toml; fi
