@@ -27,19 +27,19 @@ export const PLAN_ACCESS = {
     maxStudents: 50,
     maxStaff: 10,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'settings', 'billing'],
-    features: { reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false, dedicatedWorker: false },
+    features: { reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false, dedicatedWorker: true },
   },
   starter: {
     maxStudents: 500,
     maxStaff: 25,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'settings', 'billing'],
-    features: { reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false, dedicatedWorker: false },
+    features: { reportCards: false, principalHistory: false, autopay: false, domainEmail: false, multiSchool: false, prioritySupport: false, customDomainIncluded: false, dedicatedWorker: true },
   },
   pro: {
     maxStudents: 1500,
     maxStaff: 100,
     modules: ['dashboard', 'students', 'attendance', 'staff', 'notices', 'fees', 'exams', 'principal', 'settings', 'billing'],
-    features: { reportCards: true, principalHistory: true, autopay: true, domainEmail: true, multiSchool: false, prioritySupport: true, customDomainIncluded: false, dedicatedWorker: false },
+    features: { reportCards: true, principalHistory: true, autopay: true, domainEmail: true, multiSchool: false, prioritySupport: true, customDomainIncluded: false, dedicatedWorker: true },
   },
   enterprise: {
     maxStudents: null,

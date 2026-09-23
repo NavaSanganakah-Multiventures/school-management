@@ -41,15 +41,16 @@ trigger: always_on
    - पूरा प्लेटफ़ॉर्म एक ही रिपॉजिटरी (`NavaSanganakah-Multiventures/school-management`) से चलेगा। किसी भी स्कूल के लिए अलग Git Repo या Fork नहीं बनेगा।
 2. **मल्टी-टेनेंसी कभी न तोड़ें (Never Break Multi-Tenancy):**
    - कोर कोड में कभी भी `if (schoolName === 'DPS')` जैसे हार्डकोडेड कंडीशन्स नहीं लगाने हैं।
-3. **दो स्तरीय डिप्लॉयमेंट (Two-Tier Delivery Model):**
-   - **Shared Worker (Trial, Starter, Pro):** एक ही मुख्य वर्कर (`pragnya.nasven.com`) और साझा D1 डेटाबेस पर चलेंगे। डेटा सुरक्षा JWT टोकन से मिले `school_id` फ़िल्टर द्वारा सुनिश्चित होती है।
-   - **Dedicated Worker (Enterprise):** बड़े स्कूलों के लिए अलग Cloudflare Worker (`school-management-[slug]`), उनका अपना D1 डेटाबेस (`[slug]-db`), अलग R2 बकेट और अलग KV नेमस्पेस।
+3. **हर स्कूल के लिए Dedicated Worker (Dedicated-by-Default):**
+   - **हर स्कूल** (चाहे Trial, Starter, Pro या Enterprise) का अपना dedicated Cloudflare Worker (`school-management-[slug]`), अपना D1 डेटाबेस (`[slug]-db`), अलग R2 बकेट और अलग KV नेमस्पेस होता है।
+   - Shared/Main worker (`pragnya.nasven.com`) सिर्फ़ **कंट्रोल प्लेन** (SuperAdmin + School Director) और **wildcard fallback** (pending/unprovisioned स्कूल) के रूप में रहता है। डेटा सुरक्षा हर स्कूल के अलग D1 से physically ensured होती है।
+   - Plan अब सिर्फ़ **features/limits** तय करता है (students/staff/modules), **provisioning नहीं** — `dedicatedWorker` फ़्लैग अब गेट नहीं है।
 4. **कंट्रोल प्लेन बनाम डेटा प्लेन का सख्त अलगाव (Strict Separation):**
    - **कंट्रोल प्लेन (Main Platform Worker):** केवल **SuperAdmin** और **School Director**। यहाँ स्कूल रजिस्ट्रेशन, बिलिंग, सब्सक्रिप्शन अप्रूवल और ग्लोबल प्लगइन कैटलॉग मैनेज होता है।
    - **डेटा प्लेन (Dedicated School Worker):** केवल **Director, Principal, Teacher, Staff, Student**। 
    - ⚠️ **सख्त नियम:** Dedicated School Worker में **SuperAdmin का कोई रोल नहीं होगा**। स्कूल का ऑपरेशनल डेटा पूरी तरह प्राइवेट रहेगा।
 5. **Dedicated Direct Workers (प्रति-स्कूल routes):**
-   - Enterprise schools को Cloudflare **plain dedicated Workers** के रूप में provision किया जाता है। हर worker का अपना `[[routes]]` (`<slug>.pragnya.nasven.com/*`) होता है, जो सीधे उसी school worker को serve करता है — कोई अलग routing layer नहीं।
+   - सभी स्कूलों को Cloudflare **plain dedicated Workers** के रूप में provision किया जाता है। हर worker का अपना `[[routes]]` (`<slug>.pragnya.nasven.com/*`) होता है, जो सीधे उसी school worker को serve करता है — कोई अलग routing layer नहीं।
    - हर school worker के अपने bindings (D1/R2/KV) और अपने secrets होते हैं — full tenant isolation, clean worker list और per-tenant usage tracking मिलती है।
 
 ---
@@ -174,7 +175,7 @@ export const PLUGINS_REGISTRY: FrontendPlugin[] = [
 
 ## 4. 🚀 डिप्लॉयमेंट एवं रजिस्ट्री (`schools.json`)
 
-जब कोई नया स्कूल Enterprise मोड में आता है:
+जब कोई नया स्कूल register/approve होता है (हर plan — Trial/Starter/Pro/Enterprise):
 1. उसे `schools.json` में दर्ज किया जाता है:
 ```json
 {
@@ -262,6 +263,6 @@ export const PLUGINS_REGISTRY: FrontendPlugin[] = [
 ## 9. 🎯 सारांश (Summary Rule for Every AI/Dev)
 - **Core हल्का रखें:** Student, Teacher, Attendance, Fees कोर में हैं।
 - **LMS और अन्य एडवांस्ड फीचर्स:** हमेशा प्लगइन के रूप में बनेंगे।
-- **Never Break Single Codebase:** कोड एक ही रहेगा, पर्यावरण (Shared vs Dedicated) कॉन्फ़िगरेशन से बदलेगा।
+- **Never Break Single Codebase:** कोड एक ही रहेगा, हर स्कूल का अपना dedicated worker होगा (config `wrangler-<slug>.toml` से बदलेगा)।
 - **SuperAdmin अलगाव:** Dedicated School Worker में SuperAdmin का कोई एक्सेस नहीं होगा।
 - **PR & CI/CD चक्र का पालन:** हमेशा नई ब्रांच ➔ PR ➔ 15 मिनट वर्कफ़्लो मॉनिटर ➔ AI रिव्यू वेरिफाई करके ही आगे बढ़ें।

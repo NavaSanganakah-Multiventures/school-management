@@ -7,19 +7,21 @@
     {
       "slug": "vidyasetu",
       "schoolId": "school-tenant-id-1",
-      "mode": "shared"
+      "mode": "dedicated",
+      "name": "Vidyasetu",
+      "domain": "vidyasetu.pragnya.nasven.com"
     },
     {
       "slug": "a",
       "schoolId": "school-1789230166572",
-      "mode": "shared",
+      "mode": "dedicated",
       "name": "Maa karma",
       "domain": "a.pragnya.nasven.com"
     },
     {
       "slug": "yagya-pragnya",
       "schoolId": "school-1789785224252",
-      "mode": "shared",
+      "mode": "dedicated",
       "name": "yagya ashram",
       "domain": "yagya-pragnya.pragnya.nasven.com"
     }

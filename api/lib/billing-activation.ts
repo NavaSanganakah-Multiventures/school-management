@@ -148,15 +148,13 @@ export async function activateSubscriptionFromPayment(input: ActivateFromPayment
     return { success: false, error: 'प्लान सक्रिय करते समय त्रुटि।', invoiceId: invoice.id };
   }
 
-  // Enterprise plan -> provision dedicated worker.
+  // Every school gets its own dedicated worker — provision regardless of plan.
   let provisioning: any = null;
-  if (plan.featureFlags && plan.featureFlags.dedicatedWorker) {
-    try {
-      const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
-      if (school) provisioning = await provisionDedicatedWorker(env, db, school, {});
-    } catch (e) {
-      console.error('[activateSubscriptionFromPayment] provisioning failed:', e);
-    }
+  try {
+    const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
+    if (school) provisioning = await provisionDedicatedWorker(env, db, school, {});
+  } catch (e) {
+    console.error('[activateSubscriptionFromPayment] provisioning failed:', e);
   }
 
   return {

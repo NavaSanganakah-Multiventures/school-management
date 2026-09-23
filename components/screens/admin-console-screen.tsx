@@ -540,10 +540,6 @@ export function AdminConsoleScreen() {
   };
 
   const startProvision = (s: SchoolRow) => {
-    if (s.planId !== 'enterprise') {
-      setErrorMsg(`"${s.schoolName}" वर्तमान में ${s.planName || s.planId} पर है। डेडीकेटेड वर्कर केवल एंटरप्राइज (Enterprise) प्लान के लिए उपलब्ध है। कृपया पहले स्कूल का प्लान 'एंटरप्राइज' में बदलें।`);
-      return;
-    }
     setConfirmProvisionId(s.id);
     setProvisionSlug(s.subdomain || '');
   };
@@ -1097,7 +1093,7 @@ export function AdminConsoleScreen() {
             </div>
             <div className="p-4 rounded-2xl bg-white border border-indigo-200 shadow-2xs bg-indigo-50/30">
               <div className="text-2xl font-black text-indigo-700">{totalDedicated}</div>
-              <div className="text-xs font-semibold text-indigo-800">⚡ डेडीकेटेड वर्कर (Enterprise)</div>
+              <div className="text-xs font-semibold text-indigo-800">⚡ डेडीकेटेड वर्कर (हर स्कूल का अपना worker)</div>
             </div>
             <div className="p-4 rounded-2xl bg-white border border-rose-200 shadow-2xs bg-rose-50/30">
               <div className="text-2xl font-black text-rose-700">{totalExpired}</div>
@@ -1203,10 +1199,9 @@ export function AdminConsoleScreen() {
                     }}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white font-medium"
                   >
-                    <option value="trial">7-दिन फ्री ट्रायल (Trial - ☁️ शेयर्ड)</option>
+                    <option value="trial">7-दिन फ्री ट्रायल (Trial - ⚡ डेडीकेटेड)</option>
                     {nonTrialPlans.map((p) => {
-                      const isEnt = p.id === 'enterprise' || (p.featureFlags && p.featureFlags.dedicatedWorker);
-                      return <option key={p.id} value={p.id}>{p.name} ({isEnt ? '⚡ डेडीकेटेड' : '☁️ शेयर्ड'})</option>;
+                      return <option key={p.id} value={p.id}>{p.name} (⚡ डेडीकेटेड)</option>;
                     })}
                   </select>
                 </div>
@@ -1447,10 +1442,9 @@ export function AdminConsoleScreen() {
                           onChange={(e) => setEditForm(Object.assign({}, editForm, { planId: e.target.value }))}
                           className="px-2 py-1 border border-slate-200 rounded-lg text-xs bg-white font-medium text-slate-800 w-full"
                         >
-                          <option value="trial">7-दिन ट्रायल (☁️ शेयर्ड)</option>
+                          <option value="trial">7-दिन ट्रायल (⚡ डेडीकेटेड)</option>
                           {nonTrialPlans.map((p) => {
-                            const isEnt = p.id === 'enterprise' || p.dedicatedWorker;
-                            const label = `${p.name} (${isEnt ? '⚡ डेडीकेटेड' : '☁️ शेयर्ड'})`;
+                            const label = `${p.name} (⚡ डेडीकेटेड)`;
                             return <option key={p.id} value={p.id}>{label}</option>;
                           })}
                         </select>
@@ -1463,10 +1457,9 @@ export function AdminConsoleScreen() {
                           {s.planId && nonTrialPlans.findIndex((p) => p.id === s.planId) === -1 && s.planId !== 'trial' && (
                             <option value={s.planId}>{s.planName || s.planId}</option>
                           )}
-                          <option value="trial">7-दिन ट्रायल (☁️ शेयर्ड)</option>
+                          <option value="trial">7-दिन ट्रायल (⚡ डेडीकेटेड)</option>
                           {nonTrialPlans.map((p) => {
-                            const isEnt = p.id === 'enterprise' || p.dedicatedWorker;
-                            const label = `${p.name} (${isEnt ? '⚡ डेडीकेटेड' : '☁️ शेयर्ड'})`;
+                            const label = `${p.name} (⚡ डेडीकेटेड)`;
                             return <option key={p.id} value={p.id}>{label}</option>;
                           })}
                         </select>
@@ -1511,9 +1504,8 @@ export function AdminConsoleScreen() {
                       ) : (
                         <div className="space-y-1.5">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            {/* Provisioning controls - ONLY for Enterprise schools */}
-                            {s.planId === 'enterprise' ? (
-                              confirmProvisionId === s.id ? (
+                            {/* Provisioning controls — every school gets its own dedicated worker */}
+                            {confirmProvisionId === s.id ? (
                                 <>
                                   <button onClick={() => provisionDedicated(s.id)} disabled={busyId === 'provision-' + s.id} className="px-2.5 py-1 bg-indigo-600 text-white rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50">
                                     पक्का प्रोविजन?
@@ -1528,7 +1520,7 @@ export function AdminConsoleScreen() {
                                     onClick={() => startProvision(s)}
                                     disabled={busyId === 'provision-' + s.id || busyId === 'provision-check-' + s.id}
                                     className="px-2.5 py-1 border border-indigo-200 text-indigo-700 hover:bg-indigo-50 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50 flex items-center gap-1"
-                                    title="Enterprise स्कूल के लिए Dedicated Cloudflare Worker तैनात करें"
+                                    title="इस स्कूल के लिए Dedicated Cloudflare Worker तैनात करें (हर स्कूल को अपना worker मिलता है)"
                                   >
                                     <Globe className="w-3 h-3" />
                                     <span>{s.provisioningStatus && s.provisioningStatus !== 'none' ? 'री-डिप्लॉय' : 'प्रोविजन'}</span>
@@ -1544,8 +1536,7 @@ export function AdminConsoleScreen() {
                                     </button>
                                   )}
                                 </>
-                              )
-                            ) : null}
+                              )}
 
                             {(s.provisioningStatus === 'pending' || s.provisioningStatus === 'provisioning') && (
                               <button onClick={() => checkProvision(s.id)} disabled={busyId === 'provision-check-' + s.id} className="px-2 py-1 border border-amber-200 text-amber-700 hover:bg-amber-50 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-50">
