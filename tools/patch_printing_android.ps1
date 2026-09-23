@@ -16,18 +16,31 @@
 $ErrorActionPreference = 'Stop'
 
 # ---- 1) Locate the pub cache ------------------------------------------------
-$isWindows = ($env:OS -eq 'Windows_NT') -or ([bool]$IsWindows)
+# NOTE: in PowerShell 7+ (case-insensitive) `$IsWindows` is a READ-ONLY
+# automatic variable, so use a different name (`$winHost`) or the assignment
+# fails with "Cannot overwrite variable IsWindows because it is read-only or
+# constant." (Windows PowerShell 5.1 has no $IsWindows at all, so it seemed
+# fine locally -- CI on pwsh 7 exposed the collision.)
+$winHost = ($env:OS -eq 'Windows_NT') -or ([bool]$IsWindows)
 if ($env:PUB_CACHE) {
     $pubCache = $env:PUB_CACHE
-} elseif ($isWindows) {
+} elseif ($winHost) {
     $pubCache = Join-Path $env:LOCALAPPDATA 'Pub\Cache'
 } else {
     $pubCache = Join-Path $HOME '.pub-cache'
 }
-$hostedDir = Join-Path $pubCache 'hosted\pub.dev'
+$hostedDir = Join-Path $pubCache (Join-Path 'hosted' 'pub.dev')
 
 # ---- 2) Resolve the locked printing version from pubspec.lock ---------------
-$lockPath = Join-Path $PSScriptRoot '..\flutter_apps\school_management_app\pubspec.lock'
+# The script can be invoked from the repo root (tools\patch_printing_android.ps1)
+# or from inside the app dir (pwsh ../../tools/patch_printing_android.ps1, as the
+# release CI does), so probe every plausible location for pubspec.lock.
+$lockCandidates = @(
+    (Join-Path $PSScriptRoot (Join-Path '..' (Join-Path 'flutter_apps' (Join-Path 'school_management_app' 'pubspec.lock')))),
+    (Join-Path $PSScriptRoot (Join-Path '..' (Join-Path 'school_management_app' 'pubspec.lock'))),
+    (Join-Path (Get-Location) (Join-Path 'flutter_apps' (Join-Path 'school_management_app' 'pubspec.lock')))
+)
+$lockPath = $lockCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 $version = $null
 if (Test-Path $lockPath) {
     $lines = Get-Content $lockPath
@@ -50,7 +63,7 @@ if (-not $version) {
 
 # ---- 3) Patch android/build.gradle ------------------------------------------
 $pkgDir = Join-Path $hostedDir "printing-$version"
-$gradle = Join-Path $pkgDir 'android\build.gradle'
+$gradle = Join-Path $pkgDir (Join-Path 'android' 'build.gradle')
 if (-not (Test-Path $gradle)) {
     Write-Warning "printing android build.gradle not found at $gradle -- run 'flutter pub get' first (or clear your dart pub cache)."
     exit 1
