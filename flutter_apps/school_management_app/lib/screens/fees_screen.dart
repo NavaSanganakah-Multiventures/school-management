@@ -3,6 +3,7 @@ import '../models/fee_model.dart';
 import '../models/user_model.dart';
 import '../services/fee_service.dart';
 import '../services/api_client.dart';
+import '../services/pdf_service.dart';
 import '../widgets/common_widgets.dart';
 
 class FeesScreen extends StatefulWidget {
@@ -20,6 +21,7 @@ class _FeesScreenState extends State<FeesScreen> {
   FeeSummaryModel? _summary;
   List<FeeInvoiceModel> _invoices = [];
   String? _statusFilter;
+  String? _busyInvoiceId;
 
   bool get _isAdmin => widget.user.isAdminRole;
 
@@ -192,6 +194,22 @@ class _FeesScreenState extends State<FeesScreen> {
                 padding: const EdgeInsets.only(top: 6),
                 child: Text('अंतिम तिथि: ${inv.dueDate}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
               ),
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _busyInvoiceId == inv.id ? null : () => _downloadReceipt(inv),
+                  icon: _busyInvoiceId == inv.id
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.picture_as_pdf, size: 16, color: Color(0xFF0F766E)),
+                  label: Text(
+                    inv.paid > 0 ? 'PDF रसीद' : 'PDF बिल',
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF0F766E)),
+                  ),
+                ),
+              ),
+            ),
             if (inv.status.toLowerCase() != 'paid' && _isAdmin)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
@@ -218,6 +236,16 @@ class _FeesScreenState extends State<FeesScreen> {
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: highlight ? Colors.red : Colors.black87)),
       ],
     );
+  }
+
+  Future<void> _downloadReceipt(FeeInvoiceModel inv) async {
+    setState(() => _busyInvoiceId = inv.id);
+    try {
+      final school = await PdfService.schoolProfile();
+      if (mounted) await PdfService.feeReceipt(context, inv, school);
+    } finally {
+      if (mounted) setState(() => _busyInvoiceId = null);
+    }
   }
 
   void _showCreateDialog() {

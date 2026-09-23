@@ -21,6 +21,8 @@ dependencies:
   flutter_riverpod: ^2.6.1
   pragnya_shared:
     path: ../shared
+  pdf: ^3.13.1
+  printing: ^5.13.1
 
 dev_dependencies:
   flutter_test:
@@ -29,3 +31,15 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Devanagari (Hindi) fonts for PDF generation - bundled as raw assets
+  # (assets:) and loaded at runtime via FontLoader -> embedded into PDFs.
+  fonts:
+    - family: Hind
+      fonts:
+        - asset: assets/fonts/Hind-Regular.ttf
+        - asset: assets/fonts/Hind-Bold.ttf
+          weight: 700
+
+  assets:
+    - assets/fonts/

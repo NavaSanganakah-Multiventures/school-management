@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import '../models/notice_model.dart';
 import '../services/api_client.dart';
+import '../services/pdf_service.dart';
 import '../widgets/common_widgets.dart';
 
 /// Notice board screen — mirrors React notices-screen.tsx.
@@ -114,6 +115,27 @@ class _NoticesScreenState extends State<NoticesScreen> with SingleTickerProvider
       if (mounted) showSnack(context, 'नोटिस लोड नहीं हो सके', isError: true);
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _downloadNotice(_NoticeItem n) async {
+    try {
+      final school = await PdfService.schoolProfile();
+      if (mounted) {
+        await PdfService.notice(
+          context,
+          school,
+          title: n.title,
+          content: n.content,
+          category: n.category,
+          priority: n.priority,
+          audience: _audienceLabels[n.targetAudience] ?? n.targetAudience,
+          publishedBy: n.publishedBy,
+          publishedDate: n.publishedDate,
+        );
+      }
+    } catch (_) {
+      if (mounted) showSnack(context, 'PDF नहीं बन सका', isError: true);
     }
   }
 
@@ -230,6 +252,7 @@ class _NoticesScreenState extends State<NoticesScreen> with SingleTickerProvider
                           notice: _notices[index],
                           audienceLabels: _audienceLabels,
                           onDelete: () => _deleteNotice(_notices[index]),
+                          onDownload: () => _downloadNotice(_notices[index]),
                         ),
                       ),
                     ),
@@ -320,11 +343,13 @@ class _NoticeCard extends StatelessWidget {
   final _NoticeItem notice;
   final Map<String, String> audienceLabels;
   final VoidCallback onDelete;
+  final VoidCallback onDownload;
 
   const _NoticeCard({
     required this.notice,
     required this.audienceLabels,
     required this.onDelete,
+    required this.onDownload,
   });
 
   Color get _priorityColor {
@@ -385,6 +410,13 @@ class _NoticeCard extends StatelessWidget {
                   ),
                 ],
                 const Spacer(),
+                IconButton(
+                  icon: Icon(Icons.picture_as_pdf, size: 16, color: const Color(0xFF0F766E)),
+                  tooltip: 'PDF सूचना',
+                  onPressed: onDownload,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                  padding: EdgeInsets.zero,
+                ),
                 IconButton(
                   icon: Icon(Icons.delete_outline_rounded, size: 16, color: Colors.grey.shade400),
                   onPressed: onDelete,

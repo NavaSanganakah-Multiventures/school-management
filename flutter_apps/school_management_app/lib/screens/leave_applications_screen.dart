@@ -3,6 +3,7 @@ import '../models/leave_model.dart';
 import '../models/user_model.dart';
 import '../services/leave_service.dart';
 import '../services/api_client.dart';
+import '../services/pdf_service.dart';
 import '../widgets/common_widgets.dart';
 
 class LeaveApplicationsScreen extends StatefulWidget {
@@ -112,6 +113,15 @@ class _LeaveApplicationsScreenState extends State<LeaveApplicationsScreen> {
             Text('${a.startDate} → ${a.endDate}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             Text(a.reason, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _downloadLeave(a),
+                icon: const Icon(Icons.picture_as_pdf, size: 16, color: Color(0xFF0F766E)),
+                label: const Text('PDF आवेदन', style: TextStyle(fontSize: 12, color: Color(0xFF0F766E))),
+              ),
+            ),
             if (_isAdmin && a.status.toLowerCase() == 'pending') ...[
               const SizedBox(height: 10),
               Row(
@@ -139,6 +149,15 @@ class _LeaveApplicationsScreenState extends State<LeaveApplicationsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _downloadLeave(LeaveApplicationModel a) async {
+    try {
+      final school = await PdfService.schoolProfile();
+      if (mounted) await PdfService.leaveLetter(context, a, school);
+    } catch (_) {
+      if (mounted) showSnack(context, 'PDF नहीं बन सका', isError: true);
+    }
   }
 
   void _updateStatus(LeaveApplicationModel a, String status) async {

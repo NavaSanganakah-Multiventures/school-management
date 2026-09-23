@@ -5,6 +5,7 @@ import '../models/user_model.dart';
 import '../services/exam_service.dart';
 import '../services/student_service.dart';
 import '../services/api_client.dart';
+import '../services/pdf_service.dart';
 import '../widgets/common_widgets.dart';
 
 class ExamsScreen extends StatefulWidget {
@@ -310,6 +311,19 @@ class _ReportCardTabState extends State<_ReportCardTab> {
   StudentModel? _selectedStudent;
   ReportCardModel? _report;
   bool _loading = false;
+  bool _busyPdf = false;
+
+  Future<void> _downloadReport() async {
+    final r = _report;
+    if (r == null || _busyPdf) return;
+    setState(() => _busyPdf = true);
+    try {
+      final school = await PdfService.schoolProfile();
+      if (mounted) await PdfService.reportCard(context, r, school);
+    } finally {
+      if (mounted) setState(() => _busyPdf = false);
+    }
+  }
 
   Future<void> _viewReport() async {
     if (_selectedStudent == null) {
@@ -376,7 +390,10 @@ class _ReportCardTabState extends State<_ReportCardTab> {
 
   Widget _buildReportCard() {
     final r = _report!;
-    return Card(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Card(
       elevation: 3,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
@@ -419,8 +436,18 @@ class _ReportCardTabState extends State<_ReportCardTab> {
           ],
         ),
       ),
-    );
-  }
+      ),
+      const SizedBox(height: 12),
+      FilledButton.icon(
+        onPressed: _busyPdf ? null : _downloadReport,
+        icon: _busyPdf
+            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+            : const Icon(Icons.picture_as_pdf, size: 18),
+        label: const Text('PDF रिपोर्ट कार्ड डाउनलोड करें'),
+      ),
+    ],
+  );
+}
 
   Widget _summaryRow(String label, String value) {
     return Padding(

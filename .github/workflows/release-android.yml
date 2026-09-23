@@ -89,6 +89,9 @@ jobs:
         run: |
           cd flutter_apps/school_management_app
           flutter pub get
+          # printing 5.13.1 (locked) hardcodes compileSdk 30 / minSdk 16, which
+          # fails against the current Flutter engine embedding (needs SDK 34+).
+          pwsh ../../tools/patch_printing_android.ps1
           flutter analyze
           flutter build appbundle --release
 
