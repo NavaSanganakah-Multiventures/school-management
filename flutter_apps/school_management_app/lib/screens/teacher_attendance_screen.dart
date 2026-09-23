@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/user_model.dart';
 import '../models/attendance_model.dart';
 import '../services/api_client.dart';
+import '../services/pdf_service.dart';
 import '../routes/auth_actions.dart';
 import '../services/student_service.dart';
 import '../widgets/activity_log_sheet.dart';
@@ -247,6 +248,19 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
           SnackBar(content: Text('अलर्ट भेजने में त्रुटि: $e'), backgroundColor: Colors.red),
         );
       }
+    }
+  }
+
+  Future<void> _downloadAttendance() async {
+    final school = await PdfService.schoolProfile();
+    if (mounted) {
+      await PdfService.attendanceSheet(
+        context,
+        _records,
+        school,
+        classLabel: _classLabel,
+        date: _formattedDate,
+      );
     }
   }
 
@@ -769,6 +783,20 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                   label: Text('अभिभावक अलर्ट ($absentCount)', style: const TextStyle(fontSize: 12)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.red.shade700,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.grey.shade300,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _records.isEmpty ? null : _downloadAttendance,
+                  icon: const Icon(Icons.picture_as_pdf, size: 16),
+                  label: const Text('PDF पत्रक', style: TextStyle(fontSize: 12)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.indigo.shade700,
                     foregroundColor: Colors.white,
                     disabledBackgroundColor: Colors.grey.shade300,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

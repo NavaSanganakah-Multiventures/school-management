@@ -1,30 +1,37 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:vidyasetu_super_admin_app/main.dart';
+import 'package:vidyasetu_super_admin_app/models/plan_model.dart';
+import 'package:vidyasetu_super_admin_app/models/school_model.dart';
+import 'package:vidyasetu_super_admin_app/screens/super_admin_login_screen.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const SuperAdminApp());
+  testWidgets('SuperAdmin login screen renders', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: SuperAdminLoginScreen()),
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(find.text('Pragnya Mitra Admin'), findsWidgets);
+    expect(find.text('सुपर एडमिन लॉगिन'), findsOneWidget);
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  test('SchoolModel parses tenantToJson shape', () {
+    final m = SchoolModel.fromJson({
+      'id': 'school-1',
+      'schoolName': 'Test School',
+      'subdomain': 'test',
+      'contactEmail': 'a@b.com',
+      'contactPhone': '1234567890',
+      'status': 'Trial',
+      'registrationStatus': 'Pending_Approval',
+      'planId': 'trial',
+    });
+    expect(m.schoolName, 'Test School');
+    expect(m.isPending, isTrue);
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  test('PlanModel parses plan shape', () {
+    final p = PlanModel.fromJson({'id': 'trial', 'name': '7-दिन फ्री ट्रायल'});
+    expect(p.id, 'trial');
+    expect(p.isTrial, isTrue);
   });
 }

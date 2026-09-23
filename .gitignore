@@ -23,3 +23,9 @@ Thumbs.db
 *.log
 *.pyc
 *.swp
+
+# Node
+node_modules/
+
+# Android keystore backups (NEVER commit)
+.keystore-backup/

@@ -4,6 +4,7 @@ import '../models/student_model.dart';
 import '../models/user_model.dart';
 import '../services/student_service.dart';
 import '../services/api_client.dart';
+import '../services/pdf_service.dart';
 import '../widgets/common_widgets.dart';
 
 class StudentDetailScreen extends StatefulWidget {
@@ -30,6 +31,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
   bool _editing = false;
   String? _error;
   StudentModel? _student;
+  bool _busyPdf = false;
 
   final _ctrl = <String, TextEditingController>{};
   bool get _isAdmin => widget.user.isAdminRole;
@@ -128,6 +130,18 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
         showSnack(context, 'अपडेट विफल', isError: true);
         setState(() => _saving = false);
       }
+    }
+  }
+
+  Future<void> _downloadBonafide() async {
+    final s = _student;
+    if (s == null || _busyPdf) return;
+    setState(() => _busyPdf = true);
+    try {
+      final school = await PdfService.schoolProfile();
+      if (mounted) await PdfService.bonafide(context, s, school);
+    } finally {
+      if (mounted) setState(() => _busyPdf = false);
     }
   }
 
@@ -287,7 +301,16 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
               ],
             ),
           ],
-          if (_isAdmin && s.status.toLowerCase() == 'active') ...[
+          const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _busyPdf ? null : _downloadBonafide,
+              icon: _busyPdf
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.picture_as_pdf, color: Color(0xFF0F766E), size: 18),
+              label: const Text('बोनाफाइड प्रमाण पत्र (PDF)', style: TextStyle(fontSize: 12, color: Color(0xFF0F766E))),
+              style: OutlinedButton.styleFrom(side: BorderSide(color: const Color(0xFF0F766E).withValues(alpha: 0.5))),
+            ),
+            if (_isAdmin && s.status.toLowerCase() == 'active') ...[
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: _issueTC,
