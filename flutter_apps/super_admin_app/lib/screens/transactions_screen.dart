@@ -86,8 +86,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('बिलिंग लेन-देन',
-                        style: const TextStyle(
+                    const Text('बिलिंग लेन-देन',
+                        style: TextStyle(
                             fontSize: 18, fontWeight: FontWeight.w800)),
                     const SizedBox(height: 4),
                     const Text('सभी स्कूलों के भुगतान, चालान व Razorpay रसीदें',

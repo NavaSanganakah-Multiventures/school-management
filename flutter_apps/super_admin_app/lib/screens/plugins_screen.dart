@@ -76,6 +76,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
   Future<void> _toggle(PluginModel p) async {
     try {
       final res = await _service.togglePlugin(p.id);
+      if (!mounted) return;
       if (res['success'] == true) {
         showSnack(context, res['message'].toString());
         _load();
@@ -83,6 +84,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
         showSnack(context, res['message'].toString(), ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       showSnack(context, 'त्रुटि: $e', ok: false);
     }
   }
@@ -173,6 +175,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
       final res = existing == null
           ? await _service.createPlugin(body)
           : await _service.updatePlugin(body);
+      if (!mounted) return;
       if (res['success'] == true) {
         showSnack(context, res['message'].toString());
         _load();
@@ -180,6 +183,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
         showSnack(context, res['message'].toString(), ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       showSnack(context, 'त्रुटि: $e', ok: false);
     }
   }
@@ -240,6 +244,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
     if (ok != true || !mounted) return;
     try {
       final res = await _service.activatePlugin(schoolId, pluginId);
+      if (!mounted) return;
       if (res['success'] == true) {
         showSnack(context, res['message'].toString());
         _load();
@@ -247,6 +252,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
         showSnack(context, res['message'].toString(), ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       showSnack(context, 'त्रुटि: $e', ok: false);
     }
   }
@@ -317,6 +323,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
         pluginId: pluginId,
         trialDays: int.tryParse(days.text.trim()) ?? 7,
       );
+      if (!mounted) return;
       if (res['success'] == true) {
         showSnack(context, res['message'].toString());
         _load();
@@ -324,6 +331,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
         showSnack(context, res['message'].toString(), ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       showSnack(context, 'त्रुटि: $e', ok: false);
     }
   }
@@ -339,6 +347,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
     if (!ok || !mounted) return;
     try {
       final res = await _service.revokeTrial(t.schoolId, t.pluginId);
+      if (!mounted) return;
       if (res['success'] == true) {
         showSnack(context, res['message'].toString());
         _load();
@@ -346,6 +355,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
         showSnack(context, res['message'].toString(), ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       showSnack(context, 'त्रुटि: $e', ok: false);
     }
   }
@@ -390,12 +400,14 @@ class _PluginsScreenState extends State<PluginsScreen> {
     try {
       final res = await _service.sendPaymentLink(
           schoolId: t.schoolId, pluginId: t.pluginId, billingCycle: cycle);
+      if (!mounted) return;
       if (res['success'] == true) {
         showSnack(context, res['message'].toString());
       } else {
         showSnack(context, res['message'].toString(), ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       showSnack(context, 'त्रुटि: $e', ok: false);
     }
   }
@@ -404,6 +416,7 @@ class _PluginsScreenState extends State<PluginsScreen> {
     final res = sub.status == 'active'
         ? await _service.revokePlugin(sub.schoolId, sub.pluginId)
         : await _service.activatePlugin(sub.schoolId, sub.pluginId);
+    if (!mounted) return;
     if (res['success'] == true) {
       showSnack(context, res['message'].toString());
       _load();
@@ -435,12 +448,12 @@ class _PluginsScreenState extends State<PluginsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('प्लगइन प्रबंधन',
-                  style: const TextStyle(
+              const Text('प्लगइन प्रबंधन',
+                  style: TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w800)),
               const SizedBox(height: 4),
-              Text('कैटलॉग, स्कूल सब्सक्रिप्शन्स व ट्रायल्स',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              const Text('कैटलॉग, स्कूल सब्सक्रिप्शन्स व ट्रायल्स',
+                  style: TextStyle(fontSize: 12, color: Colors.grey)),
               const SizedBox(height: 14),
               if (_error != null) errorBanner(_error!),
               SingleChildScrollView(

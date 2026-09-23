@@ -99,6 +99,7 @@ Future<void> showSchoolActionsSheet({
     ),
   );
 
+  if (action == null || !context.mounted) return;
   await _runAction(context, action, school, service, onChanged);
 }
 
@@ -184,6 +185,7 @@ Future<void> _reject(BuildContext context, SchoolModel school,
   if (!ok || !context.mounted) return;
   try {
     final res = await service.rejectSchool(school.id);
+    if (!context.mounted) return;
     if (res['success'] == true) {
       showSnack(context, 'पंजीकरण अस्वीकृत कर दिया गया।');
       onChanged();
@@ -191,6 +193,7 @@ Future<void> _reject(BuildContext context, SchoolModel school,
       showSnack(context, res['message'].toString(), ok: false);
     }
   } catch (e) {
+    if (!context.mounted) return;
     showSnack(context, 'त्रुटि: $e', ok: false);
   }
 }
@@ -209,6 +212,7 @@ Future<void> _delete(BuildContext context, SchoolModel school,
   if (!ok || !context.mounted) return;
   try {
     final res = await service.deleteSchool(school.id);
+    if (!context.mounted) return;
     if (res['success'] == true) {
       showSnack(context, 'स्कूल हटा दिया गया (soft-delete)।');
       onChanged();
@@ -216,6 +220,7 @@ Future<void> _delete(BuildContext context, SchoolModel school,
       showSnack(context, res['message'].toString(), ok: false);
     }
   } catch (e) {
+    if (!context.mounted) return;
     showSnack(context, 'त्रुटि: $e', ok: false);
   }
 }

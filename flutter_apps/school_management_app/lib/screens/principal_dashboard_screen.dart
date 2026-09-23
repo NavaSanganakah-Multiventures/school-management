@@ -248,10 +248,6 @@ class _PrincipalDashboardScreenState extends State<PrincipalDashboardScreen> {
     );
   }
 
-  void _navigateTo(Widget screen) {
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
-  }
-
   // ====================== DESKTOP / WEB LAYOUT ======================
   Widget _buildDesktopLayout() {
     return WebShell(
