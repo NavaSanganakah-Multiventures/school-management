@@ -134,8 +134,7 @@ function copyTable(slug, schoolId, table, whereClause) {
     const parsed = JSON.parse(out);
     rows = (parsed[0] && parsed[0].results) || [];
   } catch (e) {
-    console.warn(`  ⚠️ Could not parse SELECT output for ${table}: ${e.message}`);
-    return 0;
+    throw new Error(`Could not parse SELECT output for ${table} (fail-loud): ${(e && e.message) || e}`);
   }
 
   if (!rows.length) {
@@ -185,21 +184,17 @@ async function migrateSchoolData(slug, schoolId) {
   let total = 0;
   for (const table of OPERATIONAL_TABLES) {
     console.log(`Copying table: ${table}...`);
-    try {
-      total += copyTable(slug, schoolId, table, `school_id = ${escapeSql(schoolId)}`);
-    } catch (err) {
-      console.error(`  ❌ Error copying table ${table}:`, err.message);
-    }
+    // Fail-loud: copyTable itself tolerates only genuine schema drift ("no such
+    // table"/"no such column") and returns 0 for it. Any error thrown here is a
+    // real wrangler/auth/data failure and MUST abort the deploy so a worker is
+    // never published with a silently-empty database.
+    total += copyTable(slug, schoolId, table, `school_id = ${escapeSql(schoolId)}`);
   }
 
   // school_profile and school_tenants are keyed by id (= schoolId) — no school_id column.
   for (const table of ['school_profile', 'school_tenants']) {
     console.log(`Copying table: ${table}...`);
-    try {
-      total += copyTable(slug, schoolId, table, `id = ${escapeSql(schoolId)}`);
-    } catch (err) {
-      console.error(`  ❌ Error copying ${table}:`, err.message);
-    }
+    total += copyTable(slug, schoolId, table, `id = ${escapeSql(schoolId)}`);
   }
 
   console.log(`\n✅ Migration complete for "${slug}". Total records copied: ${total}`);

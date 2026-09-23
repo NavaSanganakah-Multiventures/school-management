@@ -333,13 +333,23 @@ adminApp.post('/registrations/approve', async (c) => {
 
   // Every school gets its own dedicated worker (regardless of plan).
   let provisioning: any = null;
+  let provisioningError: string | null = null;
   try {
     const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
     if (school) provisioning = await provisionDedicatedWorker(c.env, db, school, {});
-  } catch (provErr) {
+  } catch (provErr: any) {
     console.error('[Admin] provisionDedicatedWorker failed (trial approve):', provErr);
+    provisioningError = (provErr && provErr.message) || 'डेडीकेटेड वर्कर प्रोविजनिंग विफल रही।';
   }
-  return c.json({ success: true, message: `स्कूल स्वीकृत। ट्रायल समाप्ति तिथि ${trialEnds} निर्धारित की गई।`, trialEnds, provisioning });
+  return c.json({
+    success: true,
+    message: provisioningError
+      ? `स्कूल स्वीकृत। ट्रायल समाप्ति तिथि ${trialEnds} निर्धारित की गई। प्रोविजनिंग त्रुटि: ${provisioningError}`
+      : `स्कूल स्वीकृत। ट्रायल समाप्ति तिथि ${trialEnds} निर्धारित की गई।`,
+    trialEnds,
+    provisioning,
+    provisioningError,
+  });
 });
 
 // POST /api/admin/registrations/reject
