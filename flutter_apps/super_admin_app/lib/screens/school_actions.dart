@@ -89,7 +89,7 @@ Future<void> showSchoolActionsSheet({
             else
               _actionTile(ctx, _SchoolAction.provisionCheck, Icons.health_and_safety_outlined, 'प्रोविज़न स्टेटस जांचें'),
             if (school.isProvisionedLive || school.hasDedicatedConfig)
-              _actionTile(ctx, _SchoolAction.deprovision, Icons.cloud_download_outlined, 'डी-प्रोविज़न (शेयर्ड मोड)',
+              _actionTile(ctx, _SchoolAction.deprovision, Icons.cloud_download_outlined, 'आपातकालीन: शेयर्ड मोड में ले जाएं',
                   color: const Color(0xFFB45309)),
             _actionTile(ctx, _SchoolAction.delete, Icons.delete_outline, 'स्कूल हटाएं (Soft Delete)',
                 color: const Color(0xFFBE123C)),
@@ -868,7 +868,7 @@ Future<void> showProvisionDialog(BuildContext context, SchoolModel school,
               controller: domain,
               decoration: fieldDec('Domain (optional)')),
           const Text(
-            'केवल Enterprise प्लान हेतु। GitHub commit → deploy.yml → provision-school.mjs प्रवाह चलेगा।',
+            'हर स्कूल को अपना dedicated worker मिलता है। GitHub commit → deploy.yml → provision-school.mjs प्रवाह चलेगा।',
             style: TextStyle(fontSize: 11, color: Colors.grey),
           ),
         ],
@@ -920,9 +920,9 @@ Future<void> _deprovision(BuildContext context, SchoolModel school,
   if (!context.mounted) return;
   final ok = await confirmDialog(
     context,
-    title: 'डी-प्रोविज़न?',
+    title: 'आपातकालीन डी-प्रोविज़न?',
     message:
-        '"${school.schoolName}" को शेयर्ड वर्कर मोड में बदल दिया जाएगा। क्या आप सुनिश्चित हैं?',
+        '"${school.schoolName}" को शेयर्ड वर्कर मोड में बदल दिया जाएगा। यह केवल आपातकालीन स्थिति में करें — सामान्यतः हर स्कूल अपने dedicated worker पर चलता है। क्या आप सुनिश्चित हैं?',
     confirmText: 'डी-प्रोविज़न करें',
     destructive: true,
   );

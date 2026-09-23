@@ -300,7 +300,8 @@ adminApp.post('/registrations/approve', async (c) => {
 
     let provisioning: any = null;
     let provisioningError: string | null = null;
-    if (plan.featureFlags && plan.featureFlags.dedicatedWorker) {
+    // Every school gets its own dedicated worker (regardless of plan).
+    {
       const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
       if (school) {
         try {
@@ -329,7 +330,16 @@ adminApp.post('/registrations/approve', async (c) => {
     .bind('Trial', 'Approved', 'trial', trialEnds, now, guard.authUser.sub, schoolId).run();
   await db.prepare('UPDATE school_subscriptions SET status=?, plan_id=?, plan_name=?, trial_ends_at=?, updated_at=? WHERE school_id=?')
     .bind('Trial', 'trial', '7-दिन फ्री ट्रायल', trialEnds, now, schoolId).run();
-  return c.json({ success: true, message: `स्कूल स्वीकृत। ट्रायल समाप्ति तिथि ${trialEnds} निर्धारित की गई।`, trialEnds });
+
+  // Every school gets its own dedicated worker (regardless of plan).
+  let provisioning: any = null;
+  try {
+    const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
+    if (school) provisioning = await provisionDedicatedWorker(c.env, db, school, {});
+  } catch (provErr) {
+    console.error('[Admin] provisionDedicatedWorker failed (trial approve):', provErr);
+  }
+  return c.json({ success: true, message: `स्कूल स्वीकृत। ट्रायल समाप्ति तिथि ${trialEnds} निर्धारित की गई।`, trialEnds, provisioning });
 });
 
 // POST /api/admin/registrations/reject
@@ -538,10 +548,9 @@ adminApp.post('/schools/create', async (c) => {
     .bind('sub-' + Date.now(), schoolId, plan.id, plan.name, billingCycle, pricePerCycle, 0, initialStatus, trialEndsAt, 1, 'Manual', '', now.split('T')[0], now.split('T')[0], trialEndsAt || now.split('T')[0], now).run();
 
   let provisioning: any = null;
-  if (plan.featureFlags && plan.featureFlags.dedicatedWorker) {
-    const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
-    if (school) provisioning = await provisionDedicatedWorker(c.env, db, school, {});
-  }
+  // Every school gets its own dedicated worker (regardless of plan).
+  const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
+  if (school) provisioning = await provisionDedicatedWorker(c.env, db, school, {});
   return c.json({ success: true, message: 'विद्यालय सफलतापूर्वक जोड़ा गया।', schoolId, provisioning });
 });
 
@@ -574,16 +583,9 @@ adminApp.post('/schools/plan', async (c) => {
 
   let provisioning: any = null;
   const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
-  if (plan.featureFlags && plan.featureFlags.dedicatedWorker) {
-    if (school) provisioning = await provisionDedicatedWorker(c.env, db, school, {});
-  } else if (school && (school.dedicated_slug || school.provisioning_status === 'live' || school.provisioning_status === 'pending')) {
-    // School is being downgraded to a shared plan; switch schools.json mode to shared
-    try {
-      await deprovisionDedicatedWorker(c.env, db, schoolId, school.dedicated_slug);
-    } catch (downgradeErr) {
-      console.error('[Admin] deprovisionDedicatedWorker on plan downgrade error:', downgradeErr);
-    }
-  }
+  // Every school keeps its own dedicated worker — plan changes never downgrade
+  // the school back to shared mode.
+  if (school) provisioning = await provisionDedicatedWorker(c.env, db, school, {});
   return c.json({ success: true, message: `स्कूल का प्लान "${plan.name}" में बदल दिया गया।`, provisioning, trialEnds });
 });
 
@@ -783,16 +785,7 @@ adminApp.post('/schools/provision', async (c) => {
   const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
   if (!school) return c.json({ success: false, message: 'स्कूल नहीं मिला।' }, 404);
 
-  // Strict Enterprise plan verification:
-  const sub = await db.prepare('SELECT plan_id, status FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
-  const currentPlanId = (sub && sub.status === 'Active' ? sub.plan_id : school.plan_id) || 'trial';
-  const plan = await loadSubscriptionPlanById(db, currentPlanId);
-  if (!plan || (plan.id !== 'enterprise' && (!plan.featureFlags || !plan.featureFlags.dedicatedWorker))) {
-    return c.json({
-      success: false,
-      message: 'डेडीकेटेड वर्कर केवल एंटरप्राइज (Enterprise) प्लान के लिए उपलब्ध है। कृपया पहले स्कूल को एंटरप्राइज प्लान में अपग्रेड करें।',
-    }, 400);
-  }
+  // No plan gating: every school gets its own dedicated worker.
 
   const slug = sanitizeSlug(body.slug || school.subdomain || school.school_name);
   if (!isSlugValid(slug)) {

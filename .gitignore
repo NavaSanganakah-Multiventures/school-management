@@ -24,6 +24,9 @@ Thumbs.db
 *.pyc
 *.swp
 
+# TypeScript build info cache
+*.tsbuildinfo
+
 # Node
 node_modules/
 

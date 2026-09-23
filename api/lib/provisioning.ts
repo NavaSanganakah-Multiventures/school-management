@@ -1,6 +1,8 @@
 // api/lib/provisioning.ts
-// Shared helper for provisioning dedicated (Enterprise) Cloudflare Workers.
-// Used by billing (enterprise purchase) and admin (manual provision / plan assignment).
+// Shared helper for provisioning dedicated Cloudflare Workers.
+// Every school gets its own dedicated worker (D1/R2/KV + <slug>.pragnya.nasven.com),
+// regardless of plan. Used by billing (payment activation) and admin
+// (auto-provision on create/approve/plan-assign + manual provision retry).
 
 export type ProvisioningStatus = 'skipped' | 'started' | 'error';
 
@@ -104,32 +106,8 @@ export async function provisionDedicatedWorker(
   const schoolId = String((school && school.id) || '');
   if (!schoolId) return { ok: false, status: 'error', error: 'schoolId उपलब्ध नहीं है।' };
 
-  // Enforce Enterprise plan gating: Dedicated Workers can ONLY be provisioned for Enterprise schools.
-  const planId = String((school && (school.plan_id || school.planId)) || 'trial').toLowerCase();
-  if (planId !== 'enterprise' && (!school.featureFlags || !school.featureFlags.dedicatedWorker)) {
-    if (db) {
-      try {
-        const sub = await db.prepare('SELECT plan_id FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
-        const activePlanId = String((sub && sub.plan_id) || planId).toLowerCase();
-        const plan = await db.prepare('SELECT id, feature_flags FROM subscription_plans WHERE id = ?').bind(activePlanId).first();
-        let flags: any = {};
-        try { flags = JSON.parse(plan?.feature_flags || '{}'); } catch (_) {}
-        if (activePlanId !== 'enterprise' && !flags.dedicatedWorker) {
-          return {
-            ok: false,
-            status: 'error',
-            error: 'डेडीकेटेड वर्कर केवल एंटरप्राइज (Enterprise) प्लान के लिए ही अनुमत है। कृपया पहले स्कूल को एंटरप्राइज प्लान में अपग्रेड करें।',
-          };
-        }
-      } catch (_) {}
-    } else if (planId !== 'enterprise') {
-      return {
-        ok: false,
-        status: 'error',
-        error: 'डेडीकेटेड वर्कर केवल एंटरप्राइज (Enterprise) प्लान के लिए ही अनुमत है। कृपया पहले स्कूल को एंटरप्राइज प्लान में अपग्रेड करें।',
-      };
-    }
-  }
+  // No plan-based gating: every school (trial/starter/pro/enterprise) runs on
+  // its own dedicated worker. Provisioning is the default for all schools.
 
   const currentStatus = String((school && school.provisioning_status) || 'none');
   if ((currentStatus === 'pending' || currentStatus === 'live') && (school && school.dedicated_slug)) {
