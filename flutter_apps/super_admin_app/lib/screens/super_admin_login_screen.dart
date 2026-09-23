@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_client.dart';
-import 'super_admin_dashboard_screen.dart';
+import 'super_admin_home_screen.dart';
 
 class SuperAdminLoginScreen extends StatefulWidget {
   const SuperAdminLoginScreen({super.key});
@@ -47,7 +47,7 @@ class _SuperAdminLoginScreenState extends State<SuperAdminLoginScreen> {
 
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => SuperAdminDashboardScreen(adminProfile: res['user']),
+            builder: (_) => SuperAdminHomeScreen(adminProfile: res['user']),
           ),
         );
       } else {

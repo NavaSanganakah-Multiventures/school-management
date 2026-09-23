@@ -1,10 +1,14 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vidyasetu_super_admin_app/main.dart';
+import 'package:vidyasetu_super_admin_app/models/plan_model.dart';
 import 'package:vidyasetu_super_admin_app/models/school_model.dart';
+import 'package:vidyasetu_super_admin_app/screens/super_admin_login_screen.dart';
 
 void main() {
   testWidgets('SuperAdmin login screen renders', (WidgetTester tester) async {
-    await tester.pumpWidget(const SuperAdminApp());
+    await tester.pumpWidget(
+      const MaterialApp(home: SuperAdminLoginScreen()),
+    );
 
     expect(find.text('Pragnya Mitra Super Admin'), findsWidgets);
     expect(find.text('सुपर एडमिन लॉगिन'), findsOneWidget);
