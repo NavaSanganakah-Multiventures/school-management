@@ -275,6 +275,7 @@ class _PlansScreenState extends State<PlansScreen> {
       final res = isEdit
           ? await _service.updatePlan(body)
           : await _service.createPlan(body);
+      if (!mounted) return;
       if (res['success'] == true) {
         showSnack(context, res['message'].toString());
         _load();
@@ -282,6 +283,7 @@ class _PlansScreenState extends State<PlansScreen> {
         showSnack(context, res['message'].toString(), ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       showSnack(context, 'त्रुटि: $e', ok: false);
     }
   }
@@ -297,6 +299,7 @@ class _PlansScreenState extends State<PlansScreen> {
     if (!ok || !mounted) return;
     try {
       final res = await _service.deletePlan(p.id);
+      if (!mounted) return;
       if (res['success'] == true) {
         showSnack(context, res['message'].toString());
         _load();
@@ -304,6 +307,7 @@ class _PlansScreenState extends State<PlansScreen> {
         showSnack(context, res['message'].toString(), ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       showSnack(context, 'त्रुटि: $e', ok: false);
     }
   }
@@ -339,6 +343,7 @@ class _PlansScreenState extends State<PlansScreen> {
     if (ok != true || !mounted) return;
     try {
       final res = await _service.createRazorpayPlan(p.id, cycle);
+      if (!mounted) return;
       if (res['success'] == true) {
         showSnack(context, res['message'].toString());
         _load();
@@ -346,6 +351,7 @@ class _PlansScreenState extends State<PlansScreen> {
         showSnack(context, res['message'].toString(), ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       showSnack(context, 'त्रुटि: $e', ok: false);
     }
   }
@@ -362,6 +368,7 @@ class _PlansScreenState extends State<PlansScreen> {
     setState(() => _syncing = true);
     try {
       final res = await _service.syncAllRazorpayPlans();
+      if (!mounted) return;
       if (res['success'] == true) {
         showSnack(context, res['message'].toString());
         _load();
@@ -369,6 +376,7 @@ class _PlansScreenState extends State<PlansScreen> {
         showSnack(context, res['message'].toString(), ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       showSnack(context, 'त्रुटि: $e', ok: false);
     } finally {
       if (mounted) setState(() => _syncing = false);
@@ -396,8 +404,8 @@ class _PlansScreenState extends State<PlansScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('सब्सक्रिप्शन प्लान',
-                  style: const TextStyle(
+              const Text('सब्सक्रिप्शन प्लान',
+                  style: TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w800)),
               const SizedBox(height: 4),
               const Text('प्लान CRUD, फीचर फ्लैग्स व Razorpay सिंक',

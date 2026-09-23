@@ -84,6 +84,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() => _runningTrial = true);
     try {
       final res = await _service.processTrials();
+      if (!mounted) return;
       if (res['success'] == true) {
         showSnack(context, res['message'].toString());
         _load();
@@ -91,6 +92,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         showSnack(context, res['message'].toString(), ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       showSnack(context, 'त्रुटि: $e', ok: false);
     } finally {
       if (mounted) setState(() => _runningTrial = false);
@@ -108,12 +110,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() => _runningTrial = true);
     try {
       final res = await _service.processPluginTrials();
+      if (!mounted) return;
       if (res['success'] == true) {
         showSnack(context, res['message'].toString());
       } else {
         showSnack(context, res['message'].toString(), ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       showSnack(context, 'त्रुटि: $e', ok: false);
     } finally {
       if (mounted) setState(() => _runningTrial = false);

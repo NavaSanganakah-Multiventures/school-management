@@ -84,6 +84,7 @@ class _SchoolsScreenState extends State<SchoolsScreen> {
         state: data['state'] ?? '',
         pincode: data['pincode'] ?? '',
       );
+      if (!mounted) return;
       if (res['success'] == true) {
         showSnack(context, res['message'].toString());
         _load();
@@ -91,6 +92,7 @@ class _SchoolsScreenState extends State<SchoolsScreen> {
         showSnack(context, res['message'].toString(), ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       showSnack(context, 'स्कूल बनाने में त्रुटि: ${e.toString().replaceFirst('Exception: ', '')}',
           ok: false);
     }
@@ -332,6 +334,7 @@ class _SchoolsScreenState extends State<SchoolsScreen> {
     if (!ok || !mounted) return;
     try {
       final res = await _service.restoreSchool(t.id);
+      if (!mounted) return;
       if (res['success'] == true) {
         showSnack(context, res['message'].toString());
         _load();
@@ -339,6 +342,7 @@ class _SchoolsScreenState extends State<SchoolsScreen> {
         showSnack(context, res['message'].toString(), ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       showSnack(context, 'त्रुटि: $e', ok: false);
     }
   }
