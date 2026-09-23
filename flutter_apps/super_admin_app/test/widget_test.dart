@@ -10,7 +10,7 @@ void main() {
       const MaterialApp(home: SuperAdminLoginScreen()),
     );
 
-    expect(find.text('Pragnya Mitra Super Admin'), findsWidgets);
+    expect(find.text('Pragnya Mitra Admin'), findsWidgets);
     expect(find.text('सुपर एडमिन लॉगिन'), findsOneWidget);
   });
 

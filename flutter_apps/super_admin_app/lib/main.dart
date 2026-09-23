@@ -14,7 +14,7 @@ class SuperAdminApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Pragnya Mitra Super Admin',
+      title: 'Pragnya Mitra Admin',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,

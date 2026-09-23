@@ -82,7 +82,7 @@ class _SuperAdminLoginScreenState extends State<SuperAdminLoginScreen> {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'Pragnya Mitra Super Admin',
+                  'Pragnya Mitra Admin',
                   style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 6),
