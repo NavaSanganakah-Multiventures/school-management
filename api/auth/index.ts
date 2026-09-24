@@ -81,11 +81,17 @@ authApp.post('/login', async (c) => {
   // 2) School user (Director / Principal / Staff)
   let user = await db.prepare('SELECT * FROM system_users WHERE LOWER(email) = ? OR LOWER(username) = ?').bind(identifier, identifier).first();
 
-  // If user is not found on a dedicated worker, perform auto-sync from central platform to self-heal
-  if (!user && isDedicated && c.env.SCHOOL_ID) {
+  // On dedicated workers, always refresh tenant data from the central platform so
+  // system_users, school_profile and school_tenants stay in sync with the main DB
+  // (self-healing: pulls newly created users, fixes stale school_tenants rows).
+  // The user lookup runs BEFORE the sync (fast path) and AGAIN after the sync in
+  // case the account only exists on the platform (e.g. just-provisioned schools).
+  if (isDedicated && c.env.SCHOOL_ID) {
     try {
       await syncTenantFromPlatform(c, c.env.SCHOOL_ID);
-      user = await db.prepare('SELECT * FROM system_users WHERE LOWER(email) = ? OR LOWER(username) = ?').bind(identifier, identifier).first();
+      if (!user) {
+        user = await db.prepare('SELECT * FROM system_users WHERE LOWER(email) = ? OR LOWER(username) = ?').bind(identifier, identifier).first();
+      }
     } catch (syncErr) {
       console.warn('Auto-sync during login encountered an error:', syncErr);
     }
@@ -109,6 +115,37 @@ authApp.post('/login', async (c) => {
   }
   const ok = await verifyPassword(password, user.password_hash);
   if (!ok) return c.json({ success: false, message: 'अमान्य पासवर्ड।' }, 401);
+
+  // Tenant isolation on the shared/control-plane worker: a school that runs on
+  // its own dedicated worker must be accessed through its dedicated subdomain.
+  // Allowing its users to keep logging in here silently routes their NEW writes
+  // into the MAIN (shared) D1 — that is exactly how "school data ends up in the
+  // main DB" happens. Live dedicated schools are therefore redirected to their
+  // own portal. (pending schools are not blocked — their worker may not be up yet.)
+  if (!isDedicated && user.school_id) {
+    try {
+      const tenantRec = await db.prepare(
+        'SELECT dedicated_slug, dedicated_domain, provisioning_status FROM school_tenants WHERE id = ?'
+      ).bind(user.school_id).first();
+      if (
+        tenantRec
+        && tenantRec.dedicated_slug
+        && tenantRec.provisioning_status === 'live'
+      ) {
+        const rawDomain = String(tenantRec.dedicated_domain || (tenantRec.dedicated_slug + '.pragnya.nasven.com'));
+        const cleanDomain = String(rawDomain).replace(/^https?:\/\//, '').replace(/\/+$/, '');
+        return c.json({
+          success: false,
+          code: 'USE_DEDICATED_DOMAIN',
+          dedicatedDomain: cleanDomain,
+          dedicatedUrl: 'https://' + cleanDomain,
+          message: 'आपका स्कूल अपने निजी पोर्टल पर चला गया है। कृपया https://' + cleanDomain + ' से लॉगिन करें।',
+        }, 403);
+      }
+    } catch (_) {
+      // tenant lookup failed (e.g. table missing) — fall through to normal login
+    }
+  }
 
   // 3) School approval gate: block login until Super Admin approves the school.
   if (user.school_id) {

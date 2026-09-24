@@ -172,7 +172,7 @@ function copyTable(slug, schoolId, table, whereClause) {
   return rows.length;
 }
 
-async function migrateSchoolData(slug, schoolId) {
+async function migrateSchoolData(slug, schoolId, options = {}) {
   if (!slug || !schoolId) {
     throw new Error('slug and schoolId are required.');
   }
@@ -180,7 +180,12 @@ async function migrateSchoolData(slug, schoolId) {
     throw new Error(`Missing config wrangler-${slug}.toml — run scripts/generate-school-configs.mjs first.`);
   }
 
-  if (dedicatedHasData(slug, schoolId)) {
+  // Force re-copy: used for one-off repairs when a school's dedicated D1 is
+  // missing rows that landed in the shared/main DB (INSERT OR REPLACE is
+  // idempotent, so re-running is safe). Triggered via --force CLI flag or the
+  // FORCE_SCHOOL_DATA_COPY env var passed through deploy.yml.
+  const force = !!(options && options.force);
+  if (!force && dedicatedHasData(slug, schoolId)) {
     console.log(`School "${slug}" already has operational data in its dedicated D1 — skipping copy.`);
     return { copied: false, message: 'already-migrated' };
   }
@@ -209,17 +214,18 @@ async function migrateSchoolData(slug, schoolId) {
   return { copied: true, total };
 }
 
-export async function migrateSchool(slug, schoolId) {
-  return migrateSchoolData(slug, schoolId);
+export async function migrateSchool(slug, schoolId, options) {
+  return migrateSchoolData(slug, schoolId, options || {});
 }
 
 // CLI entry point.
 const isMain = process.argv[1] && process.argv[1].endsWith('migrate-to-dedicated.mjs');
 if (isMain) {
   const slug = process.argv[2];
+  const force = process.argv.includes('--force');
   (async () => {
     if (!slug) {
-      console.error('Usage: node scripts/migrate-to-dedicated.mjs <school-slug>');
+      console.error('Usage: node scripts/migrate-to-dedicated.mjs <school-slug> [--force]');
       process.exit(1);
     }
     const registry = JSON.parse(fs.readFileSync(REGISTRY_FILE, 'utf-8'));
@@ -228,7 +234,8 @@ if (isMain) {
       console.error(`School with slug "${slug}" not found in ${REGISTRY_FILE}.`);
       process.exit(1);
     }
-    await migrateSchool(slug, school.schoolId);
+    if (force) console.log('⚙️  FORCE mode: re-copying shared-D1 data (INSERT OR REPLACE).');
+    await migrateSchool(slug, school.schoolId, { force });
     process.exit(0);
   })().catch((e) => {
     console.error('Fatal migrate error:', e);

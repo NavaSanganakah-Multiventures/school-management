@@ -6,6 +6,20 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      force_school_data_copy:
+        description: "Re-copy ALL shared-D1 operational data into every dedicated D1 (idempotent repair — use after rescuing data stuck in the main DB)"
+        required: false
+        default: false
+        type: boolean
+
+# Serialize deploy runs per branch so concurrent runs (e.g. a platform-API
+# schools.json push racing a manual workflow_dispatch) never apply D1
+# migrations on the same fresh database at the same time. The queue guarantees a
+# clean single migration pass per deploy cycle.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -134,6 +148,7 @@ jobs:
           WEB_PUSH_VAPID_PRIVATE_KEY: ${{ secrets.WEB_PUSH_VAPID_PRIVATE_KEY }}
           FIREBASE_WEB_CONFIG_JSON: ${{ secrets.FIREBASE_WEB_CONFIG_JSON }}
           DEDICATED_SECRETS_JSON: ${{ secrets.DEDICATED_SECRETS_JSON }}
+          FORCE_SCHOOL_DATA_COPY: ${{ github.event.inputs.force_school_data_copy == 'true' }}
 
       - name: Bootstrap platform Super Admin (idempotent)
         run: |
