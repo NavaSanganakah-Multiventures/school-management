@@ -97,12 +97,54 @@ authApp.post('/login', async (c) => {
     }
   }
 
+  // ── Shared / management portal is NOT a school portal ──────────────────
+  // pragnya.nasven.com serves the Super Admin console (schools, plans,
+  // subscriptions, approvals). School staff cannot obtain a session here at
+  // all — that is exactly what created the cross-DB data leak (school writes
+  // landing in the shared/main D1). Live dedicated schools are redirected to
+  // their own portal; everything else gets the management-only notice.
+  // Dedicated workers skip this block entirely and authenticate below.
+  if (!isDedicated) {
+    let dedicatedDomain: string | null = null;
+    if (user && user.school_id) {
+      try {
+        const tenantRec = await db.prepare(
+          'SELECT dedicated_slug, dedicated_domain, provisioning_status, deleted_at FROM school_tenants WHERE id = ?'
+        ).bind(user.school_id).first();
+        if (
+          tenantRec
+          && !tenantRec.deleted_at
+          && tenantRec.dedicated_slug
+          && tenantRec.provisioning_status === 'live'
+        ) {
+          const rawDomain = String(tenantRec.dedicated_domain || (tenantRec.dedicated_slug + '.pragnya.nasven.com'));
+          dedicatedDomain = String(rawDomain).replace(/^https?:\/\//, '').replace(/\/+$/, '');
+        }
+      } catch (_) {
+        // tenant lookup failed (e.g. table missing) — generic notice below
+      }
+    }
+    if (dedicatedDomain) {
+      return c.json({
+        success: false,
+        code: 'USE_DEDICATED_DOMAIN',
+        dedicatedDomain,
+        dedicatedUrl: 'https://' + dedicatedDomain,
+        message: 'आपका स्कूल अपने निजी पोर्टल पर चला गया है। कृपया https://' + dedicatedDomain + ' से लॉगिन करें।',
+      }, 403);
+    }
+    return c.json({
+      success: false,
+      code: 'PORTAL_MANAGEMENT_ONLY',
+      message: 'यह पोर्टल अब केवल स्कूल प्रबंधन (स्कूल, योजनाएं एवं सब्सक्रिप्शन) हेतु है। स्कूल लॉगिन के लिए कृपया अपने स्कूल के निजी पोर्टल का उपयोग करें। यदि आपके स्कूल का पोर्टल सक्रिय नहीं है तो अपने स्कूल एडमिन से संपर्क करें।',
+    }, 403);
+  }
+
+  // ── Dedicated worker: school login path ────────────────────────────────
   if (!user) {
     return c.json({
       success: false,
-      message: isDedicated
-        ? 'इस स्कूल पोर्टल पर यह उपयोगकर्ता नहीं मिला। कृपया अपने स्कूल एडमिन/डायरेक्टर से संपर्क करें।'
-        : 'इस ईमेल से कोई अधिकृत उपयोगकर्ता नहीं मिला। कृपया पहले स्कूल रजिस्टर करें।',
+      message: 'इस स्कूल पोर्टल पर यह उपयोगकर्ता नहीं मिला। कृपया अपने स्कूल एडमिन/डायरेक्टर से संपर्क करें।',
     }, 401);
   }
   if (!user.password_hash) {
@@ -115,37 +157,6 @@ authApp.post('/login', async (c) => {
   }
   const ok = await verifyPassword(password, user.password_hash);
   if (!ok) return c.json({ success: false, message: 'अमान्य पासवर्ड।' }, 401);
-
-  // Tenant isolation on the shared/control-plane worker: a school that runs on
-  // its own dedicated worker must be accessed through its dedicated subdomain.
-  // Allowing its users to keep logging in here silently routes their NEW writes
-  // into the MAIN (shared) D1 — that is exactly how "school data ends up in the
-  // main DB" happens. Live dedicated schools are therefore redirected to their
-  // own portal. (pending schools are not blocked — their worker may not be up yet.)
-  if (!isDedicated && user.school_id) {
-    try {
-      const tenantRec = await db.prepare(
-        'SELECT dedicated_slug, dedicated_domain, provisioning_status FROM school_tenants WHERE id = ?'
-      ).bind(user.school_id).first();
-      if (
-        tenantRec
-        && tenantRec.dedicated_slug
-        && tenantRec.provisioning_status === 'live'
-      ) {
-        const rawDomain = String(tenantRec.dedicated_domain || (tenantRec.dedicated_slug + '.pragnya.nasven.com'));
-        const cleanDomain = String(rawDomain).replace(/^https?:\/\//, '').replace(/\/+$/, '');
-        return c.json({
-          success: false,
-          code: 'USE_DEDICATED_DOMAIN',
-          dedicatedDomain: cleanDomain,
-          dedicatedUrl: 'https://' + cleanDomain,
-          message: 'आपका स्कूल अपने निजी पोर्टल पर चला गया है। कृपया https://' + cleanDomain + ' से लॉगिन करें।',
-        }, 403);
-      }
-    } catch (_) {
-      // tenant lookup failed (e.g. table missing) — fall through to normal login
-    }
-  }
 
   // 3) School approval gate: block login until Super Admin approves the school.
   if (user.school_id) {

@@ -49,6 +49,17 @@ jobs:
       - name: Verify Flutter web build output
         run: test -f flutter_apps/school_management_app/build/web/index.html
 
+      # The platform worker (pragnya.nasven.com) now serves the Super Admin
+      # console — see [assets] in wrangler.toml. Dedicated school workers keep
+      # serving school_management_app via their generated wrangler-<slug>.toml.
+      - name: Build Super Admin Flutter web (release)
+        run: |
+          cd flutter_apps/super_admin_app
+          flutter pub get
+          flutter build web --release --base-href / --no-wasm-dry-run
+      - name: Verify Super Admin web build output
+        run: test -f flutter_apps/super_admin_app/build/web/index.html
+
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -95,6 +106,16 @@ jobs:
 
       - name: Verify Flutter web build output
         run: test -f flutter_apps/school_management_app/build/web/index.html
+
+      # Platform worker serves the Super Admin console (wrangler.toml [assets]).
+      - name: Build Super Admin Flutter web (release)
+        run: |
+          cd flutter_apps/super_admin_app
+          flutter pub get
+          flutter build web --release --base-href / --no-wasm-dry-run
+
+      - name: Verify Super Admin web build output
+        run: test -f flutter_apps/super_admin_app/build/web/index.html
 
       - name: Apply D1 database migrations (Platform/Shared)
         run: npx --yes wrangler@3.90.0 d1 migrations apply DB --remote
