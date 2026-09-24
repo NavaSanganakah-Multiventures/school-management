@@ -46,7 +46,9 @@ const OPERATIONAL_TABLES = [
   'tc_requests',
   'principal_history',
   'web_push_subscriptions',
-  'user_notification_tokens',
+  // user_notification_tokens is user-scoped (keyed by user_id, no school_id column
+  // per migration 0010), so it is NOT school-scoped and cannot be copied per-school.
+  // It would otherwise fail-loud on the shared `WHERE school_id = ...` SELECT.
   'fcm_device_tokens',
   'lms_courses',
   'lms_lessons',
@@ -73,7 +75,13 @@ function runD1(args) {
   const result = spawnSync(executable, fullArgs, { encoding: 'utf-8', shell: false });
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    throw new Error(result.stderr || `Command failed with code ${result.status}`);
+    // Include BOTH stderr and stdout so the real wrangler D1 error text is visible.
+    // wrangler@4 emits SQL errors as JSON on stdout (stderr can be empty), and
+    // migrateSchoolData's schema-drift tolerance ("no such table|no such column")
+    // must be able to see that text — otherwise a genuine drift is treated as a
+    // generic "Command failed with code 1" and the deploy aborts incorrectly.
+    const detail = [result.stderr, result.stdout].filter((x) => x && x.trim()).join('\n').trim();
+    throw new Error(detail || `Command failed with code ${result.status}`);
   }
   return result.stdout;
 }
