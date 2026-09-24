@@ -95,6 +95,15 @@ trigger: always_on
 > - जिस स्कूल ने fields define नहीं कीं, उसके forms/API बिल्कुल पहले जैसे रहते हैं — कोई UI change नहीं।
 > - `field_key` lowercase alphanumeric + underscore; `field_type` ∈ text/number/dropdown/date/checkbox;
 >   dropdown `options` JSON array; `required`/`sort_order`/`is_active` flags।
+### 🎗️ नया स्कूल Onboarding — Dedicated Resources (D1/R2/KV) aur Main-DB रिकॉर्ड
+
+> हर स्कूल (plan चाहे कोई भी हो) को उसका **अपना अलग dedicated Cloudflare worker + D1 + R2 बकेट + KV namespace** मिलता है; कोई per-school fork/कोड-कॉपी नहीं। Flow:
+>
+> - **API** (`api/lib/provisioning.ts`) स्कूल बनते ही उसकी entry `schools.json` (repo) में commit करता है और main-DB `school_tenants` में `provisioning_status = 'pending'` सेट करता है।
+> - **Deploy-time** (`scripts/provision-school.mjs`) D1 (`school-management-<slug>-db`), R2 (`school-management-<slug>-media`) और KV (`school-management-<slug>-config`) provision करता है (नाम-आधारित idempotent), और फिर **resource IDs को control-plane main DB में record करता है** (`POST /api/internal/provisioning/record` → `school_tenants.d1_database_id / r2_bucket_name / kv_namespace_id` + status `live`)।
+> - **Config deploy-time पर main DB से बनता है** — `scripts/generate-school-configs.mjs` `GET /api/internal/provisioning/registry` से IDs लेकर `wrangler-<slug>.toml` generate करता है (endpoint unavailable होने पर `schools.json` fallback — non-fatal)।
+> - **Internal endpoints** (`api/internal/index.ts`): `/api/internal/provisioning/record` (POST) व `/api/internal/provisioning/registry` (GET); दोनों `X-Internal-Secret` से protected (`getInternalSyncSecret` — `INTERNAL_SYNC_SECRET` या `AUTH_SECRET` से derived m2m token)।
+> - **कोई रनटाइम binding नहीं बदलती** — नई school deploy पर ही dedicated बनती है; तब तक wildcard fallback उसे shared समझकर serve करता है। Migration `0025` के columns ही ये IDs रखते हैं (कोई नई migration आवश्यक नहीं)।
 
 यदि कोई स्कूल कोई कस्टम फ़ीचर (जैसे LMS डैशबोर्ड, बस जीपीएस, बायोमेट्रिक अटेंडेंस, लाइब्रेरी आदि) मांगता है, तो उसे प्लगइन के रूप में बनाया जाएगा।
 

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import { execSync } from 'child_process';
+import { internalApiFetch } from './lib/internal-auth.mjs';
 
 const REGISTRY_FILE = 'schools.json';
 
@@ -64,6 +65,34 @@ async function createKVNamespace(kvName) {
     throw new Error(msg);
   }
   return json.result && json.result.id ? json.result.id : null;
+}
+
+// Persists the provisioned resource identifiers (D1 id / R2 bucket / KV id) into the
+// control-plane main DB (school_tenants) via the platform worker's internal endpoint,
+// so the main DB is the single source of truth. Non-fatal: provisioning already
+// succeeded, so a record failure must not abort the deploy.
+async function recordProvisioningInMainDb(school) {
+  if (!school.schoolId || !school.d1DatabaseId || !school.r2BucketName || !school.kvNamespaceId) return;
+  try {
+    const result = await internalApiFetch(process.env, '/api/internal/provisioning/record', {
+      method: 'POST',
+      body: JSON.stringify({
+        schoolId: school.schoolId,
+        slug: school.slug,
+        domain: school.domain,
+        d1DatabaseId: school.d1DatabaseId,
+        r2BucketName: school.r2BucketName,
+        kvNamespaceId: school.kvNamespaceId,
+      }),
+    });
+    if (result && result.success) {
+      console.log(`✅ Provisioning recorded in main DB: ${school.slug} -> ${school.schoolId}`);
+    } else {
+      console.warn(`⚠️ Main DB record failed for ${school.slug}: ${(result && result.message) || 'unknown'}`);
+    }
+  } catch (e) {
+    console.warn(`⚠️ Could not record provisioning in main DB for ${school.slug}: ${e.message}`);
+  }
 }
 
 async function main() {
@@ -166,6 +195,9 @@ async function main() {
       } else {
         console.log(`✅ KV already provisioned: ${school.kvNamespaceId}`);
       }
+
+      // Persist resource identifiers into the control-plane main DB (non-fatal).
+      await recordProvisioningInMainDb(school);
     }
   }
 

@@ -79,4 +79,77 @@ internalApp.get('/tenant-sync/:schoolId', async (c) => {
   });
 });
 
+// POST /api/internal/provisioning/record
+// Called by the deploy pipeline (scripts/provision-school.mjs) AFTER the per-school
+// Cloudflare resources (D1 database, R2 bucket, KV namespace) are created. Persists
+// the resource identifiers into the control-plane school_tenants row so the main DB
+// is the single source of truth for provisioning, and marks the school 'live'
+// (production-ready) once all three resources exist.
+internalApp.post('/provisioning/record', async (c) => {
+  const secret = c.req.header('X-Internal-Secret') || '';
+  const expectedSecret = await getInternalSyncSecret(c.env);
+
+  if (!expectedSecret || secret !== expectedSecret) {
+    return c.json({ success: false, message: 'अनधिकृत आंतरिक अनुरोध (Unauthorized internal request)' }, 401);
+  }
+
+  const db = getDB(c);
+  if (!db) {
+    return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  }
+
+  const body: any = await c.req.json().catch(() => null);
+  if (!body) {
+    return c.json({ success: false, message: 'अमान्य JSON बॉडी।' }, 400);
+  }
+
+  const schoolId = String(body.schoolId || '').trim();
+  const slug = String(body.slug || '').trim();
+  const domain = String(body.domain || '').trim();
+  const d1DatabaseId = String(body.d1DatabaseId || '').trim();
+  const r2BucketName = String(body.r2BucketName || '').trim();
+  const kvNamespaceId = String(body.kvNamespaceId || '').trim();
+
+  if (!schoolId) {
+    return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
+  }
+  if (!slug || !d1DatabaseId || !r2BucketName || !kvNamespaceId) {
+    return c.json({ success: false, message: 'slug, d1DatabaseId, r2BucketName और kvNamespaceId सभी आवश्यक हैं।' }, 400);
+  }
+
+  const now = new Date().toISOString();
+  await db.prepare(
+    'UPDATE school_tenants SET dedicated_slug=?, dedicated_domain=?, d1_database_id=?, r2_bucket_name=?, kv_namespace_id=?, provisioning_status=?, provisioned_at=?, provisioning_error=? WHERE id=?'
+  ).bind(slug, domain, d1DatabaseId, r2BucketName, kvNamespaceId, 'live', now, '', schoolId).run();
+
+  return c.json({ success: true, message: 'प्रोविज़निंग रिकॉर्ड सेव हो गया।', schoolId, slug, domain });
+});
+
+// GET /api/internal/provisioning/registry
+// Returns the provisioning metadata of every dedicated school from the control-plane
+// DB. Used by the deploy pipeline (scripts/generate-school-configs.mjs) to build the
+// per-school wrangler configs from the main DB at deploy time.
+internalApp.get('/provisioning/registry', async (c) => {
+  const secret = c.req.header('X-Internal-Secret') || '';
+  const expectedSecret = await getInternalSyncSecret(c.env);
+
+  if (!expectedSecret || secret !== expectedSecret) {
+    return c.json({ success: false, message: 'अनधिकृत आंतरिक अनुरोध (Unauthorized internal request)' }, 401);
+  }
+
+  const db = getDB(c);
+  if (!db) {
+    return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  }
+
+  const rows = await db.prepare(
+    'SELECT id AS schoolId, school_name, dedicated_slug AS slug, dedicated_domain AS domain, '
+    + 'd1_database_id AS d1DatabaseId, r2_bucket_name AS r2BucketName, kv_namespace_id AS kvNamespaceId, '
+    + 'provisioning_status AS provisioningStatus '
+    + "FROM school_tenants WHERE dedicated_slug IS NOT NULL AND dedicated_slug != ''"
+  ).all();
+
+  return c.json({ success: true, schools: (rows.results || []) });
+});
+
 export default internalApp;
