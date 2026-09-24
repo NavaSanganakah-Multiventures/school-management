@@ -51,6 +51,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PLATFORM_BASE_URL: ${{ vars.PLATFORM_BASE_URL }}
+          INTERNAL_SYNC_SECRET: ${{ secrets.INTERNAL_SYNC_SECRET }}
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
 
       - name: Ensure Wildcard DNS
         run: node scripts/ensure-wildcard-dns.mjs
@@ -59,6 +62,10 @@ jobs:
 
       - name: Generate Wrangler Configs
         run: node scripts/generate-school-configs.mjs
+        env:
+          PLATFORM_BASE_URL: ${{ vars.PLATFORM_BASE_URL }}
+          INTERNAL_SYNC_SECRET: ${{ secrets.INTERNAL_SYNC_SECRET }}
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
 
       - name: Setup Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
