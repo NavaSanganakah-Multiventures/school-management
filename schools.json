@@ -24,6 +24,13 @@
       "mode": "dedicated",
       "name": "yagya ashram",
       "domain": "yagya-pragnya.pragnya.nasven.com"
+    },
+    {
+      "slug": "school795082",
+      "schoolId": "school-1790130795082",
+      "mode": "dedicated",
+      "name": "Maa Sharda",
+      "domain": "school795082.pragnya.nasven.com"
     }
   ]
 }
