@@ -2,8 +2,9 @@ import { Hono } from 'hono';
 import { getDB, makeUniqueUsername } from '../db';
 import { hashPassword, verifyPassword, signToken, getAuthUser } from '../lib/auth';
 import { issueResetToken, consumeResetToken } from '../lib/reset-tokens';
-import { sendPasswordResetEmail, getRequestOrigin } from '../lib/email';
+import { sendPasswordResetEmail, sendWelcomeEmail, getRequestOrigin } from '../lib/email';
 import { syncTenantFromPlatform } from '../lib/tenant-sync';
+import { provisionDedicatedWorker } from '../lib/provisioning';
 import { isAuthorizedPlatformEmail, getAuthorizedPlatformEmail } from '../admin';
 
 const authApp = new Hono<{ Bindings: any }>();
@@ -98,27 +99,25 @@ authApp.post('/login', async (c) => {
   }
 
   // ── Shared / management portal is NOT a school portal ──────────────────
-  // pragnya.nasven.com serves the Super Admin console (schools, plans,
-  // subscriptions, approvals). School staff cannot obtain a session here at
-  // all — that is exactly what created the cross-DB data leak (school writes
-  // landing in the shared/main D1). Live dedicated schools are redirected to
-  // their own portal; everything else gets the management-only notice.
+  // pragnya.nasven.com serves the public website (Next.js). School staff cannot
+  // obtain a session here at all — that is exactly what created the cross-DB
+  // data leak (school writes landing in the shared/main D1). Live dedicated
+  // schools are redirected to their own portal; freshly registered schools get
+  // a "portal is being provisioned" notice (instant trial — no approval).
   // Dedicated workers skip this block entirely and authenticate below.
   if (!isDedicated) {
     let dedicatedDomain: string | null = null;
+    let standbyDomain: string | null = null;
     if (user && user.school_id) {
       try {
         const tenantRec = await db.prepare(
           'SELECT dedicated_slug, dedicated_domain, provisioning_status, deleted_at FROM school_tenants WHERE id = ?'
         ).bind(user.school_id).first();
-        if (
-          tenantRec
-          && !tenantRec.deleted_at
-          && tenantRec.dedicated_slug
-          && tenantRec.provisioning_status === 'live'
-        ) {
+        if (tenantRec && !tenantRec.deleted_at && tenantRec.dedicated_slug) {
           const rawDomain = String(tenantRec.dedicated_domain || (tenantRec.dedicated_slug + '.pragnya.nasven.com'));
-          dedicatedDomain = String(rawDomain).replace(/^https?:\/\//, '').replace(/\/+$/, '');
+          const cleanDomain = String(rawDomain).replace(/^https?:\/\//, '').replace(/\/+$/, '');
+          if (tenantRec.provisioning_status === 'live') dedicatedDomain = cleanDomain;
+          else standbyDomain = cleanDomain;
         }
       } catch (_) {
         // tenant lookup failed (e.g. table missing) — generic notice below
@@ -133,10 +132,19 @@ authApp.post('/login', async (c) => {
         message: 'आपका स्कूल अपने निजी पोर्टल पर चला गया है। कृपया https://' + dedicatedDomain + ' से लॉगिन करें।',
       }, 403);
     }
+    if (standbyDomain) {
+      return c.json({
+        success: false,
+        code: 'PORTAL_READY_SOON',
+        dedicatedDomain: standbyDomain,
+        dedicatedUrl: 'https://' + standbyDomain,
+        message: 'आपका स्कूल अभी पंजीकृत हुआ है और उसका निजी पोर्टल तैयार हो रहा है (Free Trial सक्रिय)। कुछ ही मिनटों में https://' + standbyDomain + ' पर लॉगिन करें।',
+      }, 403);
+    }
     return c.json({
       success: false,
       code: 'PORTAL_MANAGEMENT_ONLY',
-      message: 'यह पोर्टल अब केवल स्कूल प्रबंधन (स्कूल, योजनाएं एवं सब्सक्रिप्शन) हेतु है। स्कूल लॉगिन के लिए कृपया अपने स्कूल के निजी पोर्टल का उपयोग करें। यदि आपके स्कूल का पोर्टल सक्रिय नहीं है तो अपने स्कूल एडमिन से संपर्क करें।',
+      message: 'यह pragnya.nasven.com पर मुख्य वेबसाइट/प्रबंधन पोर्टल है। स्कूल लॉगिन आपके स्कूल के निजी पोर्टल (slug.pragnya.nasven.com) से किया जाता है।',
     }, 403);
   }
 
@@ -250,7 +258,32 @@ authApp.post('/forgot-password', async (c) => {
   const issued = await issueResetToken(db, userId, userType, tokenType);
   if (issued.limited || !issued.token) return c.json(generic);
 
-  const resetLink = getRequestOrigin(c, c.env) + '/?reset=' + issued.token;
+  // Reset link routing: on the shared worker, live dedicated schools get the
+  // link on their OWN portal origin; everyone else (incl. newly-registered
+  // schools whose portal is still provisioning) gets the website reset page.
+  let resetOrigin = getRequestOrigin(c, c.env);
+  if (!isDedicated && user && user.school_id) {
+    try {
+      const tenantRec = await db.prepare(
+        'SELECT dedicated_slug, dedicated_domain, provisioning_status FROM school_tenants WHERE id = ?'
+      ).bind(user.school_id).first();
+      if (tenantRec && tenantRec.dedicated_slug && tenantRec.provisioning_status === 'live') {
+        const rawDomain = String(tenantRec.dedicated_domain || (tenantRec.dedicated_slug + '.pragnya.nasven.com'));
+        resetOrigin = 'https://' + String(rawDomain).replace(/^https?:\/\//, '').replace(/\/+$/, '');
+      } else {
+        resetOrigin = 'https://pragnya.nasven.com/reset';
+      }
+    } catch (_) {
+      // fall through to default origin below
+    }
+  } else if (!isDedicated) {
+    // platform admins / unknown users → website reset page
+    resetOrigin = 'https://pragnya.nasven.com/reset';
+  }
+
+  const resetLink = resetOrigin.indexOf('/reset') !== -1
+    ? resetOrigin + '?token=' + issued.token
+    : resetOrigin + '/?reset=' + issued.token;
   await sendPasswordResetEmail(c.env, { to: userEmail, name: userName, resetLink, invite: tokenType === 'invite' });
   return c.json(generic);
 });
@@ -285,13 +318,16 @@ authApp.post('/reset-password', async (c) => {
 });
 
 // POST /api/auth/register - नया स्कूल + डायरेक्टर रजिस्ट्रेशन।
-// School starts as Suspended/Pending_Approval. Super Admin approval starts the 7-day trial.
+// अब INSTANT ACCESS: पंजीकरण के साथ ही 7-दिन FREE TRIAL तुरंत सक्रिय होता है
+// (status Active + Approved), किसी Super Admin approval की आवश्यकता नहीं है।
+// स्कूल का nija dedicated portal स्वतः provision होकर कुछ ही मिनटों में
+// slug.pragnya.nasven.com पर live आ जाता है (schools.json commit → CI auto-deploy).
 authApp.post('/register', async (c) => {
   const isDedicated = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
   if (isDedicated) {
     return c.json({
       success: false,
-      message: 'Dedicated स्कूल पोर्टल से नया स्कूल रजिस्टर नहीं किया जा सकता। कृपया मुख्य प्लेटफ़ॉर्म (pragnya.nasven.com) पर जाएं।',
+      message: 'Dedicated स्कूल पोर्टल से नया स्कूल रजिस्टर नहीं किया जा सकता। कृपया मुख्य वेबसाइट (pragnya.nasven.com) पर जाएं।',
     }, 403);
   }
 
@@ -332,17 +368,25 @@ authApp.post('/register', async (c) => {
   const preferredPlanId = VALID_PLANS.includes(rawPreferredPlan) ? rawPreferredPlan : 'trial';
   const customRequirements = String(body.customRequirements || '').trim();
 
+  // 7-दिन FREE TRIAL — instant access, कोई approval नहीं।
+  const TRIAL_DAYS = 7;
+  const trialEndDate = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // YYYY-MM-DD
+  const today = now.split('T')[0];
+
   await db.prepare('INSERT INTO school_tenants (id, school_name, subdomain, custom_domain, contact_email, contact_phone, status, registration_status, plan_id, estimated_students, estimated_staff, preferred_plan_id, custom_requirements, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind(schoolId, schoolName, subdomain, body.customDomain || '', email, phone, 'Suspended', 'Pending_Approval', preferredPlanId === 'trial' ? 'trial' : preferredPlanId, estimatedStudents, estimatedStaff, preferredPlanId, customRequirements, now).run();
+    .bind(schoolId, schoolName, subdomain, body.customDomain || '', email, phone, 'Active', 'Approved', preferredPlanId === 'trial' ? 'trial' : preferredPlanId, estimatedStudents, estimatedStaff, preferredPlanId, customRequirements, now).run();
+
+  await db.prepare('UPDATE school_tenants SET trial_ends_at=?, approved_at=?, approved_by=? WHERE id=?')
+    .bind(trialEndDate, now, 'system-auto-register', schoolId).run();
 
   await db.prepare('INSERT INTO school_profile (id, school_name, affiliation_number, board_name, school_code, email, phone, alternate_phone, address, city, state, pincode, academic_session, director_name, principal_name, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind(schoolId, schoolName, body.affiliationNumber || '', body.boardName || 'CBSE', body.schoolCode || '', email, phone, body.alternatePhone || '', body.address || '', body.city || '', body.state || '', body.pincode || '', body.academicSession || '2026-2027', directorName, body.principalName || directorName, now.split('T')[0]).run();
+    .bind(schoolId, schoolName, body.affiliationNumber || '', body.boardName || 'CBSE', body.schoolCode || '', email, phone, body.alternatePhone || '', body.address || '', body.city || '', body.state || '', body.pincode || '', body.academicSession || '2026-2027', directorName, body.principalName || directorName, today).run();
 
   await db.prepare('INSERT INTO system_users (id, username, full_name, email, phone, role, designation, department, qualification, salary, status, school_id, password_hash, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .bind(userId, username, directorName, email, phone, 'Director', body.designation || 'स्कूल निदेशक (Director)', 'प्रबंधन एवं प्रशासन', body.qualification || '', 0, 'Active', schoolId, passwordHash, now).run();
 
   await db.prepare('INSERT INTO school_subscriptions (id, school_id, plan_id, plan_name, billing_cycle, price_per_cycle, discount_percent, status, auto_pay_enabled, payment_method, mandate_id, next_billing_date, period_start, period_end, trial_ends_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind('sub-' + Date.now(), schoolId, preferredPlanId === 'trial' ? 'trial' : preferredPlanId, preferredPlanId === 'trial' ? '7-दिन फ्री ट्रायल' : preferredPlanId, 'monthly', 0, 0, 'Trial', 0, '', '', '', '', '', '', now).run();
+    .bind('sub-' + Date.now(), schoolId, 'trial', '7-दिन फ्री ट्रायल', 'monthly', 0, 0, 'Trial', 0, '', '', trialEndDate, today, trialEndDate, trialEndDate, now).run();
 
   if (customRequirements) {
     try {
@@ -364,10 +408,49 @@ authApp.post('/register', async (c) => {
     }
   }
 
+  // AUTO-PROVISION the school's dedicated portal (slug.pragnya.nasven.com).
+  // provisionDedicatedWorker commits the school into schools.json (mode:
+  // dedicated) via GitHub API — that push to main auto-triggers deploy.yml,
+  // which creates the dedicated D1/R2/KV and deploys the per-school worker.
+  let portalDomain = subdomain + '.pragnya.nasven.com';
+  let provisioningMessage = 'आपका निजी पोर्टल तैयार हो रहा है — कुछ ही मिनटों में https://' + portalDomain + ' पर उपलब्ध होगा।';
+  try {
+    const provisioning = await provisionDedicatedWorker(c.env, db, {
+      id: schoolId,
+      school_name: schoolName,
+      subdomain,
+      provisioning_status: '',
+    }, {});
+    if (provisioning.ok && provisioning.status === 'started' && provisioning.domain) {
+      portalDomain = String(provisioning.domain).replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    } else if (provisioning.error) {
+      console.warn('[Register] auto-provision not started:', provisioning.error);
+      provisioningMessage = 'आपका स्कूल खाता सक्रिय है। पोर्टल तैयारी थोड़ी देर में पूरी होगी (https://' + portalDomain + ').';
+    }
+  } catch (provErr) {
+    console.warn('[Register] auto-provision error:', provErr);
+  }
+
+  try {
+    await sendWelcomeEmail(c.env, {
+      to: email,
+      name: directorName,
+      schoolName,
+      portalUrl: 'https://' + portalDomain,
+      trialDays: TRIAL_DAYS,
+    });
+  } catch (_) {
+    // Non-fatal: welcome email is best-effort
+  }
+
   return c.json({
     success: true,
-    message: 'स्कूल पंजीकरण अनुरोध प्राप्त हुआ। Super Admin अप्रूवल के बाद आपका खाता सक्रिय हो जाएगा।',
+    message: 'पंजीकरण सफल! आपके स्कूल का 7-दिन FREE TRIAL तुरंत सक्रिय हो गया है। ' + provisioningMessage,
     schoolId,
+    subdomain,
+    dedicatedDomain: portalDomain,
+    dedicatedUrl: 'https://' + portalDomain,
+    trialEndsAt: trialEndDate,
   });
 });
 

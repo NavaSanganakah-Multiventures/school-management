@@ -1,5 +1,14 @@
-import { SchoolCrmShell } from '@/components/school-crm-shell';
+import registry from '../schools.json';
+import {LandingPage, PortfolioSchool} from '@/components/website/landing';
 
 export default function HomePage() {
-  return <SchoolCrmShell />;
+  const schools: PortfolioSchool[] = (registry.schools || [])
+    .filter((s: any) => s && s.mode === 'dedicated')
+    .map((s: any) => ({
+      slug: String(s.slug || ''),
+      name: String(s.name || s.slug || 'स्कूल'),
+      domain: String(s.domain || (s.slug + '.pragnya.nasven.com')),
+    }));
+
+  return <LandingPage schools={schools} />;
 }

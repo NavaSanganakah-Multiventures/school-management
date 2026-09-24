@@ -36,29 +36,11 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: test -f api/index.ts
-      - name: Setup Flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
-        with:
-          channel: stable
-          cache: true
-      - name: Build Flutter web (release)
-        run: |
-          cd flutter_apps/school_management_app
-          flutter pub get
-          flutter build web --release --base-href /
-      - name: Verify Flutter web build output
-        run: test -f flutter_apps/school_management_app/build/web/index.html
-
-      # The platform worker (pragnya.nasven.com) now serves the Super Admin
-      # console — see [assets] in wrangler.toml. Dedicated school workers keep
-      # serving school_management_app via their generated wrangler-<slug>.toml.
-      - name: Build Super Admin Flutter web (release)
-        run: |
-          cd flutter_apps/super_admin_app
-          flutter pub get
-          flutter build web --release --base-href / --no-wasm-dry-run
-      - name: Verify Super Admin web build output
-        run: test -f flutter_apps/super_admin_app/build/web/index.html
+      # pragnya.nasven.com serves the Next.js public website (static export).
+      - name: Build Website (Next.js static export)
+        run: npm run build
+      - name: Verify website build output
+        run: test -f out/index.html
 
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -107,15 +89,12 @@ jobs:
       - name: Verify Flutter web build output
         run: test -f flutter_apps/school_management_app/build/web/index.html
 
-      # Platform worker serves the Super Admin console (wrangler.toml [assets]).
-      - name: Build Super Admin Flutter web (release)
-        run: |
-          cd flutter_apps/super_admin_app
-          flutter pub get
-          flutter build web --release --base-href / --no-wasm-dry-run
+      # pragnya.nasven.com serves the Next.js public website (wrangler.toml [assets]).
+      - name: Build Website (Next.js static export)
+        run: npm run build
 
-      - name: Verify Super Admin web build output
-        run: test -f flutter_apps/super_admin_app/build/web/index.html
+      - name: Verify website build output
+        run: test -f out/index.html
 
       - name: Apply D1 database migrations (Platform/Shared)
         run: npx --yes wrangler@3.90.0 d1 migrations apply DB --remote

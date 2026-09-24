@@ -32,3 +32,10 @@ node_modules/
 
 # Android keystore backups (NEVER commit)
 .keystore-backup/
+
+# Next.js static export
+/out/
+
+
+# Next.js build cache
+/.next/
