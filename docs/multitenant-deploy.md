@@ -138,6 +138,20 @@ flag तीन जगह एक साथ रखा जाता है (single 
 > copy होता है — **fail-loud**: अगर copy fail हो, तो उस school का deploy रुक जाता है और school
 > wildcard fallback पर shared mode में चलता रहता है (कुछ नहीं टूटता)।
 
+> [!IMPORTANT]
+> **✅ Production verified (2026-09-24):** सभी schools अपने-अपने dedicated worker पर **live** हैं —
+> `vidyasetu`, `a` (Maa karma), `yagya-pragnya` — तीनों `<slug>.pragnya.nasven.com` 200 return करते हैं,
+> अपने D1/R2/KV + `[[routes]]` के साथ। Shared worker सिर्फ़ control plane + wildcard fallback है।
+>
+> **Field-proven gotchas (deploy/copy scripts बदलते समय अनिवार्य):**
+> 1. `wrangler@4 d1 execute --json` के SQL errors **stdout** पर JSON में आते हैं (stderr खाली रह सकता है) —
+>    error message में stderr+stdout दोनों शामिल करो, नहीं तो tolerance (`no such table|no such column`)
+>    कभी match नहीं होगा और genuine schema mismatch पूरा deploy abort कर देगा (fix `cd82dc2`)।
+> 2. `user_notification_tokens` **school-scoped नहीं** है (migration `0010`, no `school_id` column) —
+>    `OPERATIONAL_TABLES` per-school copy list में कभी वापस न जोड़ें।
+> 3. Migrations में कभी `BEGIN`/`COMMIT` न लिखें — `wrangler@4` remote D1 code `7500` से reject करता है (fix `7e2f942`)।
+> 4. Data copy fail-loud + idempotent (`dedicatedHasData` guard) — force-copy/deprovision कभी auto नहीं।
+
 ## 8. System कैसे काम करता है (request flows)
 
 ### 8.1 Request Flow (Shared School)
