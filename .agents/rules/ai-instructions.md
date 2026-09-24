@@ -190,6 +190,36 @@ export const PLUGINS_REGISTRY: FrontendPlugin[] = [
 3. `node scripts/generate-school-configs.mjs` चलाकर उसके लिए अलग `wrangler-new-school.toml` बनता है।
 4. CI/CD पाइपलाइन (`deploy.yml`) द्वारा कोड डिप्लॉय हो जाता है।
 
+### ✅ प्रोडक्शन स्थिति (Production Status — live & verified)
+
+> [!IMPORTANT]
+> **Dedicated-by-default production migration COMPLETE (2026-09-24)।** सभी schools अपने-अपने
+> dedicated worker पर **live** हैं और `<slug>.pragnya.nasven.com` सभी 200 return करते हैं:
+> - `vidyasetu` → `vidyasetu.pragnya.nasven.com`
+> - `a` (Maa karma) → `a.pragnya.nasven.com`
+> - `yagya-pragnya` (yagya ashram) → `yagya-pragnya.pragnya.nasven.com`
+> - Shared worker `pragnya.nasven.com` सिर्फ़ **control plane + wildcard fallback** के रूप में live है।
+> - हर dedicated worker का अपना D1 (`school-management-<slug>-db`), R2 (`school-management-<slug>-media`),
+>   KV (`school-management-<slug>-config`) और अपना `[[routes]]` provisioned है।
+
+### ⚠️ Dedicated Deploy & Data-Copy के अनुभव-सिद्ध नियम (field-proven gotchas — इन्हें कभी मत तोड़ो)
+
+1. **`wrangler@4 d1 execute --json` के SQL errors `stdout` पर JSON में आते हैं, stderr अक्सर खाली रहता है।**
+   इसलिए `scripts/migrate-to-dedicated.mjs` की `runD1()` को failure पर **stderr + stdout दोनों** error message में
+   शामिल करना ही चाहिए (अनिवार्य)। सिर्फ़ stderr लेने पर हर failure `Command failed with code 1` दिखेगा और
+   schema-drift tolerance (`no such table|no such column`) कभी match नहीं होगा → **एक genuine schema mismatch गलत
+   तरीके से पूरे deploy को abort कर देगा** (ऐसा होकर ही यह नियम बना है — fix `cd82dc2`)।
+2. **`user_notification_tokens` school-scoped नहीं है** — migration `0010` में इसका कोई `school_id` column नहीं है
+   (यह `user_id` से keyed है)। इसे **कभी भी** `OPERATIONAL_TABLES` (per-school copy list) में वापस मत जोड़ो —
+   shared D1 पर `SELECT … WHERE school_id = …` हमेशा fail-loud abort करेगा।
+3. **Migrations में कभी `BEGIN` / `COMMIT` मत लिखो** — `wrangler@4` remote D1 उन्हें code `7500` से reject करता है।
+   हर migration transaction-free (सिर्फ़ idempotent DDL/DML) होनी चाहिए (fix `7e2f942`)।
+4. **Data copy fail-loud + idempotent है:** कोई भी copy failure उस school का dedicated deploy abort करता है
+   (school wildcard fallback पर चलता रहता है — कोई prod outage नहीं)। Re-deploy पर पहले से copy हुआ data दोबारा
+   नहीं लिखा जाता (`dedicatedHasData` guard) — कभी भी इस guard को हटाकर "force copy" मत बनाओ।
+5. **Plan बदलने पर कभी auto-deprovision नहीं होता** — school dedicated ही रहता है। Downgrade सिर्फ़ आपातकालीन,
+   मैन्युअल (`scripts/downgrade-school.mjs`)।
+
 ---
 
 ## 5. 🛡️ सुरक्षा एवं ऑथेंटिकेशन नियम (Security & Auth Rules)
