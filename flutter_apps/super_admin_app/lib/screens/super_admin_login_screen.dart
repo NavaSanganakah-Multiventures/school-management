@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../services/api_client.dart';
-import 'school_registration_screen.dart';
 import 'super_admin_home_screen.dart';
 
 class SuperAdminLoginScreen extends StatefulWidget {
@@ -158,20 +157,6 @@ class _SuperAdminLoginScreenState extends State<SuperAdminLoginScreen> {
                         child: _isLoading
                             ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                             : const Text('सुपर एडमिन कंसोल खोलें →', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ),
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: _isLoading
-                            ? null
-                            : () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(builder: (_) => const SchoolRegistrationScreen()),
-                                );
-                              },
-                        child: const Text(
-                          'नया स्कूल पंजीकरण करें',
-                          style: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.w600),
-                        ),
                       ),
                     ],
                   ),

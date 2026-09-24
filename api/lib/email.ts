@@ -85,6 +85,76 @@ export async function sendPasswordResetEmail(env: any, input: PasswordResetEmail
   }
 }
 
+export interface WelcomeEmailInput {
+  to: string;
+  name?: string;
+  schoolName?: string;
+  portalUrl: string;
+  trialDays?: number;
+}
+
+// Registration welcome email — sent as soon as a school self-registers with the
+// instant free trial (no admin approval). Tells the director their account is
+// active and where their dedicated portal will appear.
+export async function sendWelcomeEmail(env: any, input: WelcomeEmailInput): Promise<EmailSendResult> {
+  const binding = env && env.SEND_EMAIL;
+  if (!binding || typeof binding.send !== 'function') {
+    return { sent: false, error: 'SEND_EMAIL binding उपलब्ध नहीं है।' };
+  }
+
+  const quota = await checkAndReserveEmailQuota(env, input.to);
+  if (!quota.allowed) {
+    return { sent: false, error: quota.reason || 'ईमेल भेजने की दैनिक सीमा पार हो गई है।' };
+  }
+
+  const name = input.name || 'स्कूल डायरेक्टर';
+  const schoolName = input.schoolName || 'आपका स्कूल';
+  const days = input.trialDays || 7;
+
+  const html = [
+    '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1e293b;line-height:1.6">',
+    '<h1 style="font-size:20px;color:#4f46e5;margin:0 0 16px;">Pragnya Mitra — स्कूल प्रबंधन प्लेटफ़ॉर्म</h1>',
+    '<p style="font-size:14px;margin:0 0 12px;">नमस्ते ' + name + ',</p>',
+    '<p style="font-size:14px;margin:0 0 12px;">आपका स्कूल <strong>' + schoolName + '</strong> सफलतापूर्वक पंजीकृत हो चुका है और <strong>' + days + '-दिन का FREE TRIAL तुरंत सक्रिय</strong> हो गया है। किसी approval की आवश्यकता नहीं है।</p>',
+    '<p style="font-size:14px;margin:0 0 24px;">आपके स्कूल का निजी पोर्टल कुछ ही मिनटों में तैयार हो जाएगा। लॉगिन करने के लिए नीचे दिए गए लिंक का उपयोग करें:</p>',
+    '<p style="text-align:center;margin:0 0 24px;">',
+    '<a href="' + input.portalUrl + '" style="background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:bold;font-size:14px;display:inline-block;">अपने स्कूल पोर्टल पर जाएं</a>',
+    '</p>',
+    '<p style="font-size:12px;color:#64748b;margin:0 0 4px;">आपका पोर्टल: <a href="' + input.portalUrl + '" style="color:#4f46e5;">' + input.portalUrl + '</a></p>',
+    '<p style="font-size:12px;color:#64748b;margin:0 0 4px;">यदि पोर्टल अभी तैयार नहीं हुआ है तो कृपया 10–20 मिनट बाद पुनः प्रयास करें।</p>',
+    '<p style="font-size:12px;color:#94a3b8;margin:0;border-top:1px solid #e2e8f0;padding-top:12px;">किसी भी सहायता के लिए संपर्क करें: pragnya@navasanganakah.com</p>',
+    '</div>'
+  ].join('');
+
+  const text = [
+    'Pragnya Mitra — स्कूल प्रबंधन प्लेटफ़ॉर्म',
+    '',
+    'नमस्ते ' + name + ',',
+    '',
+    'आपका स्कूल "' + schoolName + '" सफलतापूर्वक पंजीकृत हो चुका है और ' + days + '-दिन का FREE TRIAL तुरंत सक्रिय हो गया है। किसी approval की आवश्यकता नहीं है।',
+    '',
+    'आपके स्कूल का निजी पोर्टल कुछ ही मिनटों में तैयार हो जाएगा:',
+    input.portalUrl,
+    '',
+    'यदि पोर्टल अभी तैयार नहीं हुआ है तो कृपया 10–20 मिनट बाद पुनः प्रयास करें।',
+    '',
+    'सहायता: pragnya@navasanganakah.com'
+  ].join('\n');
+
+  try {
+    await binding.send({
+      to: input.to,
+      from: { email: 'pragnya@navasanganakah.com', name: 'Pragnya Mitra' },
+      subject: 'Pragnya Mitra — ' + schoolName + ' सक्रिय: FREE TRIAL शुरू हो गया',
+      html: html,
+      text: text
+    });
+    return { sent: true };
+  } catch (e: any) {
+    return { sent: false, error: (e && (e.message || e.code)) || 'ईमेल भेजने में त्रुटि हुई।' };
+  }
+}
+
 export interface NotificationEmailInput {
   to: string;
   subject: string;
