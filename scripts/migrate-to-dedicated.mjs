@@ -20,26 +20,35 @@ const REGISTRY_FILE = 'schools.json';
 const WRANGLER = 'npx --yes wrangler@4';
 
 // Operational tables that live on a dedicated school worker (school-scoped).
-// NOTE: 'staff' is backed by the 'teachers' table and 'fees' by 'fee_invoices';
-// school_profile is keyed by id (= schoolId), so it is handled separately below.
+// ORDER MATTERS: tables are copied in this order, and several tables carry a
+// FOREIGN KEY referencing a table earlier in this list (e.g. school_subscriptions
+// -> school_tenants, exam_marks -> subjects/exams, fee_invoices -> fee_heads).
+// A fresh dedicated D1 has NO rows at all, so a child row inserted before its
+// parent row fails with SQLITE_CONSTRAINT_FOREIGNKEY and aborts the deploy.
+// Parents (school_tenants, school_profile, subjects, fee_heads, exams, students)
+// are therefore copied FIRST, and school_tenants/school_profile are handled
+// explicitly at the top of migrateSchoolData below (keyed by id = schoolId).
+// NOTE: 'staff' is backed by the 'teachers' table and 'fees' by 'fee_invoices'.
 const OPERATIONAL_TABLES = [
-  'system_users',
+  // Pure parents / FK targets — copy before any child that references them.
+  'subjects',
+  'fee_heads',
+  'exams',
   'students',
-  'teachers',
   'classes',
   'class_teachers',
+  'class_subjects',
+  'exam_terms',
+  'class_fee_structure',
+  // Children — copied after their parents exist.
+  'system_users',
+  'teachers',
   'attendance',
   'fee_invoices',
-  'exams',
   'exam_marks',
   'notices',
   'notifications_log',
-  'subjects',
-  'class_subjects',
-  'exam_terms',
   'leave_applications',
-  'fee_heads',
-  'class_fee_structure',
   'activity_logs',
   'student_academic_history',
   'timetables',
@@ -195,6 +204,20 @@ async function migrateSchoolData(slug, schoolId, options = {}) {
   console.log(`======================================================\n`);
 
   let total = 0;
+
+  // Parent tables FIRST: school_tenants and school_profile are keyed by id
+  // (= schoolId) and nearly every school-scoped table carries a FOREIGN KEY
+  // back to school_tenants (e.g. school_subscriptions -> school_tenants).
+  // On a fresh dedicated D1 the tenant row does not exist yet, so inserting a
+  // child before its parent fails with SQLITE_CONSTRAINT_FOREIGNKEY and aborts
+  // the deploy. Copying these first makes every later INSERT valid.
+  for (const table of ['school_tenants', 'school_profile']) {
+    console.log(`Copying table: ${table}...`);
+    total += copyTable(slug, schoolId, table, `id = ${escapeSql(schoolId)}`);
+  }
+
+  // Then the school-scoped operational tables (parents already in place;
+  // OPERATIONAL_TABLES itself is also ordered parents-first, see above).
   for (const table of OPERATIONAL_TABLES) {
     console.log(`Copying table: ${table}...`);
     // Fail-loud: copyTable itself tolerates only genuine schema drift ("no such
@@ -202,12 +225,6 @@ async function migrateSchoolData(slug, schoolId, options = {}) {
     // real wrangler/auth/data failure and MUST abort the deploy so a worker is
     // never published with a silently-empty database.
     total += copyTable(slug, schoolId, table, `school_id = ${escapeSql(schoolId)}`);
-  }
-
-  // school_profile and school_tenants are keyed by id (= schoolId) — no school_id column.
-  for (const table of ['school_profile', 'school_tenants']) {
-    console.log(`Copying table: ${table}...`);
-    total += copyTable(slug, schoolId, table, `id = ${escapeSql(schoolId)}`);
   }
 
   console.log(`\n✅ Migration complete for "${slug}". Total records copied: ${total}`);
