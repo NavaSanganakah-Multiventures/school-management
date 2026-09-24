@@ -80,6 +80,7 @@ async function recordProvisioningInMainDb(school) {
         schoolId: school.schoolId,
         slug: school.slug,
         domain: school.domain,
+        schoolName: school.name || '',
         d1DatabaseId: school.d1DatabaseId,
         r2BucketName: school.r2BucketName,
         kvNamespaceId: school.kvNamespaceId,

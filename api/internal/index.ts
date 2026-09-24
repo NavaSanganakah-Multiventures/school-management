@@ -109,6 +109,7 @@ internalApp.post('/provisioning/record', async (c) => {
   const d1DatabaseId = String(body.d1DatabaseId || '').trim();
   const r2BucketName = String(body.r2BucketName || '').trim();
   const kvNamespaceId = String(body.kvNamespaceId || '').trim();
+  const schoolName = String(body.schoolName || '').trim();
 
   if (!schoolId) {
     return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
@@ -118,9 +119,35 @@ internalApp.post('/provisioning/record', async (c) => {
   }
 
   const now = new Date().toISOString();
+  const subdomain = slug;
+  const contactEmail = 'admin@' + slug + '.pragnya.nasven.com';
+  // Upsert: अगर school_tenants row मौजूद नहीं है (जैसे स्कूल normal registration
+  // path से बाहर बना हो) तो भी record बन जाता है — silent no-op से बचने के लिए।
   await db.prepare(
-    'UPDATE school_tenants SET dedicated_slug=?, dedicated_domain=?, d1_database_id=?, r2_bucket_name=?, kv_namespace_id=?, provisioning_status=?, provisioned_at=?, provisioning_error=? WHERE id=?'
-  ).bind(slug, domain, d1DatabaseId, r2BucketName, kvNamespaceId, 'live', now, '', schoolId).run();
+    'INSERT INTO school_tenants (id, school_name, subdomain, contact_email, contact_phone, status, registration_status, dedicated_slug, dedicated_domain, d1_database_id, r2_bucket_name, kv_namespace_id, provisioning_status, provisioned_at, provisioning_error) '
+    + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+    + 'ON CONFLICT(id) DO UPDATE SET school_name=excluded.school_name, subdomain=excluded.subdomain, '
+    + 'dedicated_slug=excluded.dedicated_slug, dedicated_domain=excluded.dedicated_domain, '
+    + 'd1_database_id=excluded.d1_database_id, r2_bucket_name=excluded.r2_bucket_name, '
+    + 'kv_namespace_id=excluded.kv_namespace_id, provisioning_status=excluded.provisioning_status, '
+    + 'provisioned_at=excluded.provisioned_at, provisioning_error=excluded.provisioning_error'
+  ).bind(
+    schoolId,
+    schoolName || slug,
+    subdomain,
+    contactEmail,
+    '',
+    'Active',
+    'Approved',
+    slug,
+    domain,
+    d1DatabaseId,
+    r2BucketName,
+    kvNamespaceId,
+    'live',
+    now,
+    ''
+  ).run();
 
   return c.json({ success: true, message: 'प्रोविज़निंग रिकॉर्ड सेव हो गया।', schoolId, slug, domain });
 });
