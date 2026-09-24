@@ -38,6 +38,13 @@
       "mode": "dedicated",
       "name": "Yagya Ashram",
       "domain": "school188328.pragnya.nasven.com"
+    },
+    {
+      "slug": "qa-school-266668",
+      "schoolId": "school-1790269266424",
+      "mode": "dedicated",
+      "name": "QA Test School 266668",
+      "domain": "qa-school-266668.pragnya.nasven.com"
     }
   ]
 }
