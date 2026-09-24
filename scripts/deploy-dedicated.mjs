@@ -73,8 +73,11 @@ async function main() {
     // Copy shared-D1 operational rows into the dedicated D1 BEFORE the worker goes
     // live (fail-loud — any copy failure aborts this school's deploy, so the
     // wildcard fallback keeps serving shared mode and nothing breaks).
+    // FORCE_SCHOOL_DATA_COPY=true re-copies idempotently (one-off repair when
+    // rows are missing from a dedicated D1).
     if (school.schoolId) {
-      await migrateSchool(slug, school.schoolId);
+      const forceCopy = process.env.FORCE_SCHOOL_DATA_COPY === 'true';
+      await migrateSchool(slug, school.schoolId, { force: forceCopy });
     }
 
     if (Object.keys(secrets).length > 0) {
