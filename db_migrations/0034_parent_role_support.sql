@@ -1,9 +1,12 @@
 -- 0034: Relax system_users.role CHECK to allow 'Parents' and 'Students' roles.
 -- SQLite cannot ALTER a CHECK constraint in place, so the table must be rebuilt.
+--
+-- Note: no explicit BEGIN/COMMIT here. D1's `wrangler d1 migrations apply`
+-- already wraps each migration file in its own atomic transaction, so raw
+-- `BEGIN TRANSACTION` statements would be redundant AND are rejected by
+-- wrangler@4 on remote D1 (errors with code 7500).
 
 PRAGMA foreign_keys=off;
-
-BEGIN TRANSACTION;
 
 CREATE TABLE system_users_new (
     id TEXT PRIMARY KEY,
@@ -30,7 +33,5 @@ FROM system_users;
 
 DROP TABLE system_users;
 ALTER TABLE system_users_new RENAME TO system_users;
-
-COMMIT;
 
 PRAGMA foreign_keys=on;
