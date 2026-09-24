@@ -53,6 +53,71 @@ async function getPlanId(db: any, schoolId: any) {
   return sub.status === 'Trial' ? 'trial' : sub.plan_id;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Per-school dynamic custom fields ("Student Extra Fields")
+// School Director/Principal defines the schema for their school;
+// values are stored per student. Fields appear ONLY for the school
+// that defined them (school_id scoping in the shared DB; each
+// dedicated worker has its own D1 so it is inherently isolated).
+// ─────────────────────────────────────────────────────────────
+
+const CUSTOM_FIELD_TYPES = ['text', 'number', 'dropdown', 'date', 'checkbox'];
+
+function isFieldManager(role: string) {
+  return role === 'Director' || role === 'Principal';
+}
+
+function parseCustomFieldOptions(raw: any): string[] {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function getCustomFieldDefs(db: any, schoolId: string, opts?: { includeInactive?: boolean }) {
+  const activeClause = opts?.includeInactive ? '' : ' AND is_active = 1';
+  const { results } = await db.prepare(
+    'SELECT * FROM student_custom_field_defs WHERE school_id = ?' + activeClause + ' ORDER BY sort_order ASC, created_at ASC'
+  ).bind(schoolId).all();
+  return (results || []).map((d: any) => ({
+    id: d.id,
+    fieldKey: d.field_key,
+    label: d.label,
+    fieldType: d.field_type,
+    options: parseCustomFieldOptions(d.options),
+    required: !!d.required,
+    sortOrder: d.sort_order || 0,
+    isActive: !!d.is_active,
+  }));
+}
+
+async function writeCustomFieldValues(db: any, schoolId: string, studentId: string, customFields: any) {
+  if (!customFields || typeof customFields !== 'object') return;
+  // Replace previous values wholesale (delete + insert) — idempotent upsert,
+  // so edits never accumulate stale rows for removed fields.
+  await db.prepare('DELETE FROM student_custom_field_values WHERE school_id = ? AND student_id = ?').bind(schoolId, studentId).run();
+  for (const [key, value] of Object.entries(customFields)) {
+    const v = value == null ? '' : String(value);
+    if (!v.trim()) continue;
+    const id = 'scfv-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8);
+    await db.prepare(
+      'INSERT INTO student_custom_field_values (id, school_id, student_id, field_key, field_value, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(id, schoolId, studentId, key, v, new Date().toISOString()).run();
+  }
+}
+
+async function readCustomFieldValues(db: any, schoolId: string, studentId: string): Promise<Record<string, string>> {
+  const { results } = await db.prepare(
+    'SELECT field_key, field_value FROM student_custom_field_values WHERE school_id = ? AND student_id = ?'
+  ).bind(schoolId, studentId).all();
+  const out: Record<string, string> = {};
+  for (const r of results || []) out[r.field_key] = r.field_value;
+  return out;
+}
+
 function camelToWrite(body: any) {
   const fullName = String(body.fullName || '').trim();
   const names = fullName.split(/\s+/);
@@ -144,6 +209,122 @@ studentsApp.get('/', async (c) => {
   return c.json({ success: true, total: students.length, students });
 });
 
+// ─────────────────────────────────────────────────────────────
+// Per-school custom field definitions ("Student Extra Fields")
+// Readable by any authenticated user (forms render these fields);
+// create/update/delete restricted to Director/Principal.
+// NOTE: defined before GET /:id so "custom-fields" isn't parsed as an id.
+// ─────────────────────────────────────────────────────────────
+
+// GET /api/students/custom-fields — active defs for this school
+studentsApp.get('/custom-fields', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  const schoolId = getRequestSchoolId(c, authUser);
+  const fields = await getCustomFieldDefs(db, schoolId);
+  return c.json({ success: true, fields });
+});
+
+// POST /api/students/custom-fields — create a new field (Director/Principal)
+studentsApp.post('/custom-fields', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  if (!isFieldManager(authUser.role)) {
+    return c.json({ success: false, message: 'केवल निदेशक या प्राचार्य ही अतिरिक्त फ़ील्ड जोड़ सकते हैं।' }, 403);
+  }
+  const schoolId = getRequestSchoolId(c, authUser);
+  const body = await c.req.json().catch(() => ({}));
+  const fieldKey = String(body.fieldKey || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  const label = String(body.label || '').trim();
+  const fieldType = CUSTOM_FIELD_TYPES.includes(body.fieldType) ? body.fieldType : 'text';
+  if (!fieldKey || !label) {
+    return c.json({ success: false, message: 'फ़ील्ड कुंजी (fieldKey) और लेबल (label) अनिवार्य हैं।' }, 400);
+  }
+  const dup = await db.prepare(
+    'SELECT id FROM student_custom_field_defs WHERE school_id = ? AND field_key = ?'
+  ).bind(schoolId, fieldKey).first();
+  if (dup) {
+    return c.json({ success: false, message: 'इस स्कूल में यह फ़ील्ड कुंजी पहले से मौजूद है।' }, 409);
+  }
+  const id = 'scfd-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8);
+  const options = fieldType === 'dropdown' && Array.isArray(body.options)
+    ? JSON.stringify(body.options.map(String))
+    : null;
+  await db.prepare(
+    'INSERT INTO student_custom_field_defs (id, school_id, field_key, label, field_type, options, required, sort_order, is_active, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,1,?,?,?)'
+  ).bind(
+    id, schoolId, fieldKey, label, fieldType, options,
+    body.required ? 1 : 0,
+    Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0,
+    authUser.sub, new Date().toISOString(), new Date().toISOString()
+  ).run();
+
+  const field = (await getCustomFieldDefs(db, schoolId)).find((f: any) => f.id === id) || null;
+  return c.json({ success: true, message: 'अतिरिक्त फ़ील्ड "' + label + '" जोड़ दी गई।', field }, 201);
+});
+
+// PUT /api/students/custom-fields/:fieldId — update def (Director/Principal)
+studentsApp.put('/custom-fields/:fieldId', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  if (!isFieldManager(authUser.role)) {
+    return c.json({ success: false, message: 'केवल निदेशक या प्राचार्य ही अतिरिक्त फ़ील्ड संपादित कर सकते हैं।' }, 403);
+  }
+  const schoolId = getRequestSchoolId(c, authUser);
+  const fieldId = c.req.param('fieldId');
+  const existing = await db.prepare(
+    'SELECT * FROM student_custom_field_defs WHERE id = ? AND school_id = ?'
+  ).bind(fieldId, schoolId).first();
+  if (!existing) return c.json({ success: false, message: 'फ़ील्ड नहीं मिली।' }, 404);
+
+  const body = await c.req.json().catch(() => ({}));
+  const label = body.label !== undefined ? String(body.label).trim() : existing.label;
+  const fieldType = body.fieldType !== undefined && CUSTOM_FIELD_TYPES.includes(body.fieldType) ? body.fieldType : existing.field_type;
+  const options = fieldType === 'dropdown' && Array.isArray(body.options)
+    ? JSON.stringify(body.options.map(String))
+    : (Array.isArray(body.options) ? JSON.stringify(body.options.map(String)) : existing.options);
+  const required = body.required !== undefined ? (body.required ? 1 : 0) : existing.required;
+  const sortOrder = body.sortOrder !== undefined && Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : existing.sort_order;
+  const isActive = body.isActive !== undefined ? (body.isActive ? 1 : 0) : existing.is_active;
+
+  if (!label) return c.json({ success: false, message: 'लेबल (label) अनिवार्य है।' }, 400);
+
+  await db.prepare(
+    'UPDATE student_custom_field_defs SET label = ?, field_type = ?, options = ?, required = ?, sort_order = ?, is_active = ?, updated_at = ? WHERE id = ? AND school_id = ?'
+  ).bind(label, fieldType, options, required, sortOrder, isActive, new Date().toISOString(), fieldId, schoolId).run();
+
+  const field = (await getCustomFieldDefs(db, schoolId, { includeInactive: true })).find((f: any) => f.id === fieldId) || null;
+  return c.json({ success: true, message: 'फ़ील्ड "' + label + '" अद्यतित हो गई।', field });
+});
+
+// DELETE /api/students/custom-fields/:fieldId — delete def + its values (Director/Principal)
+studentsApp.delete('/custom-fields/:fieldId', async (c) => {
+  const db = getDB(c);
+  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
+  const authUser = await getAuthUser(c);
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  if (!isFieldManager(authUser.role)) {
+    return c.json({ success: false, message: 'केवल निदेशक या प्राचार्य ही अतिरिक्त फ़ील्ड हटा सकते हैं।' }, 403);
+  }
+  const schoolId = getRequestSchoolId(c, authUser);
+  const fieldId = c.req.param('fieldId');
+  const existing = await db.prepare(
+    'SELECT * FROM student_custom_field_defs WHERE id = ? AND school_id = ?'
+  ).bind(fieldId, schoolId).first();
+  if (!existing) return c.json({ success: false, message: 'फ़ील्ड नहीं मिली।' }, 404);
+
+  await db.prepare('DELETE FROM student_custom_field_values WHERE school_id = ? AND field_key = ?').bind(schoolId, existing.field_key).run();
+  await db.prepare('DELETE FROM student_custom_field_defs WHERE id = ? AND school_id = ?').bind(fieldId, schoolId).run();
+
+  return c.json({ success: true, message: 'फ़ील्ड "' + existing.label + '" और उसके सभी मान हटा दिए गए।' });
+});
+
 // GET /api/students/:id
 studentsApp.get('/:id', async (c) => {
   const db = getDB(c);
@@ -155,6 +336,13 @@ studentsApp.get('/:id', async (c) => {
   const row = await db.prepare('SELECT * FROM students WHERE school_id = ? AND (id = ? OR scholar_number = ?)').bind(schoolId, id, id).first();
   const student = mapStudent(row);
   if (!student) return c.json({ success: false, message: 'छात्र रिकॉर्ड नहीं मिला।' }, 404);
+  // Attach per-school extra field values for this student
+  try {
+    student.customFields = await readCustomFieldValues(db, schoolId, student.id);
+  } catch (err) {
+    console.warn('[Students] Error reading custom fields:', err);
+    student.customFields = {};
+  }
   return c.json({ success: true, student });
 });
 
@@ -199,6 +387,13 @@ studentsApp.post('/', async (c) => {
   }
   const id = 'std-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
   await writeStudent(db, schoolId, id, values);
+
+  // Per-school extra fields (Student Extra Fields)
+  try {
+    await writeCustomFieldValues(db, schoolId, id, body.customFields);
+  } catch (err) {
+    console.warn('[Students] Error saving custom fields on add:', err);
+  }
 
   const row = await db.prepare('SELECT * FROM students WHERE id = ?').bind(id).first();
   const student = mapStudent(row);
@@ -447,8 +642,22 @@ studentsApp.put('/:id', async (c) => {
   const values = camelToWrite(merged);
   values.scholarNumber = values.scholarNumber || existingRow.scholar_number || existingRow.roll_number || '';
   await writeStudent(db, schoolId, id, values);
+
+  // Per-school extra fields (Student Extra Fields)
+  try {
+    await writeCustomFieldValues(db, schoolId, id, body.customFields);
+  } catch (err) {
+    console.warn('[Students] Error saving custom fields on update:', err);
+  }
+
   const row = await db.prepare('SELECT * FROM students WHERE id = ?').bind(id).first();
   const student = mapStudent(row);
+  try {
+    student.customFields = await readCustomFieldValues(db, schoolId, id);
+  } catch (err) {
+    console.warn('[Students] Error reading custom fields on update:', err);
+    student.customFields = {};
+  }
 
   const actorName = await resolveActorName(db, authUser.sub, authUser.role);
   await logActivity(db, {

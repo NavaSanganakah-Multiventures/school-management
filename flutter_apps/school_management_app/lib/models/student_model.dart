@@ -29,6 +29,7 @@ class StudentModel {
   final String status;
   final String? tcIssueDate;
   final String? remarks;
+  final Map<String, dynamic> customFields;
 
   StudentModel({
     required this.id,
@@ -61,6 +62,7 @@ class StudentModel {
     required this.status,
     this.tcIssueDate,
     this.remarks,
+    this.customFields = const {},
   });
 
   factory StudentModel.fromJson(Map<String, dynamic> json) {
@@ -95,6 +97,7 @@ class StudentModel {
       status: json['status'] ?? 'Active',
       tcIssueDate: json['tcIssueDate']?.toString(),
       remarks: json['remarks']?.toString(),
+      customFields: (json['customFields'] as Map<String, dynamic>?) ?? const {},
     );
   }
 

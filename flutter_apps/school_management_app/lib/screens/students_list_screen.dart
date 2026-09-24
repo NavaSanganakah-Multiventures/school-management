@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../models/user_model.dart';
 import '../models/student_model.dart';
+import '../models/custom_field_model.dart';
 import '../services/student_service.dart';
 import '../services/api_client.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/custom_fields_editor.dart';
 
 /// Students list screen — mirrors React students-screen.tsx.
 /// Supports search, class filter, status filter, and admin actions.
@@ -117,6 +120,218 @@ class _StudentsListScreenState extends State<StudentsListScreen> {
     }
   }
 
+  Future<void> _openAddStudentDialog() async {
+    final nameCtrl = TextEditingController();
+    final scholarCtrl = TextEditingController();
+    final parentCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    String gender = 'Male';
+    String dialogClass = _selectedClass == 'All'
+        ? (_classesList.length > 1 ? _classesList[1] : 'Class 1')
+        : _selectedClass;
+    DateTime? dob;
+    bool isSaving = false;
+
+    // Load the school's custom "Student Extra Fields" (empty if none defined).
+    List<CustomFieldModel> defs = [];
+    final customValues = <String, dynamic>{};
+    try {
+      defs = await _svc.getCustomFieldDefs();
+    } catch (_) {
+      defs = [];
+    }
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        final formKey = GlobalKey<FormState>();
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Row(
+              children: [
+                Icon(Icons.person_add_rounded, color: Color(0xFF0F172A), size: 22),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text('नया छात्र प्रवेश', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      initialValue: dialogClass,
+                      decoration: const InputDecoration(
+                        labelText: 'कक्षा *',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _classesList
+                          .where((c) => c != 'All')
+                          .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                          .toList(),
+                      onChanged: (val) {
+                        if (val != null) setDialogState(() => dialogClass = val);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'विद्यार्थी का पूरा नाम *',
+                        hintText: 'उदा. अमित कुमार शर्मा',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (v) => (v == null || v.trim().isEmpty) ? 'नाम अनिवार्य है' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: scholarCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'स्कॉलर / एस.आर. नंबर (ऐच्छिक)',
+                        hintText: 'उदा. SR-2026-089',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: parentCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'पिता / अभिभावक का नाम *',
+                        hintText: 'उदा. राजेश शर्मा',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (v) => (v == null || v.trim().isEmpty) ? 'पिता का नाम अनिवार्य है' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: phoneCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'अभिभावक मोबाइल नंबर *',
+                        hintText: '10 अंकों का मोबाइल',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (v) => (v == null || v.trim().length < 10) ? 'वैध मोबाइल नंबर दर्ज करें' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: gender,
+                      decoration: const InputDecoration(
+                        labelText: 'लिंग',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'Male', child: Text('छात्र (M)')),
+                        DropdownMenuItem(value: 'Female', child: Text('छात्रा (F)')),
+                        DropdownMenuItem(value: 'Other', child: Text('अन्य')),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) setDialogState(() => gender = val);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    InkWell(
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: ctx,
+                          initialDate: dob ?? DateTime(2015, 1, 1),
+                          firstDate: DateTime(2000),
+                          lastDate: DateTime.now(),
+                        );
+                        if (picked != null) setDialogState(() => dob = picked);
+                      },
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'जन्म तिथि',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                        child: Text(
+                          dob != null ? DateFormat('dd/MM/yyyy').format(dob!) : 'चुनें',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: dob != null ? Colors.black87 : Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    CustomFieldsEditor(
+                      defs: defs,
+                      onChanged: (vals) {
+                        customValues.clear();
+                        customValues.addAll(vals);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSaving ? null : () => Navigator.of(dialogCtx).pop(),
+                child: const Text('रद्द करें'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0F172A),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: isSaving
+                    ? null
+                    : () async {
+                        if (!(formKey.currentState?.validate() ?? false)) return;
+                        setDialogState(() => isSaving = true);
+                        try {
+                          final added = await _svc.addStudent({
+                            'fullName': nameCtrl.text.trim(),
+                            'className': dialogClass,
+                            'fatherName': parentCtrl.text.trim(),
+                            'parentPhone': phoneCtrl.text.trim(),
+                            'scholarNumber': scholarCtrl.text.trim(),
+                            'gender': gender,
+                            'dob': dob != null ? DateFormat('yyyy-MM-dd').format(dob!) : null,
+                            'status': 'Active',
+                            if (customValues.isNotEmpty) 'customFields': customValues,
+                          });
+                          if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
+                          if (mounted) {
+                            showSnack(context, '${added.fullName} को कक्षा $dialogClass में सफलतापूर्वक प्रवेशित किया गया।');
+                            _loadStudents();
+                          }
+                        } catch (err) {
+                          if (dialogCtx.mounted) setDialogState(() => isSaving = false);
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('त्रुटि: $err'), backgroundColor: Colors.red),
+                            );
+                          }
+                        }
+                      },
+                child: isSaving
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('प्रवेश दर्ज करें'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _onFilterChanged({String? className, String? status, String? query}) {
     setState(() {
       if (className != null) _selectedClass = className;
@@ -136,10 +351,7 @@ class _StudentsListScreenState extends State<StudentsListScreen> {
             IconButton(
               icon: const Icon(Icons.person_add_alt_1_rounded),
               tooltip: 'नया स्कॉलर प्रवेश',
-              onPressed: () {
-                // TODO(phase-3): Navigate to AddScholarModal / screen
-                showSnack(context, 'नया स्कॉलर फॉर्म जल्द आ रहा है।');
-              },
+              onPressed: _openAddStudentDialog,
             ),
         ],
       ),

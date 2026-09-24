@@ -8,6 +8,8 @@ import '../services/pdf_service.dart';
 import '../routes/auth_actions.dart';
 import '../services/student_service.dart';
 import '../widgets/activity_log_sheet.dart';
+import '../models/custom_field_model.dart';
+import '../widgets/custom_fields_editor.dart';
 import 'exams_screen.dart';
 import 'leave_applications_screen.dart';
 import 'lms_screen.dart';
@@ -293,39 +295,52 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
     DateTime? dob;
     bool isSaving = false;
 
+    // Load the school's custom "Student Extra Fields" (empty if none defined).
+    List<CustomFieldModel> defs = [];
+    final customValues = <String, dynamic>{};
+    try {
+      defs = await StudentService().getCustomFieldDefs();
+    } catch (_) {
+      defs = [];
+    }
+
     await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (dialogCtx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0F172A).withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(10),
+      builder: (dialogCtx) {
+        final formKey = GlobalKey<FormState>();
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F172A).withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.person_add_rounded, color: Color(0xFF0F172A), size: 22),
                 ),
-                child: const Icon(Icons.person_add_rounded, color: Color(0xFF0F172A), size: 22),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('नया छात्र प्रवेश', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      Text('कक्षा व विवरण भरें', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Form(
+                key: formKey,
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('नया छात्र प्रवेश', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    Text('कक्षा व विवरण भरें', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
                 DropdownButtonFormField<String>(
                   value: dialogClass,
                   decoration: const InputDecoration(
@@ -434,7 +449,16 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                CustomFieldsEditor(
+                  defs: defs,
+                  onChanged: (vals) {
+                    customValues.clear();
+                    customValues.addAll(vals);
+                  },
+                ),
               ],
+              ),
             ),
           ),
           actions: [
@@ -470,6 +494,12 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
 
                       setDialogState(() => isSaving = true);
 
+                      final formOk = formKey.currentState?.validate() ?? true;
+                      if (!formOk) {
+                        setDialogState(() => isSaving = false);
+                        return;
+                      }
+
                       try {
                         await StudentService().addStudent({
                           'fullName': name,
@@ -480,6 +510,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                           'gender': gender,
                           'dob': dob != null ? DateFormat('yyyy-MM-dd').format(dob!) : null,
                           'status': 'Active',
+                          if (customValues.isNotEmpty) 'customFields': customValues,
                         });
 
                         if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
@@ -507,8 +538,8 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
             ),
           ],
         ),
-      ),
-    );
+      );
+    });
   }
 
   @override

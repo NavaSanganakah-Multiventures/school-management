@@ -72,6 +72,30 @@ trigger: always_on
 
 ## 3. 🧩 प्लगइन आर्किटेक्चर गाइड (Plugin Architecture & Creation Guide)
 
+### 📋 पहले पढ़ें: Student Extra Fields (Per-School Dynamic Custom Fields)
+
+> School-विशिष्ट "Add Student" अतिरिक्त फ़ील्ड (जैसे किसी एक स्कूल के लिए bus route, caste
+> certificate no., sports category आदि) के लिए **core `students` टेबल में column मत जोड़ें और न ही
+> plugin बनाएं** — यह **config-driven dynamic custom fields** से होता है:
+>
+> - **दो D1 टेबल (migration `0038`):** `student_custom_field_defs` (प्रति-स्कूल field definitions,
+>   `school_id` से scoped) और `student_custom_field_values` (प्रति-student values, `school_id` +
+>   `student_id` से scoped)। दोनों टेबल की हर क्वेरी में `WHERE school_id = ?` अनिवार्य है।
+> - **API (`api/students/index.ts`):**
+>   - `GET /api/students/custom-fields` → उसी school के active fields (forms इससे render होते हैं)।
+>   - `POST / PUT / DELETE /api/students/custom-fields[/:id]` → सिर्फ़ **Director/Principal** ही
+>     fields define/edit/delete कर सकते हैं (server-side `isFieldManager` role gate)।
+>   - `POST /api/students` व `PUT /api/students/:id` body में `customFields` map accept करते हैं
+>     (delete+insert upsert); `GET /api/students/:id` response में `customFields` map merge मिलता है।
+> - **Flutter:** `CustomFieldsEditor` widget (`widgets/custom_fields_editor.dart`) किसी भी form में
+>   defs के अनुसार text/number/dropdown/date/checkbox fields dynamically render करता है — Add dialog
+>   (`teacher_attendance_screen.dart`, `students_list_screen.dart`) और Edit form
+>   (`student_detail_screen.dart`) दोनों में। Director/Principal के लिए
+>   `custom_fields_manager_screen.dart` (Director dashboard में "अतिरिक्त फ़ील्ड")।
+> - जिस स्कूल ने fields define नहीं कीं, उसके forms/API बिल्कुल पहले जैसे रहते हैं — कोई UI change नहीं।
+> - `field_key` lowercase alphanumeric + underscore; `field_type` ∈ text/number/dropdown/date/checkbox;
+>   dropdown `options` JSON array; `required`/`sort_order`/`is_active` flags।
+
 यदि कोई स्कूल कोई कस्टम फ़ीचर (जैसे LMS डैशबोर्ड, बस जीपीएस, बायोमेट्रिक अटेंडेंस, लाइब्रेरी आदि) मांगता है, तो उसे प्लगइन के रूप में बनाया जाएगा।
 
 ### ⚠️ स्वर्णिम नियम (Golden Rule):
