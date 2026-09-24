@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/student_model.dart';
 import '../models/user_model.dart';
+import '../models/custom_field_model.dart';
 import '../services/student_service.dart';
 import '../services/api_client.dart';
 import '../services/pdf_service.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/custom_fields_editor.dart';
 
 class StudentDetailScreen extends StatefulWidget {
   final String studentId;
@@ -36,6 +38,10 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
   final _ctrl = <String, TextEditingController>{};
   bool get _isAdmin => widget.user.isAdminRole;
 
+  // Per-school custom "Student Extra Fields"
+  List<CustomFieldModel> _customDefs = [];
+  final Map<String, dynamic> _customValues = {};
+
   @override
   void initState() {
     super.initState();
@@ -51,6 +57,14 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
       final s = await _svc.getStudent(widget.studentId);
       _student = s;
       _initControllers(s);
+      // Load the school's custom field definitions (forms render these).
+      try {
+        _customDefs = await _svc.getCustomFieldDefs();
+      } catch (_) {
+        _customDefs = [];
+      }
+      _customValues.clear();
+      _customValues.addAll(s.customFields);
       if (mounted) setState(() => _loading = false);
     } on ApiException catch (e) {
       if (mounted) setState(() {
@@ -110,6 +124,10 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
         'bloodGroup', 'aadhaarNumber',
       ]) {
         if (_v(e).isNotEmpty) body[e] = _v(e);
+      }
+      if (_customDefs.isNotEmpty) {
+        // Always send (even empty) so removed values are cleaned server-side.
+        body['customFields'] = Map<String, dynamic>.from(_customValues);
       }
       await _svc.updateStudent(widget.studentId, body);
       if (mounted) {
@@ -279,6 +297,12 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
             _infoRow('रोल नंबर', s.rollNumber.isEmpty ? '-' : s.rollNumber),
             if (s.admissionDate != null) _infoRow('प्रवेश तिथि', s.admissionDate!),
           ]),
+          if (_customDefs.isNotEmpty)
+            _section('अतिरिक्त फ़ील्ड', [
+              for (final d in _customDefs) ...[
+                _infoRow(d.label, (s.customFields[d.fieldKey]?.toString() ?? '').isEmpty ? '-' : s.customFields[d.fieldKey].toString()),
+              ],
+            ]),
           if (s.parentPhone != null && s.parentPhone!.isNotEmpty) ...[
             const SizedBox(height: 12),
             Row(
@@ -349,6 +373,17 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
             _field('currentAddress', 'पता', maxLines: 2),
             _field('bloodGroup', 'रक्त समूह'),
             _field('aadhaarNumber', 'आधार नंबर'),
+            if (_customDefs.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              CustomFieldsEditor(
+                defs: _customDefs,
+                initialValues: _student?.customFields ?? const {},
+                onChanged: (vals) {
+                  _customValues.clear();
+                  _customValues.addAll(vals);
+                },
+              ),
+            ],
             const SizedBox(height: 20),
             Row(
               children: [

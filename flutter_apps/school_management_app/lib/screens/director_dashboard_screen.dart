@@ -22,6 +22,7 @@ import 'students_list_screen.dart';
 import 'classes_screen.dart';
 import 'notices_screen.dart';
 import 'analytics_dashboard_screen.dart';
+import 'custom_fields_manager_screen.dart';
 
 class DirectorDashboardScreen extends StatefulWidget {
   final UserModel user;
@@ -98,6 +99,7 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
       _NavModule('AI सहायक', Icons.smart_toy_rounded, AiScreen(user: widget.user)),
       _NavModule('बिलिंग', Icons.workspace_premium_rounded, BillingScreen(user: widget.user)),
       _NavModule('विद्यालय प्रोफ़ाइल', Icons.school_rounded, SchoolProfileScreen(user: widget.user)),
+      _NavModule('अतिरिक्त फ़ील्ड', Icons.dynamic_form_rounded, CustomFieldsManagerScreen(user: widget.user)),
       _NavModule('सेटिंग्स', Icons.settings_rounded, SettingsScreen(user: widget.user)),
     ];
 
@@ -482,6 +484,7 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
           _MobileTile('विषय एवं मैपिंग', Icons.menu_book_rounded, const Color(0xFF1F2937), () => _navigateTo(SubjectsScreen(user: widget.user))),
           _MobileTile('अवकाश आवेदन', Icons.event_available_rounded, const Color(0xFF0F766E), () => _navigateTo(LeaveApplicationsScreen(user: widget.user))),
           _MobileTile('विद्यालय प्रोफ़ाइल', Icons.school_rounded, const Color(0xFF1E3A8A), () => _navigateTo(SchoolProfileScreen(user: widget.user))),
+          _MobileTile('अतिरिक्त फ़ील्ड', Icons.dynamic_form_rounded, const Color(0xFF1E3A8A), () => _navigateTo(CustomFieldsManagerScreen(user: widget.user))),
           _MobileTile('सूचना प्रसारण', Icons.campaign_rounded, const Color(0xFFB45309), () => _navigateTo(NotificationsScreen(user: widget.user))),
           _MobileTile('पाठ्यक्रम (LMS)', Icons.video_library_rounded, const Color(0xFF7E22CE), () => _navigateTo(LmsScreen(user: widget.user))),
           _MobileTile('AI सहायक', Icons.smart_toy_rounded, const Color(0xFF4338CA), () => _navigateTo(AiScreen(user: widget.user))),
