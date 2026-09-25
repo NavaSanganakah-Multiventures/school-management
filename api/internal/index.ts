@@ -1,19 +1,101 @@
 import { Hono } from 'hono';
 import { getDB } from '../db';
 import { deriveSyncKey, encryptPayload, getInternalSyncSecret } from '../lib/tenant-crypto';
+import { signatureRequired, verifyInternalSignature } from '../lib/internal-request-auth';
 
 export const internalApp = new Hono<{ Bindings: any }>();
 
+// Shared authorization gate for every /api/internal/* route.
+//
+// Preferred path: a short-lived HMAC signature over method + path + body +
+// timestamp (see api/lib/internal-request-auth.ts). That bounds replay to a
+// few minutes and stops a captured signature from being replayed against a
+// different endpoint with a modified payload.
+//
+// Legacy path: the bare `X-Internal-Secret` static token, still accepted so an
+// in-flight deploy cannot break mid-rollout. Set the Worker secret
+// INTERNAL_SYNC_REQUIRE_SIGNATURE="true" to close it permanently.
+async function authorizeInternalRequest(
+  c: any,
+  rawBody?: string,
+): Promise<{ ok: true; secret: string } | { ok: false; response: Response }> {
+  const expectedSecret = await getInternalSyncSecret(c.env);
+  if (!expectedSecret) {
+    return {
+      ok: false,
+      response: c.json(
+        { success: false, message: 'Internal sync secret configured नहीं है (server misconfiguration).' },
+        500,
+      ),
+    };
+  }
+
+  const providedSecret = c.req.header('X-Internal-Secret') || '';
+  const signature = c.req.header('X-Internal-Signature') || '';
+  const timestampHeader = c.req.header('X-Internal-Timestamp') || '';
+
+  if (signature && timestampHeader) {
+    const result = await verifyInternalSignature({
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      timestamp: Number(timestampHeader),
+      body: rawBody ?? '',
+      signature,
+      secret: providedSecret,
+    });
+    // The signature covers the secret-bearing request, so also require the
+    // static header to match. Without this, a valid signature captured for a
+    // different secret would still authenticate.
+    if (providedSecret !== expectedSecret) {
+      return {
+        ok: false,
+        response: c.json({ success: false, message: 'अनधिकृत आंतरिक अनुरोध (Unauthorized internal request)' }, 401),
+      };
+    }
+    if (!result.ok) {
+      return {
+        ok: false,
+        response: c.json(
+          {
+            success: false,
+            message: 'अनधिकृत आंतरिक अनुरोध (signature verification failed)',
+            reason: result.reason,
+          },
+          401,
+        ),
+      };
+    }
+    return { ok: true, secret: expectedSecret };
+  }
+
+  if (signatureRequired(c.env)) {
+    return {
+      ok: false,
+      response: c.json(
+        { success: false, message: 'Signed internal request required (unsigned request rejected).' },
+        401,
+      ),
+    };
+  }
+
+  if (providedSecret !== expectedSecret) {
+    return {
+      ok: false,
+      response: c.json({ success: false, message: 'अनधिकृत आंतरिक अनुरोध (Unauthorized internal request)' }, 401),
+    };
+  }
+
+  return { ok: true, secret: expectedSecret };
+}
+
 // GET /api/internal/tenant-sync/:schoolId
 // Internal endpoint used by dedicated workers and deployment scripts to sync tenant metadata
-// from the central platform control plane. Protected by X-Internal-Secret and domain-separated key.
+// from the central platform control plane. Protected by a signed internal request and a
+// domain-separated encryption key.
 internalApp.get('/tenant-sync/:schoolId', async (c) => {
-  const secret = c.req.header('X-Internal-Secret') || '';
-  const expectedSecret = await getInternalSyncSecret(c.env);
-
-  if (!expectedSecret || secret !== expectedSecret) {
-    return c.json({ success: false, message: 'अनधिकृत आंतरिक अनुरोध (Unauthorized internal request)' }, 401);
-  }
+  const auth = await authorizeInternalRequest(c);
+  if (!auth.ok) return auth.response;
+  const expectedSecret = auth.secret;
 
   const schoolId = c.req.param('schoolId');
   if (!schoolId) {
@@ -86,12 +168,10 @@ internalApp.get('/tenant-sync/:schoolId', async (c) => {
 // is the single source of truth for provisioning, and marks the school 'live'
 // (production-ready) once all three resources exist.
 internalApp.post('/provisioning/record', async (c) => {
-  const secret = c.req.header('X-Internal-Secret') || '';
-  const expectedSecret = await getInternalSyncSecret(c.env);
-
-  if (!expectedSecret || secret !== expectedSecret) {
-    return c.json({ success: false, message: 'अनधिकृत आंतरिक अनुरोध (Unauthorized internal request)' }, 401);
-  }
+  // Read the raw body first: the request signature covers the exact payload.
+  const rawBody = await c.req.raw.clone().text().catch(() => '');
+  const auth = await authorizeInternalRequest(c, rawBody);
+  if (!auth.ok) return auth.response;
 
   const db = getDB(c);
   if (!db) {
@@ -157,12 +237,8 @@ internalApp.post('/provisioning/record', async (c) => {
 // DB. Used by the deploy pipeline (scripts/generate-school-configs.mjs) to build the
 // per-school wrangler configs from the main DB at deploy time.
 internalApp.get('/provisioning/registry', async (c) => {
-  const secret = c.req.header('X-Internal-Secret') || '';
-  const expectedSecret = await getInternalSyncSecret(c.env);
-
-  if (!expectedSecret || secret !== expectedSecret) {
-    return c.json({ success: false, message: 'अनधिकृत आंतरिक अनुरोध (Unauthorized internal request)' }, 401);
-  }
+  const auth = await authorizeInternalRequest(c);
+  if (!auth.ok) return auth.response;
 
   const db = getDB(c);
   if (!db) {

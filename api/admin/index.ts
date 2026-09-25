@@ -1,7 +1,10 @@
 import { Hono } from 'hono';
 import { getDB, loadSubscriptionPlans, loadSubscriptionPlanById, makeUniqueUsername } from '../db';
 import { getAuthUser, hashPassword } from '../lib/auth';
-import { sanitizeSlug, isSlugValid, provisionDedicatedWorker, deprovisionDedicatedWorker } from '../lib/provisioning';
+import { constantTimeEqual } from '../lib/constant-time';
+// deprovisionDedicatedWorker is intentionally NOT imported: the deprovision
+// route is disabled (see below) and the helper has no safe caller.
+import { sanitizeSlug, isSlugValid, provisionDedicatedWorker } from '../lib/provisioning';
 import { processTrialExpirations, processPluginTrialExpirations } from '../lib/trial-expiration';
 import { createRazorpayPaymentLink, cancelRazorpaySubscription, pauseRazorpaySubscription, resumeRazorpaySubscription, fetchRazorpaySubscription, createRazorpayPlan, fetchRazorpayPlan } from '../lib/razorpay';
 import { sendNotificationEmail } from '../lib/email';
@@ -144,7 +147,36 @@ function tenantToJson(row: any) {
 
 
 // POST /api/admin/bootstrap - idempotent single Super Admin creation/sync from env secrets
+//
+// SECURITY: this endpoint is intentionally unauthenticated *by design* (there is
+// no admin to authenticate against before the first bootstrap), but it is NOT
+// safe to leave open:
+//
+//   - it overwrites the platform admin password from env and DELETES every other
+//     platform_admins row, so anyone who can reach it controls the platform,
+//   - it forces a PBKDF2 derivation per call, making it a free CPU-exhaustion
+//     vector against the Worker.
+//
+// Therefore it now requires the `PLATFORM_BOOTSTRAP_TOKEN` Worker secret, sent
+// as `X-Bootstrap-Token`. When the secret is not configured the endpoint fails
+// CLOSED (503) rather than silently allowing unauthenticated rotation. CI sends
+// it in .github/workflows/deploy.yml.
 adminApp.post('/bootstrap', async (c) => {
+  const configuredToken = String((c.env && c.env.PLATFORM_BOOTSTRAP_TOKEN) || '').trim();
+  if (!configuredToken) {
+    return c.json({
+      success: false,
+      message: 'Bootstrap बंद है: PLATFORM_BOOTSTRAP_TOKEN secret सेट नहीं है। '
+        + 'बूटस्ट्रैप के लिए पहले यह secret जोड़ें, फिर /api/admin/bootstrap को X-Bootstrap-Token header के साथ कॉल करें।',
+    }, 503);
+  }
+
+  const providedToken = c.req.header('X-Bootstrap-Token') || '';
+  const tokenOk = await constantTimeEqual(providedToken, configuredToken);
+  if (!tokenOk) {
+    return c.json({ success: false, message: 'अनधिकृत बूटस्ट्रैप अनुरोध (Unauthorized bootstrap request)' }, 401);
+  }
+
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
 
@@ -823,28 +855,33 @@ adminApp.post('/schools/provision', async (c) => {
   });
 });
 
-// POST /api/admin/schools/provision/deprovision - dedicated worker को shared mode में बदलें
+// POST /api/admin/schools/provision/deprovision - DISABLED (data-loss guard)
+//
+// WHY THIS IS DISABLED
+// deprovisionDedicatedWorker() only flips schools.json to mode:"shared". It does
+// NOT copy the school's current dedicated D1/R2/KV data back to the shared
+// store, and the separate scripts/downgrade-school.mjs it was meant to pair with
+// targets the LOCAL D1, references tables that do not exist (`staff`, `fees`
+// instead of `teachers`, `fee_invoices`), and marks the school "shared" even when
+// every copy step failed. The next deploy then routes the school to the shared
+// worker where its newest records simply do not exist.
+//
+// This is a data-loss operation, so it must not be reachable from the console.
+// It stays as a documented 410 until a verified cutover exists:
+//   1. immutable backup of the dedicated D1 + R2 + KV,
+//   2. row-count/checksum reconciliation of every operational table,
+//   3. a non-overwriting upsert of dedicated -> shared (with ID collision mapping),
+//   4. explicit SuperAdmin confirmation of the cutover,
+//   5. old route kept warm until the shared worker is verified,
+//   6. only then a shared-data purge (needs its own backup).
 adminApp.post('/schools/provision/deprovision', async (c) => {
-  const guard = await requireSuperAdmin(c);
-  if (!guard.ok) return guard.error;
-  const db = getDB(c);
-  if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-
-  const body = await c.req.json().catch(() => ({}));
-  const schoolId = String(body.schoolId || '').trim();
-  if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
-
-  const school = await db.prepare('SELECT * FROM school_tenants WHERE id = ?').bind(schoolId).first();
-  if (!school) return c.json({ success: false, message: 'स्कूल नहीं मिला।' }, 404);
-
-  const result = await deprovisionDedicatedWorker(c.env, db, schoolId, school.dedicated_slug);
-  if (result.status === 'error') {
-    return c.json({ success: false, message: result.error || 'डी-प्रोविजनिंग में त्रुटि।' }, 502);
-  }
   return c.json({
-    success: true,
-    message: 'स्कूल को सफलतापूर्वक शेयर्ड वर्कर मोड में बदल दिया गया।',
-  });
+    success: false,
+    disabled: true,
+    message: 'डी-प्रोविजनिंग अस्थायी रूप से बंद है। यह ऑपरेशन डेटा कॉपी किए बिना routing बदल देता था, जिससे स्कूल का डेटा नज़र आ सकता था। '
+      + 'सुरक्षित कटओवर (backup + reconciliation + verified copy) लागू होने तक यह उपलब्ध नहीं है।',
+    reference: 'docs/audit-phase0-safety-rails.md',
+  }, 410);
 });
 
 // POST /api/admin/schools/provision/check - dedicated worker की health जाँच कर स्टेटस 'live' करें
