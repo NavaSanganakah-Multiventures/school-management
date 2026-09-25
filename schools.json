@@ -45,6 +45,13 @@
       "mode": "dedicated",
       "name": "QA Test School 266668",
       "domain": "qa-school-266668.pragnya.nasven.com"
+    },
+    {
+      "slug": "admin",
+      "schoolId": "school-1790295232397",
+      "mode": "dedicated",
+      "name": "da",
+      "domain": "admin.pragnya.nasven.com"
     }
   ]
 }
