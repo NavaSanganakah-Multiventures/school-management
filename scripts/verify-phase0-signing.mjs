@@ -77,12 +77,15 @@ async function constantTimeEqual(a, b) {
 }
 
 let failures = 0;
-function check(name, condition, detail) {
+
+// Never print signature/key material, even from the throwaway test secret.
+// A failure detail is a short, non-sensitive label only.
+function check(name, condition) {
   if (condition) {
     console.log('  PASS  ' + name);
   } else {
     failures++;
-    console.log('  FAIL  ' + name + (detail ? ' -> ' + detail : ''));
+    console.log('  FAIL  ' + name);
   }
 }
 
@@ -100,15 +103,15 @@ console.log('\nPhase 0 internal-request signing verification\n');
   const ts = Number(ciHeaders['X-Internal-Timestamp']);
 
   check('CI signer timestamp is stringified unix ms', String(ts) === ciHeaders['X-Internal-Timestamp']);
-  check('CI signature matches independent reference implementation', ciSig === referenceSignature({ method, path, body, timestamp: ts }),
-    'CI=' + ciSig + ' ref=' + referenceSignature({ method, path, body, timestamp: ts }));
+  check('CI signature matches independent reference implementation',
+    ciSig === referenceSignature({ method, path, body, timestamp: ts }));
 
   const good = await verify({ method, path, body, timestamp: ts, signature: ciSig, now });
-  check('worker verifier accepts a valid CI signature', good.ok === true, JSON.stringify(good));
+  check('worker verifier accepts a valid CI signature', good.ok === true);
 
   const refSig = referenceSignature({ method, path, body, timestamp: ts });
   const refCheck = await verify({ method, path, body, timestamp: ts, signature: refSig, now });
-  check('worker verifier accepts a reference-implementation signature', refCheck.ok === true, JSON.stringify(refCheck));
+  check('worker verifier accepts a reference-implementation signature', refCheck.ok === true);
 }
 
 // 2. Tamper detection
@@ -120,16 +123,16 @@ console.log('\nPhase 0 internal-request signing verification\n');
   const ts = now;
 
   const badBody = await verify({ method: 'POST', path, body: JSON.stringify({ schoolId: 'school-evil' }), timestamp: ts, signature: sig, now });
-  check('tampered body is rejected', badBody.ok === false && badBody.reason === 'bad_signature', JSON.stringify(badBody));
+  check('tampered body is rejected', badBody.ok === false && badBody.reason === 'bad_signature');
 
   const badPath = await verify({ method: 'POST', path: '/api/internal/provisioning/registry', body, timestamp: ts, signature: sig, now });
-  check('signature cannot be replayed on a different path', badPath.ok === false && badPath.reason === 'bad_signature', JSON.stringify(badPath));
+  check('signature cannot be replayed on a different path', badPath.ok === false && badPath.reason === 'bad_signature');
 
   const badMethod = await verify({ method: 'DELETE', path, body, timestamp: ts, signature: sig, now });
-  check('signature cannot be replayed with a different method', badMethod.ok === false && badMethod.reason === 'bad_signature', JSON.stringify(badMethod));
+  check('signature cannot be replayed with a different method', badMethod.ok === false && badMethod.reason === 'bad_signature');
 
   const otherSecret = await verify({ method: 'POST', path, body, timestamp: ts, signature: sig, secret: 'another-secret-value', now });
-  check('signature is bound to the shared secret', otherSecret.ok === false, JSON.stringify(otherSecret));
+  check('signature is bound to the shared secret', otherSecret.ok === false);
 }
 
 // 3. Replay window
@@ -139,13 +142,13 @@ console.log('\nPhase 0 internal-request signing verification\n');
   const sig = (await buildInternalSignature({ secret: SECRET, method: 'GET', path, body: '', now }))['X-Internal-Signature'];
 
   const fresh = await verify({ method: 'GET', path, body: '', timestamp: now, signature: sig, now: now + 60_000 });
-  check('signature valid within 5 minutes', fresh.ok === true, JSON.stringify(fresh));
+  check('signature valid within 5 minutes', fresh.ok === true);
 
   const stale = await verify({ method: 'GET', path, body: '', timestamp: now, signature: sig, now: now + 6 * 60_000 });
-  check('signature rejected after 5 minutes', stale.ok === false && stale.reason === 'expired_timestamp', JSON.stringify(stale));
+  check('signature rejected after 5 minutes', stale.ok === false && stale.reason === 'expired_timestamp');
 
   const future = await verify({ method: 'GET', path, body: '', timestamp: now, signature: sig, now: now - 6 * 60_000 });
-  check('far-future timestamp rejected (clock skew)', future.ok === false && future.reason === 'expired_timestamp', JSON.stringify(future));
+  check('far-future timestamp rejected (clock skew)', future.ok === false && future.reason === 'expired_timestamp');
 }
 
 // 4. constantTimeEqual behaviour
@@ -163,7 +166,7 @@ console.log('\nPhase 0 internal-request signing verification\n');
   check('INTERNAL_SYNC_SECRET is used verbatim', viaDirect === SECRET);
 
   const derived = await resolveInternalToken({ AUTH_SECRET: 'auth-secret-value' });
-  check('AUTH_SECRET fallback derives a m2m_ token', derived.startsWith('m2m_') && derived.length === 4 + 64, 'len=' + derived.length);
+  check('AUTH_SECRET fallback derives a m2m_ token', derived.startsWith('m2m_') && derived.length === 4 + 64);
 
   const none = await resolveInternalToken({});
   check('no secret yields empty token (caller must fail)', none === '');
