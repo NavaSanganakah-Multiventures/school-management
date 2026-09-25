@@ -39,3 +39,42 @@ node_modules/
 
 # Next.js build cache
 /.next/
+
+# ---------------------------------------------------------------------------
+# Secrets & local state — NEVER commit (audit: HY-01)
+# .env.example stays tracked so the contract remains documented.
+# ---------------------------------------------------------------------------
+
+# Real environment files
+.env
+.env.*
+!.env.example
+
+# Cloudflare Wrangler local state (local D1/KV/R2 databases live in here)
+.wrangler/
+
+# Local dev vars + any timestamped backups of them
+.dev.vars
+.dev.vars.*
+*.dev.vars.bak
+
+# Transient per-school secret files written by scripts/deploy-dedicated.mjs
+wrangler-*.secrets.json
+wrangler-*.secrets.json.tmp
+secrets.json
+secrets.local.json
+
+# Android / signing material
+*.jks
+*.keystore
+key.properties
+*.p12
+*.pfx
+*.pem
+*.key
+
+# Firebase service-account / private key material (public web config is fine)
+service-account*.json
+*serviceAccount*.json
+firebase-adminsdk*.json
+*private*key*.json
