@@ -18,8 +18,21 @@ import os from 'os';
 import path from 'path';
 
 const URL = (process.argv[2] || 'https://school-management-preview.nssite.workers.dev').replace(/\/+$/, '');
-const BODY_FILE = path.join(os.tmpdir(), 'smoke-auth-body.tmp');
-const REQ_FILE = path.join(os.tmpdir(), 'smoke-auth-req.tmp');
+
+// A unique per-run directory rather than fixed filenames in the shared temp
+// directory. A predictable path there is vulnerable to a symlink planted by
+// another local user, who could then read or corrupt the request/response
+// bodies written here (CodeQL js/insecure-temporary-file). These bodies include
+// a session token, so the exposure is not merely theoretical.
+const WORK_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'smoke-auth-'));
+const BODY_FILE = path.join(WORK_DIR, 'body.tmp');
+const REQ_FILE = path.join(WORK_DIR, 'req.tmp');
+
+// This script has several early-exit paths, so clean up on every exit rather
+// than trying not to miss one.
+process.on('exit', () => {
+  try { fs.rmSync(WORK_DIR, { recursive: true, force: true }); } catch (_) { /* best effort */ }
+});
 
 let failed = 0;
 function report(ok, label, detail) {

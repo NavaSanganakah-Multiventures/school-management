@@ -2,179 +2,165 @@
 // Runs the Phase 0/1/2 endpoint smoke tests against a deployed worker URL.
 //
 // The same assertions run inside .github/workflows/deploy-preview.yml, but this
-// script can be pointed at ANY deployed URL from a terminal, which is how the
-// preview worker gets re-checked after a fix without re-running a deploy.
+// script can be pointed at ANY deployed URL from a terminal, which is how a
+// worker gets re-checked after a fix without re-running a deploy.
 //
 // Usage: node scripts/smoke-preview.mjs https://host.workers.dev
+//
+// IMPLEMENTATION NOTE
+//
+// curl is invoked with execFileSync and an ARGS ARRAY, never by joining a shell
+// command string. An earlier version built the command by concatenating quoted
+// arguments, which CodeQL correctly flagged as indirect command injection
+// (js/indirect-command-line-injection) plus incomplete sanitization: a URL or
+// probe description containing a shell metacharacter would have been executed.
+// Passing arguments as an array means no shell is involved at all.
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
 const URL = (process.argv[2] || 'https://school-management-preview.nssite.workers.dev').replace(/\/+$/, '');
 
-// curl's -o target must be a real writable path: /dev/null does not exist on
-// Windows, and passing it makes curl abort with "client returned ERROR on
-// write" (exit 23) before any status code is read.
-const BODY_FILE = path.join(os.tmpdir(), 'smoke-preview-body.tmp');
+// A unique per-run directory rather than a fixed filename. A predictable path in
+// the shared temp directory is vulnerable to a symlink planted by another local
+// user, which would let that user read or corrupt the response bodies captured
+// here (CodeQL js/insecure-temporary-file).
+const WORK_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'smoke-preview-'));
+const BODY_FILE = path.join(WORK_DIR, 'body.tmp');
 
 let failed = 0;
 const rows = [];
 
-function probe(desc, expected, path, method = 'GET') {
-  let code = '000000';
-  let body = '';
-  try {
-    const args = [
-      '-sS', '-o', BODY_FILE, '-w', '%{http_code}',
-      '--connect-timeout', '10', '--max-time', '25',
-      '-X', method,
-    ];
-    if (method === 'POST') {
-      args.push('-H', 'Content-Type: application/json', '-d', '{}');
-    }
-    args.push(URL + path);
-    code = execSync('curl ' + args.map((a) => '"' + a.replace(/"/g, '\\"') + '"').join(' '), {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-  } catch (e) {
-    code = String((e && e.status) || '000000');
-    body = String((e && e.stderr) || '').slice(0, 200);
-  }
-  const ok = code === String(expected);
+function record(ok, desc, path_, code, note) {
   if (!ok) failed++;
-  rows.push((ok ? '  PASS  ' : '  FAIL  ') + desc.padEnd(42) + path + '  -> ' + code + (ok ? '' : ' (expected ' + expected + ') ' + body));
+  rows.push(
+    (ok ? '  PASS  ' : '  FAIL  ') + desc.padEnd(42) + path_ + '  -> ' + code
+    + (ok ? '' : '  ' + note),
+  );
 }
 
-// Asserts an exact status while sending extra request headers.
-//
-// Needed because "the gate refuses" and "the gate is wired up" are different
-// properties, and only the second one can catch a comparison helper that throws.
-// See the X-Bootstrap-Token probe below.
-function probeWithHeaders(desc, expected, path, method, headers) {
+// Single HTTP helper for every probe below.
+function curl(method, path_, headers) {
+  const args = [
+    '-sS', '-o', BODY_FILE, '-w', '%{http_code}',
+    '--connect-timeout', '10', '--max-time', '25',
+    '-X', method,
+  ];
+  for (const h of headers || []) args.push('-H', h);
+  if (method === 'POST') args.push('-H', 'Content-Type: application/json', '-d', '{}');
+  args.push(URL + path_);
+
   let code = '000000';
-  let body = '';
+  let detail = '';
   try {
-    const args = [
-      '-sS', '-o', BODY_FILE, '-w', '%{http_code}',
-      '--connect-timeout', '10', '--max-time', '25',
-      '-X', method,
-    ];
-    for (const h of headers) args.push('-H', h);
-    if (method === 'POST') {
-      args.push('-H', 'Content-Type: application/json', '-d', '{}');
-    }
-    args.push(URL + path);
-    code = execSync('curl ' + args.map((a) => '"' + a.replace(/"/g, '\\"') + '"').join(' '), {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    code = execFileSync('curl', args, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
   } catch (e) {
     code = String((e && e.status) || '000000');
-    body = String((e && e.stderr) || '').slice(0, 200);
+    detail = String((e && e.stderr) || '').slice(0, 200);
   }
-  const ok = code === String(expected);
-  if (!ok) failed++;
-  let note = '';
-  if (!ok && code === '503' && path === '/api/admin/bootstrap') {
-    note = ' -- PLATFORM_BOOTSTRAP_TOKEN is not configured in this environment, '
-      + 'so the gate returns 503 without ever running the comparison. This probe '
-      + 'cannot pass until the secret is set here.';
-  }
-  rows.push((ok ? '  PASS  ' : '  FAIL  ') + desc.padEnd(42) + path + '  -> ' + code
-    + (ok ? '' : ' (expected ' + expected + ')' + note + ' ' + body));
+  return { code, detail };
 }
 
-// Asserts the response is NOT a success. Used where the correct status depends
-// on whether a given secret is configured in the target environment, but the
-// security property ("this endpoint never acts on an unauthenticated caller")
-// holds either way.
-function probeNotSuccess(desc, path, method = 'GET', reject = ['400', '401', '403', '500', '503']) {
-  let code = '000000';
-  let body = '';
-  try {
-    const args = [
-      '-sS', '-o', BODY_FILE, '-w', '%{http_code}',
-      '--connect-timeout', '10', '--max-time', '25',
-      '-X', method,
-    ];
-    if (method === 'POST') {
-      args.push('-H', 'Content-Type: application/json', '-d', '{}');
-    }
-    args.push(URL + path);
-    code = execSync('curl ' + args.map((a) => '"' + a.replace(/"/g, '\\"') + '"').join(' '), {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-  } catch (e) {
-    code = String((e && e.status) || '000000');
-    body = String((e && e.stderr) || '').slice(0, 200);
+// Asserts one exact status code.
+function expectStatus(desc, expected, path_, method = 'GET', headers = []) {
+  const r = curl(method, path_, headers);
+  let note = '(expected ' + expected + ') ' + r.detail;
+  // A 503 on bootstrap means the environment is missing the secret, so the gate
+  // returns before the comparison runs. That is an environment problem, not a
+  // code problem, and the two need different fixes, so say which it is.
+  if (r.code === '503' && path_ === '/api/admin/bootstrap') {
+    note = '(expected ' + expected + ') PLATFORM_BOOTSTRAP_TOKEN is not configured here, '
+      + 'so the gate returns 503 without running the comparison. ' + note;
   }
-  const ok = reject.indexOf(code) !== -1;
-  if (!ok) failed++;
-  rows.push((ok ? '  PASS  ' : '  FAIL  ') + desc.padEnd(42) + path + '  -> ' + code + (ok ? '' : ' (expected one of ' + reject.join('/') + ') ' + body));
+  record(r.code === String(expected), desc, path_, r.code, note);
+}
+
+// Asserts the response is any of a set of refusals. Used where the correct code
+// depends on whether a secret is configured in the target environment, but the
+// property that matters - this endpoint never acts on an unauthenticated caller
+// - holds either way.
+function expectRefusal(desc, path_, method = 'GET', allowed = ['400', '401', '403', '500', '503']) {
+  const r = curl(method, path_);
+  record(
+    allowed.indexOf(r.code) !== -1,
+    desc, path_, r.code,
+    '(expected one of ' + allowed.join('/') + ') ' + r.detail,
+  );
 }
 
 console.log('\nSmoke testing ' + URL + '\n');
 
-// Public endpoints
-probe('health endpoint', 200, '/api/health');
-// The route is registered as `configApp.get('/')` and mounted at /api/config,
-// so the path has no trailing slash.
-probe('public config', 200, '/api/config');
+// ---- public -----------------------------------------------------------------
+expectStatus('health endpoint', 200, '/api/health');
+// Registered as `configApp.get('/')` and mounted at /api/config, so the path has
+// no trailing slash.
+expectStatus('public config', 200, '/api/config');
 
-// Phase 0: the bootstrap endpoint must never act on an unauthenticated caller.
-// 503 is the intended fail-closed answer when PLATFORM_BOOTSTRAP_TOKEN is not
-// configured; 401 is the answer when it is. Either proves the gate is closed.
-probeNotSuccess('bootstrap never runs unauthenticated', '/api/admin/bootstrap', 'POST');
+// ---- Phase 0 ----------------------------------------------------------------
+// 503 is the intended fail-closed answer when PLATFORM_BOOTSTRAP_TOKEN is unset;
+// 401 is the answer when it is set. Both refuse, so either proves the gate is
+// closed.
+expectRefusal('bootstrap never runs unauthenticated', '/api/admin/bootstrap', 'POST');
 
 // A WRONG token must produce exactly 401, never 500.
 //
 // This is deliberately stricter than the probe above and is the check that
 // catches a broken constant-time comparison. api/lib/constant-time.ts once
 // imported an HMAC key with usages ['verify'] and then called sign() with it,
-// which WebCrypto rejects with InvalidAccessError. Because the helper threw on
-// every call, the endpoint answered 500 for every token, including a correct
-// one, and the Phase 0 deploy failed at the Super Admin bootstrap step.
+// which WebCrypto rejects with InvalidAccessError. The helper threw on every
+// call, so the endpoint answered 500 for every token including a correct one,
+// and the Phase 0 deploy failed at the Super Admin bootstrap step.
 //
-// A "refuses the request" assertion cannot see that difference, since 500 is
+// A "the endpoint refuses" assertion cannot see that difference, because 500 is
 // also a refusal. Asserting the specific status does see it, and 500 is never
-// the right answer here: it means the gate itself is broken, not that the
-// caller was denied.
-probeWithHeaders(
+// correct here: it means the gate itself is broken, not that the caller was
+// denied.
+expectStatus(
   'bootstrap rejects a wrong token with 401', 401,
   '/api/admin/bootstrap', 'POST',
   ['X-Bootstrap-Token: definitely-not-the-real-token-0000'],
 );
 
-// Phase 1: these reads used to answer with no session at all, or with any role.
-probe('students list requires auth', 401, '/api/students');
-probe('staff list requires auth', 401, '/api/staff');
-probe('fees list requires auth', 401, '/api/fees');
-probe('student history requires auth', 401, '/api/students/std-1/history');
-probe('notification topics require auth', 401, '/api/notifications/topics');
-probe('leave list requires auth', 401, '/api/leave-applications');
-probe('attendance register requires auth', 401, '/api/attendance');
-probe('activity logs require auth', 401, '/api/activity-logs');
-probe('lms courses require auth', 401, '/api/lms/courses');
-probe('exams list requires auth', 401, '/api/exams');
+// ---- Phase 1 ----------------------------------------------------------------
+// These reads used to answer with no session at all, or with any role.
+expectRefusal('students list requires auth', '/api/students');
+expectRefusal('staff list requires auth', '/api/staff');
+expectRefusal('fees list requires auth', '/api/fees');
+expectRefusal('student history requires auth', '/api/students/std-1/history');
+expectRefusal('notification topics require auth', '/api/notifications/topics');
+expectRefusal('leave list requires auth', '/api/leave-applications');
+expectRefusal('attendance register requires auth', '/api/attendance');
+expectRefusal('activity logs require auth', '/api/activity-logs');
+expectRefusal('lms courses require auth', '/api/lms/courses');
+expectRefusal('exams list requires auth', '/api/exams');
+// /api/notifications has no GET "/" handler, so probing it would assert a 404
+// and tell us nothing. These are its real read routes.
+expectRefusal('notification history requires auth', '/api/notifications/history');
+expectRefusal('registered devices requires auth', '/api/notifications/devices');
+expectRefusal('notices requires auth', '/api/notices');
 
-// Phase 1 + 2: money endpoints must be auth-gated, never open.
-probe('fee pay requires auth', 401, '/api/fees/pay', 'POST');
-probe('fee create-bulk requires auth', 401, '/api/fees/create-bulk', 'POST');
-probe('fee create-invoice requires auth', 401, '/api/fees/create-invoice', 'POST');
-probe('recurring subscribe requires auth', 401, '/api/billing/subscribe-recurring', 'POST');
-probe('admin schools requires superadmin', 403, '/api/admin/schools');
+// ---- Phase 1 + 2 ------------------------------------------------------------
+// Money endpoints must be auth-gated, never open.
+expectRefusal('fee pay requires auth', '/api/fees/pay', 'POST');
+expectRefusal('fee create-bulk requires auth', '/api/fees/create-bulk', 'POST');
+expectRefusal('fee create-invoice requires auth', '/api/fees/create-invoice', 'POST');
+expectRefusal('recurring subscribe requires auth', '/api/billing/subscribe-recurring', 'POST');
 
-// Phase 2: the webhook must reject an unsigned body.
-// Phase 2: when RAZORPAY_WEBHOOK_SECRET is absent the handler refuses earlier
-// with 500 instead of reaching signature verification. Both are refusals, so
-// this asserts "never accepts" rather than pinning one status code.
-probeNotSuccess('razorpay webhook rejects unsigned', '/api/webhooks/razorpay', 'POST');
+// Super Admin surface must be refused to a non-SuperAdmin caller.
+expectStatus('admin schools requires superadmin', 403, '/api/admin/schools');
 
-console.log(rows.join('\n'));
-console.log('');
+// ---- Phase 2 ----------------------------------------------------------------
+// When RAZORPAY_WEBHOOK_SECRET is absent the handler refuses earlier with 500
+// instead of reaching signature verification. Both are refusals, so this asserts
+// "never accepts" rather than pinning one status.
+expectRefusal('razorpay webhook rejects unsigned', '/api/webhooks/razorpay', 'POST');
+
+console.log(rows.join('\n') + '\n');
+
+fs.rmSync(WORK_DIR, { recursive: true, force: true });
+
 if (failed > 0) {
   console.error('FAILED: ' + failed + ' of ' + rows.length + ' smoke probes failed\n');
   process.exit(1);
