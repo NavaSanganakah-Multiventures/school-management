@@ -19,7 +19,9 @@
 // provisioning, so this cross-implementation check is the point of the script.
 
 import { buildInternalSignature, resolveInternalToken } from './lib/internal-auth.mjs';
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const SECRET = 'test-internal-secret-0123456789abcdef';
 const encoder = new TextEncoder();
@@ -66,14 +68,28 @@ async function verify({ method, path, body, timestamp, signature, secret = SECRE
   return ok ? { ok: true } : { ok: false, reason: 'bad_signature' };
 }
 
-// Mirrors api/lib/constant-time.ts
-async function constantTimeEqual(a, b) {
-  const left = typeof a === 'string' ? a : '';
-  const right = typeof b === 'string' ? b : '';
-  if (!left || !right) return false;
-  const dig = async (s) => hexOf(await crypto.subtle.digest('SHA-256', encoder.encode(s)));
-  const [l, r] = await Promise.all([dig(left), dig(right)]);
-  return l === r && timingSafeEqual(Buffer.from(l), Buffer.from(r));
+// The REAL api/lib/constant-time.ts, transpiled and imported.
+//
+// This used to be a hand-written copy built on node:crypto's timingSafeEqual.
+// That is how a genuine production bug shipped green: api/lib/constant-time.ts
+// imported an HMAC key with usages ['verify'] and then called sign() with it,
+// which WebCrypto rejects with InvalidAccessError. Every call threw, so
+// /api/admin/bootstrap answered 500 for any token. The harness passed because
+// it exercised the copy, never the shipped module.
+//
+// Never re-introduce a mirror here. If the module cannot be loaded, fail loudly
+// rather than silently falling back to a local reimplementation.
+const { constantTimeEqual } = await loadRealModule('api/lib/constant-time.ts');
+
+async function loadRealModule(relPath) {
+  const ts = (await import('typescript')).default;
+  const abs = path.resolve(process.cwd(), relPath);
+  const source = fs.readFileSync(abs, 'utf-8');
+  const js = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const mod = await import('data:text/javascript;base64,' + Buffer.from(js, 'utf-8').toString('base64'));
+  return mod;
 }
 
 let failures = 0;
@@ -151,13 +167,60 @@ console.log('\nPhase 0 internal-request signing verification\n');
   check('far-future timestamp rejected (clock skew)', future.ok === false && future.reason === 'expired_timestamp');
 }
 
-// 4. constantTimeEqual behaviour
+// 4. constantTimeEqual behaviour, against the REAL module
 {
+  // THE regression check for the InvalidAccessError bug.
+  //
+  // Every assertion below passed while the shipped module threw on every call,
+  // because the caller aborted before reaching them. Asserting "does not throw"
+  // FIRST is what makes the rest of this block meaningful: if the module throws,
+  // this reports one clear failure instead of a cascade of misleading ones, and
+  // more importantly it fails for the reason that actually matters.
+  //
+  // The real caller is /api/admin/bootstrap, which turns a thrown error into a
+  // 500 rather than the intended 401. So a throw is a functional outage of the
+  // authentication gate, not a cosmetic issue.
+  let threw = null;
+  try {
+    await constantTimeEqual(SECRET, SECRET);
+  } catch (err) {
+    threw = err;
+  }
+  check(
+    'constantTimeEqual never throws (auth gate must return 401, not 500)',
+    threw === null,
+  );
+  if (threw) {
+    console.log('        threw: ' + (threw && threw.name) + ' - ' + (threw && threw.message));
+  }
+
   check('equal non-empty strings accepted', (await constantTimeEqual(SECRET, SECRET)) === true);
   check('different strings rejected', (await constantTimeEqual(SECRET, SECRET + 'x')) === false);
   check('empty left rejected', (await constantTimeEqual('', '')) === false);
   check('empty right rejected', (await constantTimeEqual(SECRET, '')) === false);
   check('non-string inputs rejected', (await constantTimeEqual(null, undefined)) === false);
+
+  // A real bootstrap token is hex, so equal-length mismatches must be rejected
+  // and must not depend on where the first differing byte falls.
+  const hexA = 'a'.repeat(64);
+  const hexB = 'b'.repeat(64);
+  check('equal-length hex tokens compared correctly', (await constantTimeEqual(hexA, hexA)) === true);
+  check('equal-length hex mismatch rejected', (await constantTimeEqual(hexA, hexB)) === false);
+  check('differing only in first byte rejected', (await constantTimeEqual('X' + 'b'.repeat(63), 'a' + 'b'.repeat(63))) === false);
+  check('differing only in last byte rejected', (await constantTimeEqual('a'.repeat(63) + 'X', 'a' + 'b'.repeat(64))) === false);
+
+  // Unicode and multi-byte input must not throw or produce a false positive.
+  const uni = 'नमस्ते-स्कूल-🔐';
+  check('unicode equal accepted', (await constantTimeEqual(uni, uni)) === true);
+  check('unicode mismatch rejected', (await constantTimeEqual(uni, uni + 'x')) === false);
+
+  // Cross-check against a plain === for a spread of inputs, so a future
+  // refactor cannot quietly change the verdict.
+  let agrees = true;
+  for (const [x, y] of [[SECRET, SECRET], [SECRET, SECRET + 'x'], ['a', 'aa'], ['', 'a'], ['a', ''], ['🔐', '🔐'], ['🔐', '🔑']]) {
+    if ((await constantTimeEqual(x, y)) !== (!!x && !!y && x === y)) agrees = false;
+  }
+  check('agrees with === on a spread of inputs', agrees);
 }
 
 // 5. Token resolution still works and never returns an empty value silently

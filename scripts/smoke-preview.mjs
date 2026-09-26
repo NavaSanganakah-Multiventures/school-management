@@ -47,6 +47,38 @@ function probe(desc, expected, path, method = 'GET') {
   rows.push((ok ? '  PASS  ' : '  FAIL  ') + desc.padEnd(42) + path + '  -> ' + code + (ok ? '' : ' (expected ' + expected + ') ' + body));
 }
 
+// Asserts an exact status while sending extra request headers.
+//
+// Needed because "the gate refuses" and "the gate is wired up" are different
+// properties, and only the second one can catch a comparison helper that throws.
+// See the X-Bootstrap-Token probe below.
+function probeWithHeaders(desc, expected, path, method, headers) {
+  let code = '000000';
+  let body = '';
+  try {
+    const args = [
+      '-sS', '-o', BODY_FILE, '-w', '%{http_code}',
+      '--connect-timeout', '10', '--max-time', '25',
+      '-X', method,
+    ];
+    for (const h of headers) args.push('-H', h);
+    if (method === 'POST') {
+      args.push('-H', 'Content-Type: application/json', '-d', '{}');
+    }
+    args.push(URL + path);
+    code = execSync('curl ' + args.map((a) => '"' + a.replace(/"/g, '\\"') + '"').join(' '), {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+  } catch (e) {
+    code = String((e && e.status) || '000000');
+    body = String((e && e.stderr) || '').slice(0, 200);
+  }
+  const ok = code === String(expected);
+  if (!ok) failed++;
+  rows.push((ok ? '  PASS  ' : '  FAIL  ') + desc.padEnd(42) + path + '  -> ' + code + (ok ? '' : ' (expected ' + expected + ') ' + body));
+}
+
 // Asserts the response is NOT a success. Used where the correct status depends
 // on whether a given secret is configured in the target environment, but the
 // security property ("this endpoint never acts on an unauthenticated caller")
@@ -89,6 +121,25 @@ probe('public config', 200, '/api/config');
 // 503 is the intended fail-closed answer when PLATFORM_BOOTSTRAP_TOKEN is not
 // configured; 401 is the answer when it is. Either proves the gate is closed.
 probeNotSuccess('bootstrap never runs unauthenticated', '/api/admin/bootstrap', 'POST');
+
+// A WRONG token must produce exactly 401, never 500.
+//
+// This is deliberately stricter than the probe above and is the check that
+// catches a broken constant-time comparison. api/lib/constant-time.ts once
+// imported an HMAC key with usages ['verify'] and then called sign() with it,
+// which WebCrypto rejects with InvalidAccessError. Because the helper threw on
+// every call, the endpoint answered 500 for every token, including a correct
+// one, and the Phase 0 deploy failed at the Super Admin bootstrap step.
+//
+// A "refuses the request" assertion cannot see that difference, since 500 is
+// also a refusal. Asserting the specific status does see it, and 500 is never
+// the right answer here: it means the gate itself is broken, not that the
+// caller was denied.
+probeWithHeaders(
+  'bootstrap rejects a wrong token with 401', 401,
+  '/api/admin/bootstrap', 'POST',
+  ['X-Bootstrap-Token: definitely-not-the-real-token-0000'],
+);
 
 // Phase 1: these reads used to answer with no session at all, or with any role.
 probe('students list requires auth', 401, '/api/students');
