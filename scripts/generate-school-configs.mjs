@@ -134,6 +134,14 @@ async function main() {
       '[[kv_namespaces]]',
       'binding = "CONFIG_KV"',
       'id = ' + JSON.stringify(kvNamespaceId),
+      '',
+      // Cloudflare Email binding. Without this on a dedicated worker,
+      // api/lib/email.ts short-circuits every send and the school's password
+      // reset / invite emails fail SILENTLY — the API reported success while no
+      // message was ever delivered. The sending domain must be onboarded in
+      // Cloudflare Email Service (see .env.example).
+      '[[send_email]]',
+      'name = "SEND_EMAIL"',
     );
     const toml = lines.join('\n') + '\n';
 

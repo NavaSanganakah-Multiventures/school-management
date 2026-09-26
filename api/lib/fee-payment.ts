@@ -77,11 +77,31 @@ export async function activateFeePaymentFromRazorpay(input: FeePaymentInput): Pr
   const newStatus = newPaid >= Number(invoice.total_amount) ? 'Paid' : 'Partial';
   const now = new Date().toISOString();
 
-  await db.prepare(
-    'UPDATE fee_invoices SET paid_amount = ?, status = ?, payment_method = ?, transaction_id = ?, paid_at = ?, razorpay_payment_id = ? WHERE id = ? AND school_id = ?'
-  ).bind(newPaid, newStatus, 'Razorpay', input.razorpay_payment_id || '', now.split('T')[0], input.razorpay_payment_id || '', invoice.id, schoolId).run();
+  // Compare-and-swap: the WHERE re-asserts the paid_amount we read, so two
+  // concurrent activations cannot both compute from the same starting value and
+  // silently discard one of the payments. `payment.captured` and `order.paid` for
+  // one payment arrive as two separate requests, and the client-side
+  // `/api/fees/verify` can also race the webhook.
+  const upd = await db.prepare(
+    'UPDATE fee_invoices SET paid_amount = ?, status = ?, payment_method = ?, transaction_id = ?, paid_at = ?, razorpay_payment_id = ? '
+    + 'WHERE id = ? AND school_id = ? AND paid_amount = ?'
+  ).bind(
+    newPaid, newStatus, 'Razorpay', input.razorpay_payment_id || '', now.split('T')[0],
+    input.razorpay_payment_id || '', invoice.id, schoolId, invoice.paid_amount
+  ).run();
 
-  const updated = await db.prepare('SELECT * FROM fee_invoices WHERE id = ?').bind(invoice.id).first();
+  if ((upd as any)?.meta?.changes === 0) {
+    // The invoice moved between our read and our write. Re-read and report the
+    // real state rather than overwriting it.
+    const current = await db.prepare('SELECT * FROM fee_invoices WHERE id = ? AND school_id = ?')
+      .bind(invoice.id, schoolId).first();
+    if (current && current.status === 'Paid') {
+      return { success: true, alreadyPaid: true, invoice: mapFee(current), message: 'यह भुगतान पहले ही दर्ज हो चुका है।' };
+    }
+    return { success: false, error: 'इस चालान पर एक साथ दूसरा भुगतान दर्ज हो रहा है।' };
+  }
+
+  const updated = await db.prepare('SELECT * FROM fee_invoices WHERE id = ? AND school_id = ?').bind(invoice.id, schoolId).first();
   const mapped = mapFee(updated);
 
   // 4. Fire payment-success notifications (email receipt + in-app notice).

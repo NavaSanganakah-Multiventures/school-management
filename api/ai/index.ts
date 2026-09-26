@@ -242,9 +242,22 @@ Always respond in Hindi. Be polite and concise.`;
         });
 
         // Fetch emails of Director/Principal to send email alert
-        const adminUsers = await db.prepare(
-          `SELECT email FROM auth_users WHERE school_id = ? AND role IN ('Director', 'Principal') AND is_active = 1`
-        ).bind(schoolId).all();
+        //
+        // FIX: this queried `auth_users`, which does not exist in any migration
+        // (the real table is `system_users`, per migrations 0002/0004/0034). The
+        // query therefore threw — but only AFTER the student had been inserted
+        // and the two FCM broadcasts had been sent, so the endpoint returned 500
+        // for an operation that had already half-succeeded, and any client retry
+        // created a duplicate student. The `status` column also replaces the
+        // non-existent `is_active`.
+        let adminUsers: { results?: any[] } | null = null;
+        try {
+          adminUsers = await db.prepare(
+            `SELECT email FROM system_users WHERE school_id = ? AND role IN ('Director', 'Principal') AND status = 'Active'`
+          ).bind(schoolId).all();
+        } catch (e: any) {
+          console.error('[ai/chat] director/principal alert lookup failed:', e && e.message);
+        }
 
         if (adminUsers && adminUsers.results) {
           for (const admin of adminUsers.results as any[]) {

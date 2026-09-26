@@ -50,3 +50,9 @@ bucket_name = "school-management-production"
 [[kv_namespaces]]
 binding = "CONFIG_KV"
 id = "393901911be84d558822c78070a82e94"
+
+# Cloudflare Email binding. Without it, api/lib/email.ts short-circuits every
+# send, so Super Admin password recovery silently fails while the API reports
+# success. The sending domain must be onboarded in Cloudflare Email Service.
+[[send_email]]
+name = "SEND_EMAIL"
