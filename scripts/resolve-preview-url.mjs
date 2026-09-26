@@ -150,6 +150,26 @@ export function resolvePreviewUrl(wranglerOutput, subdomain, workerName) {
   return { ok: true, previewName: name, url: buildPreviewUrl(name, workerName, subdomain) };
 }
 
+// Wrangler's own record carries a `urls` array, and it is the authoritative
+// statement of whether the Preview was actually given a hostname. Checking it
+// turns "the constructed URL 404s" into "no URL was assigned at all", which is a
+// completely different fix.
+export function previewHasUrl(record) {
+  if (!record || typeof record !== 'object') return null;
+  const found = [];
+  const walk = (node, depth) => {
+    if (depth > 6 || node === null || typeof node !== 'object') return;
+    if (Array.isArray(node)) { for (const v of node) walk(v, depth + 1); return; }
+    for (const [k, v] of Object.entries(node)) {
+      if (k === 'urls' && Array.isArray(v)) found.push(v);
+      walk(v, depth + 1);
+    }
+  };
+  walk(record, 0);
+  if (found.length === 0) return null;
+  return found.some((u) => u && u.length > 0);
+}
+
 // Statuses that mean "there is no Worker on this hostname", as opposed to "a
 // Worker answered".
 //
@@ -219,6 +239,31 @@ if (isMain) {
     process.exit(1);
   }
 
+  // Check what Cloudflare actually assigned BEFORE probing, so the diagnosis names
+  // the cause rather than the symptom.
+  const hasUrl = previewHasUrl(findPreviewRecord(raw));
+  if (hasUrl === false) {
+    console.error(
+      'resolve-preview-url: the Preview deployed, but Cloudflare assigned it no URL.\n'
+      + '  Preview name: ' + result.previewName + '\n'
+      + "  wrangler's own record reports:  \"urls\": []\n"
+      + '\n'
+      + '  This is not a hostname-format problem. The Preview exists and is\n'
+      + '  deployed; there is simply nothing bound to serve it, so any request to\n'
+      + '  ' + result.url + ' returns 404.\n'
+      + '\n'
+      + '  Fix, once per worker, in the Cloudflare dashboard:\n'
+      + '    Workers & Pages -> school-management -> Settings -> Domains\n'
+      + '    -> "Worker URL" -> turn ON "Preview"\n'
+      + '\n'
+      + '  wrangler.toml already sets `preview_urls = true`, and a production deploy\n'
+      + '  has run since, but the account-level toggle is still off. The two are\n'
+      + '  separate: the config key records the intent, the dashboard switch is what\n'
+      + '  actually enables the host.\n',
+    );
+    process.exit(1);
+  }
+
   const verify = verifyPreviewUrl(result.url);
   if (!verify.ok) {
     console.error(
@@ -227,14 +272,7 @@ if (isMain) {
       + '  worker:       ' + workerName + '\n'
       + '  subdomain:    ' + subdomain + '\n'
       + '  probed:       ' + verify.probe + '\n'
-      + '  problem:      ' + verify.reason + '\n'
-      + '\n'
-      + '  If the problem is "no Worker bound to that hostname", the Preview\n'
-      + '  deployed but has no active URL. That is what `wrangler preview` itself\n'
-      + '  reports as "This Preview deployment has no active URLs", and the cause\n'
-      + '  is almost always `preview_urls = true` missing from wrangler.toml. That\n'
-      + '  setting is only applied by `npx wrangler deploy`, so it also has to have\n'
-      + '  reached main.\n',
+      + '  problem:      ' + verify.reason + '\n',
     );
     process.exit(1);
   }

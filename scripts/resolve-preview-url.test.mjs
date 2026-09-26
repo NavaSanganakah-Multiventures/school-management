@@ -8,6 +8,7 @@ import {
   buildPreviewUrl,
   resolvePreviewUrl,
   verifyPreviewUrl,
+  previewHasUrl,
   NO_WORKER_STATUSES,
 } from './resolve-preview-url.mjs';
 
@@ -202,6 +203,39 @@ check('retries until the Preview becomes routable', () => {
   const r = verifyPreviewUrl(EXPECTED, 5, 0, () => codes[i++]);
   assert.equal(r.ok, true, r.reason);
   assert.equal(r.attempts, 3);
+});
+
+// ---- the `urls` field is the authoritative answer -----------------------
+// Cloudflare's own preview record has a `urls` array. On this account it is empty
+// for every preview, which is the real reason the constructed hostname 404s: no
+// URL was assigned, so the format is not even the problem. Reading this field
+// turns "the URL I built does not work" into "no URL exists", which is the
+// difference between debugging hostname construction and going to the dashboard.
+
+console.log('\npreviewHasUrl\n');
+
+check('reads urls: [] as "no URL assigned"', () => {
+  const rec = findPreviewRecord(REAL_OUTPUT.replace('"assets"', '"urls": [],\n    "assets"'));
+  assert.equal(previewHasUrl(rec), false);
+});
+
+check('reads a populated urls array as having a URL', () => {
+  const rec = findPreviewRecord(JSON.stringify({ preview: { urls: [EXPECTED] } }));
+  assert.equal(previewHasUrl(rec), true);
+});
+
+check('returns null when the record has no urls field at all', () => {
+  const rec = findPreviewRecord(JSON.stringify({ preview: { slug: NAME } }));
+  assert.equal(previewHasUrl(rec), null);
+});
+
+check('handles a missing record without throwing', () => {
+  assert.equal(previewHasUrl(null), null);
+});
+
+check('finds urls at any nesting depth', () => {
+  const rec = findPreviewRecord(JSON.stringify({ preview: { meta: { urls: [EXPECTED] } } }));
+  assert.equal(previewHasUrl(rec), true);
 });
 
 console.log('');
