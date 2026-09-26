@@ -52,6 +52,13 @@
       "mode": "dedicated",
       "name": "da",
       "domain": "admin.pragnya.nasven.com"
+    },
+    {
+      "slug": "yagyaashram",
+      "schoolId": "school-1790431111612",
+      "mode": "dedicated",
+      "name": "yagya",
+      "domain": "yagyaashram.pragnya.nasven.com"
     }
   ]
 }
