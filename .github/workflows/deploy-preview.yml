@@ -83,6 +83,12 @@ jobs:
       - name: Verify routing contract
         run: node scripts/verify-routing.mjs
 
+      # Pure-function tests for the step that reads wrangler's output. Kept in CI
+      # because the alternative is finding out the parser is wrong from a failed
+      # deploy, which is what happened with the inline version.
+      - name: Verify preview URL extraction
+        run: node scripts/extract-preview-url.test.mjs
+
       # wrangler comes from `npm ci` via devDependencies. This step exists only to
       # turn "wrangler is too old for Previews" into a clear message here, rather
       # than a confusing failure from `wrangler preview` several steps later.
@@ -149,16 +155,18 @@ jobs:
 
       # Pass 1: deploy to learn the Preview URL.
       #
-      # The URL is read from wrangler's own `--json` output. The previous
-      # workflow grepped the human-readable log for a workers.dev hostname, which
-      # broke silently the moment the log wording changed; and an earlier version
-      # read a `deployment-url` step output that plain `wrangler deploy` never
-      # sets, so every probe ran against an empty string.
+      # `--json` does NOT mean JSON-only output. Wrangler still writes its normal
+      # progress lines to stdout ("🌀 Building...", upload progress), with the
+      # JSON document last, so `JSON.parse` of the captured stdout fails with
+      #     SyntaxError: Unexpected token '🌀', "🌀 Buildin"... is not valid JSON
+      # which is what the first attempt at this step did. scripts/
+      # extract-preview-url.mjs strips ANSI, locates the JSON document, and reads
+      # the URL out of the parsed structure, and it has its own test suite
+      # covering exactly these output shapes.
       #
       # No secrets yet, on purpose. `wrangler preview secret put` creates a NEW
       # deployment per call, so a loop over six secrets meant six deployments and
-      # the last one won -- wasteful, and easy to reason about wrongly. All six
-      # go up in the second pass with a single --secrets-file.
+      # the last one won. All six go up in the second pass with one --secrets-file.
       - name: Deploy preview (discover URL)
         id: first
         env:
@@ -167,18 +175,8 @@ jobs:
           PREVIEW_NAME: ${{ steps.meta.outputs.name }}
         run: |
           set -euo pipefail
-          npx wrangler preview --name "$PREVIEW_NAME" --json --message "${{ github.sha }}" > preview.json
-          cat preview.json
-          URL=$(node -e "
-            const fs = require('fs');
-            const d = JSON.parse(fs.readFileSync('preview.json', 'utf-8'));
-            // Wrangler nests the result differently across versions; take the
-            // first https://*.workers.dev string found anywhere in the document
-            // rather than guessing one shape and failing on the other.
-            const found = JSON.stringify(d).match(/https:\/\/[A-Za-z0-9.-]*workers\.dev/g);
-            if (!found) { console.error('no workers.dev URL in wrangler output'); process.exit(1); }
-            process.stdout.write(found[0]);
-          ")
+          npx wrangler preview --name "$PREVIEW_NAME" --json --message "${{ github.sha }}" 2>&1 | tee preview.out
+          URL=$(node scripts/extract-preview-url.mjs preview.out "$PREVIEW_NAME")
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "Preview URL: $URL"
 
