@@ -52,13 +52,6 @@
       "mode": "dedicated",
       "name": "da",
       "domain": "admin.pragnya.nasven.com"
-    },
-    {
-      "slug": "school813529",
-      "schoolId": "school-1790401813529",
-      "mode": "dedicated",
-      "name": "Portal URL Check 1a0dc439805",
-      "domain": "school813529.pragnya.nasven.com"
     }
   ]
 }

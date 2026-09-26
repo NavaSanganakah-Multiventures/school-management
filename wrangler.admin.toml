@@ -5,9 +5,10 @@
 # as static assets + the full platform API (api/index.ts), so /api/admin/*
 # works on the same origin (no CORS issues for the Flutter app).
 #
-# Route precedence: admin.pragnya.nasven.com/* is more specific than the
-# platform wildcard (*.pragnya.nasven.com/*) in wrangler.toml, so Cloudflare
-# routes this subdomain to this worker instead of the shared school worker.
+# This worker owns admin.pragnya.nasven.com outright. It used to rely on winning
+# a precedence contest against the platform worker's `*.pragnya.nasven.com/*`
+# wildcard; that wildcard is gone (see wrangler.toml), so the route below is the
+# only thing serving this host and does not have to out-rank anything.
 #
 # IMPORTANT:
 #   - No IS_DEDICATED_WORKER / SCHOOL_ID vars → the /api/admin/* routes stay
@@ -20,7 +21,8 @@ main = "./api/index.ts"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Super Admin console domain — more specific than the *.pragnya.nasven.com wildcard.
+# Super Admin console domain — the platform worker no longer holds a wildcard, so
+# this host is claimed outright.
 [[routes]]
 pattern = "admin.pragnya.nasven.com/*"
 zone_name = "nasven.com"

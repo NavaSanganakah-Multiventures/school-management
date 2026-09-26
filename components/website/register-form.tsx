@@ -23,8 +23,22 @@ interface RegisterResult {
   success?: boolean;
   message?: string;
   schoolId?: string;
-  dedicatedDomain?: string;
-  dedicatedUrl?: string;
+  /**
+   * The subdomain the school WILL have. Present even while provisioning, so the
+   * director can see the address their portal is being prepared at.
+   */
+  portalDomain?: string;
+  /** 'live' once the dedicated worker is serving this school, else 'provisioning'. */
+  portalStatus?: 'live' | 'provisioning';
+  /**
+   * The portal URL. Null while `portalStatus` is 'provisioning' — at
+   * registration the dedicated worker does not exist yet, and the subdomain
+   * resolves to the platform's public website rather than a school portal.
+   */
+  dedicatedDomain?: string | null;
+  dedicatedUrl?: string | null;
+  /** Something the customer can actually open right now. */
+  platformUrl?: string;
   trialEndsAt?: string;
 }
 
@@ -104,11 +118,21 @@ export function RegisterForm() {
           </span>
           <h1 className="mt-5 text-xl font-bold">पंजीकरण सफल — FREE TRIAL सक्रिय! 🎉</h1>
           <p className="mt-3 text-sm leading-relaxed text-slate-400">{result.message}</p>
-          {result.dedicatedDomain && (
+          {/*
+            The portal block only becomes a link once the dedicated worker is
+            actually serving this school.
+
+            While provisioning, the subdomain resolves to the platform's public
+            website, not to a school portal — so rendering it as an anchor, even
+            with a "portal तैयार होने पर लॉगिन करें" label, sent the director to
+            the marketing landing page and implied the link worked. The address
+            is still shown, as plain text, so they know what to expect.
+          */}
+          {result.portalStatus === 'live' && result.dedicatedUrl ? (
             <div className="mt-6 rounded-xl border border-indigo-500/40 bg-indigo-950/40 p-4">
               <p className="text-xs font-semibold tracking-wide text-indigo-300">आपका स्कूल पोर्टल</p>
               <a
-                href={result.dedicatedUrl || 'https://' + result.dedicatedDomain}
+                href={result.dedicatedUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-1 inline-flex items-center gap-2 font-bold text-indigo-300 underline decoration-indigo-500 underline-offset-4 hover:text-white"
@@ -116,19 +140,45 @@ export function RegisterForm() {
                 <Rocket className="h-4 w-4" /> {result.dedicatedDomain}
               </a>
             </div>
-          )}
+          ) : result.portalDomain ? (
+            <div className="mt-6 rounded-xl border border-amber-500/40 bg-amber-950/30 p-4">
+              <p className="text-xs font-semibold tracking-wide text-amber-300">आपका स्कूल पोर्टल — तैयार हो रहा है</p>
+              <p className="mt-1 font-bold text-amber-200/90">{result.portalDomain}</p>
+              <p className="mt-2 text-xs leading-relaxed text-amber-200/70">
+                पोर्टल कुछ ही मिनटों में तैयार हो जाएगा। तैयार होने पर हम आपको ईमेल करेंगे — तब तक नीचे दिए गए लिंक से प्लेटफ़ॉर्म देख सकते हैं।
+              </p>
+            </div>
+          ) : null}
           {result.trialEndsAt && (
             <p className="mt-4 text-xs text-slate-500">Trial समाप्ति: {result.trialEndsAt} · उसके बाद आप योजना चुन सकते हैं</p>
           )}
           <div className="mt-7 flex flex-col gap-2.5">
-            <a
-              href={result.dedicatedUrl || 'https://' + result.dedicatedDomain}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-900/40 transition hover:from-indigo-500 hover:to-violet-500"
-            >
-              पोर्टल तैयार होने पर लॉगिन करें
-            </a>
+            {/*
+              The single call to action follows portalStatus. When there is no live
+              portal there is nothing to log into yet, so the button goes to the
+              platform instead. Previously this href fell back to
+              'https://' + result.dedicatedDomain, which with a null
+              dedicatedDomain produced the literal string "https://null".
+            */}
+            {result.portalStatus === 'live' && result.dedicatedUrl ? (
+              <a
+                href={result.dedicatedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-900/40 transition hover:from-indigo-500 hover:to-violet-500"
+              >
+                अपने स्कूल पोर्टल में लॉगिन करें
+              </a>
+            ) : (
+              <a
+                href={result.platformUrl || '/'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-900/40 transition hover:from-indigo-500 hover:to-violet-500"
+              >
+                प्लेटफ़ॉर्म देखें
+              </a>
+            )}
             <Link href="/" className="rounded-xl border border-slate-700 py-3 text-sm font-semibold text-slate-300 transition hover:border-slate-500 hover:bg-slate-900">
               होम पेज पर वापस
             </Link>
