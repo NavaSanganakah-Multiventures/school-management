@@ -110,10 +110,18 @@ jobs:
       - name: Put preview worker secrets
         run: |
           set -euo pipefail
+          # PLATFORM_BOOTSTRAP_TOKEN is included so the preview exercises the
+          # same /api/admin/bootstrap code path as production. Without it the
+          # endpoint fails closed with 503 and the gate's comparison logic is
+          # never reached, so the smoke probe asserting "a wrong token gets
+          # 401" would pass vacuously. That is exactly the gap that let a broken
+          # constant-time comparison ship: the assertion could not tell a working
+          # gate from one that never ran.
           for pair in \
             "AUTH_SECRET=${{ secrets.AUTH_SECRET }}" \
             "PLATFORM_ADMIN_EMAIL=${{ secrets.PLATFORM_ADMIN_EMAIL }}" \
             "PLATFORM_ADMIN_PASSWORD=${{ secrets.PLATFORM_ADMIN_PASSWORD }}" \
+            "PLATFORM_BOOTSTRAP_TOKEN=${{ secrets.PLATFORM_BOOTSTRAP_TOKEN }}" \
             "RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}" \
             "RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}"
           do

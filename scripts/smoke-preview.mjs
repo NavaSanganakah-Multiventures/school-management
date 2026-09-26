@@ -76,7 +76,14 @@ function probeWithHeaders(desc, expected, path, method, headers) {
   }
   const ok = code === String(expected);
   if (!ok) failed++;
-  rows.push((ok ? '  PASS  ' : '  FAIL  ') + desc.padEnd(42) + path + '  -> ' + code + (ok ? '' : ' (expected ' + expected + ') ' + body));
+  let note = '';
+  if (!ok && code === '503' && path === '/api/admin/bootstrap') {
+    note = ' -- PLATFORM_BOOTSTRAP_TOKEN is not configured in this environment, '
+      + 'so the gate returns 503 without ever running the comparison. This probe '
+      + 'cannot pass until the secret is set here.';
+  }
+  rows.push((ok ? '  PASS  ' : '  FAIL  ') + desc.padEnd(42) + path + '  -> ' + code
+    + (ok ? '' : ' (expected ' + expected + ')' + note + ' ' + body));
 }
 
 // Asserts the response is NOT a success. Used where the correct status depends
