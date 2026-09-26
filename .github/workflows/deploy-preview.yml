@@ -206,23 +206,6 @@ jobs:
           echo "preview_name=$PREVIEW_NAME" >> "$GITHUB_OUTPUT"
           echo "Preview URL: $URL"
 
-      # TEMPORARY DIAGNOSTIC -- remove once the hostname is settled.
-      - name: DIAG - dump what the API says about previews
-        if: always()
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -uo pipefail
-          API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID"
-          H=(-H "Authorization: Bearer $CLOUDFLARE_API_TOKEN")
-          echo "=== subdomain ==="
-          curl -sS "${H[@]}" "$API/workers/subdomain" | head -c 500; echo
-          echo "=== previews list (raw, first 3000 chars) ==="
-          curl -sS "${H[@]}" "$API/workers/workers/school-management/previews" | head -c 3000; echo
-          echo "=== routes / domains for the worker ==="
-          curl -sS "${H[@]}" "$API/workers/workers/school-management/settings" | head -c 1500; echo
-
       # Pass 2: APP_BASE_URL now points at the real Preview hostname so
       # password-reset and invite links are usable, and the secrets go up in the
       # same deployment.
