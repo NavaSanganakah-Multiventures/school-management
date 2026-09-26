@@ -310,6 +310,19 @@ console.log('\nRouting contract verification\n');
     'a preview that can send email is a spam relay on the real sending domain',
   );
 
+  // CONFIG_KV is read-only in this codebase: every access is a `.get()` fallback
+  // for a value the deploy pipeline already supplies as an env secret, there is
+  // no `.put` anywhere, and no script provisions a preview KV namespace. The
+  // namespace id that used to be configured here did not exist in the account,
+  // which only surfaced when Previews validated the binding ("KV namespace is not
+  // valid", code 10042). Every read site is guarded with `if (env.CONFIG_KV)`, so
+  // omitting the binding is a no-op for behaviour.
+  check(
+    'previews bind no kv namespace',
+    !/previews[\s\S]{0,200}kv_namespaces/.test(toml) && !/kv_namespaces[\s\S]{0,200}previews/.test(toml),
+    'no preview KV namespace is ever provisioned, so the id is a dead reference',
+  );
+
   // Migrations must be able to reach the preview D1 without any binding in the
   // config they use that points at production.
   const mig = stripTomlComments(readIfPresent('wrangler.preview-migrations.toml') || '');

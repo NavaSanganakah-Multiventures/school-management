@@ -146,9 +146,28 @@ migrations_dir = "./db_migrations"
 binding = "MEDIA_BUCKET"
 bucket_name = "school-management-preview"
 
-[[previews.kv_namespaces]]
-binding = "CONFIG_KV"
-id = "9158f79162824ee1b52e75fe51af71f"
+# NOTE: there is deliberately no `kv_namespaces` binding on Previews.
+#
+# Every CONFIG_KV access in this codebase is a read-only fallback used when the
+# matching env secret is absent: PLATFORM_ADMIN_EMAIL, PLATFORM_ADMIN_PASSWORD,
+# RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET. There is no
+# `.put` anywhere, and no script provisions a preview KV namespace, so a
+# namespace is not a thing this environment can have.
+#
+# The namespace id that used to be configured here,
+# 9158f79162824ee1b52e75fe51af71f, does not exist in the account. That only
+# surfaced when Previews validated the binding:
+#
+#   KV namespace '9158f79162824ee1b52e75fe51af71f' is not valid.
+#   [code: 10042]
+#
+# The old `[env.preview]` had carried that id, so it was a latent lie rather than
+# a working binding.
+#
+# Dropping it is safe: each read site is guarded with `if (env.CONFIG_KV)`, so an
+# absent binding degrades to "not configured" instead of throwing, and the
+# deploy-preview workflow supplies all of those values as real Worker secrets
+# anyway, so the fallback is never reached.
 
 # NOTE: there is deliberately no `send_email` binding on Previews.
 #
