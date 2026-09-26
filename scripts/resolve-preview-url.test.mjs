@@ -7,6 +7,8 @@ import {
   previewNameFrom,
   buildPreviewUrl,
   resolvePreviewUrl,
+  verifyPreviewUrl,
+  NO_WORKER_STATUSES,
 } from './resolve-preview-url.mjs';
 
 let failures = 0;
@@ -145,6 +147,61 @@ check('empty input does not throw', () => {
 
 check('builds the documented hostname shape', () => {
   assert.equal(buildPreviewUrl('feat-x', 'my-worker', 'acme'), 'https://feat-x-my-worker.acme.workers.dev');
+});
+
+// ---- verification ----------------------------------------------------------
+// The verification is the second half of the bug, and the more embarrassing half:
+// the first version accepted any HTTP status, so a 404 counted as "the Preview
+// answered" and 23/23 probes went on to fail at 404.
+
+console.log('\nverifyPreviewUrl\n');
+
+const fetchReturning = (code) => () => code;
+const attempts1 = (fn) => verifyPreviewUrl(EXPECTED, 1, 0, fn);
+
+check('accepts 200 from /api/health', () => {
+  const r = attempts1(fetchReturning('200'));
+  assert.equal(r.ok, true, r.reason);
+  assert.equal(r.probe, EXPECTED + '/api/health');
+});
+
+check('probes /api/health, not the bare URL', () => {
+  let asked = '';
+  verifyPreviewUrl(EXPECTED, 1, 0, (u) => { asked = u; return '200'; });
+  assert.equal(asked, EXPECTED + '/api/health');
+});
+
+// THE regression check. This is the exact state of the first preview run: the
+// Preview deployed, `preview_urls` was not set, and the hostname answered 404.
+check('rejects 404, which means no Worker is bound', () => {
+  const r = attempts1(fetchReturning('404'));
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /no Worker bound/);
+});
+
+for (const code of NO_WORKER_STATUSES) {
+  check('treats ' + code + ' as "no Worker here"', () => {
+    assert.equal(attempts1(fetchReturning(code)).ok, false);
+  });
+}
+
+check('rejects a 500 from the API as unhealthy', () => {
+  const r = attempts1(fetchReturning('500'));
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /expected 200/);
+});
+
+check('rejects a thrown connection error', () => {
+  const r = verifyPreviewUrl(EXPECTED, 1, 0, () => { throw new Error('curl: (6) Could not resolve host'); });
+  assert.equal(r.ok, false);
+});
+
+check('retries until the Preview becomes routable', () => {
+  const codes = ['404', '404', '200'];
+  let i = 0;
+  const r = verifyPreviewUrl(EXPECTED, 5, 0, () => codes[i++]);
+  assert.equal(r.ok, true, r.reason);
+  assert.equal(r.attempts, 3);
 });
 
 console.log('');

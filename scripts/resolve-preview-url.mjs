@@ -150,27 +150,50 @@ export function resolvePreviewUrl(wranglerOutput, subdomain, workerName) {
   return { ok: true, previewName: name, url: buildPreviewUrl(name, workerName, subdomain) };
 }
 
-// Proves the URL answers. A newly deployed Preview can take a moment to become
-// routable, so this retries rather than failing on the first miss.
-export function verifyPreviewUrl(url, attempts = 6, delayMs = 5000) {
+// Statuses that mean "there is no Worker on this hostname", as opposed to "a
+// Worker answered".
+//
+// 000000 is curl's own code for a DNS or connection failure. 404 is what a
+// workers.dev hostname returns when the name is well-formed and resolvable but no
+// Worker is bound to it -- which is exactly the `preview_urls` state described in
+// wrangler.toml. 530 is the same idea for a zone that exists but has no route.
+//
+// Treating any of these as "the URL works" is how the first preview run ended with
+// 23/23 probes at 404 while the deploy steps were all green.
+export const NO_WORKER_STATUSES = ['000000', '404', '530', '1014'];
+
+// Proves the URL serves our API.
+//
+// It checks /api/health expecting 200 rather than fetching the bare URL, because
+// "responds" is not the property that matters -- "the Worker's API is mounted and
+// serving" is. A hostname can answer with a 404 page from the edge and still be
+// useless for this purpose, and a health probe failing here is a far clearer signal
+// than 23 downstream probe failures.
+export function verifyPreviewUrl(url, attempts = 6, delayMs = 5000, fetchImpl) {
+  const probe = fetchImpl || ((u) => execFileSync('curl', [
+    '-sS', '-o', '/dev/null', '-w', '%{http_code}',
+    '--connect-timeout', '10', '--max-time', '20', u,
+  ], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim());
+
+  const health = url.replace(/\/+$/, '') + '/api/health';
   let last = '';
   for (let i = 1; i <= attempts; i++) {
+    let code = '000000';
     try {
-      const code = execFileSync('curl', [
-        '-sS', '-o', '/dev/null', '-w', '%{http_code}',
-        '--connect-timeout', '10', '--max-time', '20', url,
-      ], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-      if (code && code !== '000000') return { ok: true, code, attempts: i };
-      last = 'curl reported no status (DNS or connection failure)';
+      code = String(probe(health) || '').trim();
+      if (code === '200') return { ok: true, code, attempts: i, probe: health };
+      last = NO_WORKER_STATUSES.indexOf(code) !== -1
+        ? 'no Worker bound to that hostname (HTTP ' + code + ' from ' + health + ')'
+        : 'expected 200 from ' + health + ', got ' + code;
     } catch (e) {
-      last = String((e && e.stderr) || e && e.message || 'request failed')
+      last = String((e && e.stderr) || (e && e.message) || 'request failed')
         .split('\n')[0].slice(0, 200);
     }
     if (i < attempts) {
       execFileSync(process.execPath, ['-e', `setTimeout(()=>{}, ${delayMs})`]);
     }
   }
-  return { ok: false, reason: last || 'no response' };
+  return { ok: false, reason: last || 'no response', probe: health };
 }
 
 // ---- CLI -------------------------------------------------------------------
@@ -199,19 +222,24 @@ if (isMain) {
   const verify = verifyPreviewUrl(result.url);
   if (!verify.ok) {
     console.error(
-      'resolve-preview-url: constructed ' + result.url + ' but it did not answer.\n'
+      'resolve-preview-url: constructed ' + result.url + ' but the API did not answer.\n'
       + '  Preview name: ' + result.previewName + '\n'
       + '  worker:       ' + workerName + '\n'
       + '  subdomain:    ' + subdomain + '\n'
-      + '  last error:   ' + verify.reason + '\n'
-      + '  The Preview may be deployed under a different hostname than the\n'
-      + '  documented <preview-name>-<worker>.<subdomain>.workers.dev. Check the\n'
-      + '  Preview in the Cloudflare dashboard before trusting any probe result.\n',
+      + '  probed:       ' + verify.probe + '\n'
+      + '  problem:      ' + verify.reason + '\n'
+      + '\n'
+      + '  If the problem is "no Worker bound to that hostname", the Preview\n'
+      + '  deployed but has no active URL. That is what `wrangler preview` itself\n'
+      + '  reports as "This Preview deployment has no active URLs", and the cause\n'
+      + '  is almost always `preview_urls = true` missing from wrangler.toml. That\n'
+      + '  setting is only applied by `npx wrangler deploy`, so it also has to have\n'
+      + '  reached main.\n',
     );
     process.exit(1);
   }
 
-  console.error('preview ' + result.previewName + ' -> HTTP ' + verify.code
-    + ' after ' + verify.attempts + ' attempt(s)');
+  console.error('preview ' + result.previewName + ' -> ' + verify.probe
+    + ' HTTP ' + verify.code + ' after ' + verify.attempts + ' attempt(s)');
   process.stdout.write(result.url);
 }

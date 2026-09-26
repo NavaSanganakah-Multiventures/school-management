@@ -299,6 +299,17 @@ console.log('\nRouting contract verification\n');
     'wrangler.toml declares a [previews] block',
     /^\s*\[previews\]/m.test(toml),
   );
+
+  // Without this the Preview deploys successfully and then serves nothing:
+  // `wrangler preview` reports "This Preview deployment has no active URLs" and
+  // the hostname 404s, so the deploy steps go green while every probe fails at
+  // 404. The name and the subdomain in that hostname are both correct, which is
+  // what makes it so confusing to diagnose.
+  check(
+    'preview_urls = true, so Previews actually get a workers.dev URL',
+    /^\s*preview_urls\s*=\s*true\s*$/m.test(toml),
+    'without it wrangler deploys the Preview but it has no active URL',
+  );
   check(
     'previews are named ENVIRONMENT = "preview"',
     /^\s*ENVIRONMENT\s*=\s*"preview"\s*$/m.test(toml),

@@ -77,6 +77,25 @@ APP_BASE_URL = "https://pragnya.nasven.com"
 WEB_PUSH_VAPID_PUBLIC_KEY = "BJlcKjZBfC5YzmoIxZ1ndHRJAiemr7Rdi4LBuceK6GI7N6g9aV3ctHpKCtZ8RbaPugnfvfJQNBiRTi63CGipHP4"
 WEB_PUSH_VAPID_SUBJECT = "mailto:pragnya@navasanganakah.com"
 
+# Enable workers.dev URLs for Previews, at
+# <preview-name>-school-management.<subdomain>.workers.dev.
+#
+# Without this, `wrangler preview` deploys successfully and then says
+#
+#   Note: This Preview deployment has no active URLs.
+#
+# and every request to the Preview hostname 404s. That is what the first preview
+# run did: the deploy steps were green and all 23 smoke probes came back 404, which
+# reads like a broken Worker rather than a missing URL setting.
+#
+# `preview_urls` and `workers_dev` are configured separately -- this affects
+# Preview URLs only and does not change the production workers.dev URL.
+#
+# The setting is applied by `npx wrangler deploy`, i.e. by a production deploy, so
+# it takes effect the first time this lands on main. It changes no production code
+# or binding.
+preview_urls = true
+
 # -------------------------------------------------------------
 # Previews - branch deployments of THIS worker
 # -------------------------------------------------------------
