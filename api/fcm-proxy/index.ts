@@ -322,6 +322,21 @@ app.post('/test-notification', async (c) => {
         }, 404);
       }
 
+      // SECURITY: the fallback used to broadcast to school_<id>_all whenever the
+      // requested user had no registered device. That is NOT a test of one
+      // device — it pushes an arbitrary caller-supplied title/body to every
+      // device in the school, and it was reachable by any authenticated role
+      // with no rate limit. A school-wide send is a management action
+      // (POST /api/notifications/broadcast), not a per-device test.
+      if (targetUserId !== (authUser.sub || authUser.id)
+        && authUser.role !== 'Director' && authUser.role !== 'Principal' && authUser.role !== 'SuperAdmin') {
+        return c.json({
+          success: false,
+          mode: 'none',
+          error: 'इस यूज़र का कोई पंजीकृत डिवाइस नहीं है। स्कूल-वाइड संदेश भेजने के लिए /api/notifications/broadcast का उपयोग करें।'
+        }, 404);
+      }
+
       const testTopic = 'school_' + schoolId + '_all';
       const topicMsg: FcmMessage = {
         topic: testTopic,

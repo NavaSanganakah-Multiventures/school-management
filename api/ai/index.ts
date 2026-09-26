@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { logActivity, resolveActorName } from '../lib/activity-logger';
+import { isFamily, isTeaching, normalizeRole } from '../lib/roles';
 import { isClassTeacher } from '../lib/permissions';
 import { GoogleGenAI, Type } from '@google/genai';
 import { broadcastAlert } from '../notifications';
@@ -15,6 +16,13 @@ aiApp.post('/chat', async (c) => {
     if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
     const authUser = await getAuthUser(c);
     if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+    // SECURITY: the AI chat has no role allowlist, and its addStudent tool only
+    // special-cased 'Staff'. A Parent/Student token could therefore drive the
+    // model to create student records. The assistant is an administrative tool,
+    // so family roles are excluded outright.
+    if (isFamily(normalizeRole(authUser.role))) {
+      return c.json({ success: false, message: 'AI सहायक केवल शिक्षक, प्रधानाचार्य या निदेशक के लिए उपलब्ध है।' }, 403);
+    }
     const schoolId = getRequestSchoolId(c, authUser);
     const body = await c.req.json().catch(() => ({}));
     const prompt = body.prompt;
@@ -159,7 +167,11 @@ Always respond in Hindi. Be polite and concise.`;
       const missingDetails = args.missingDetails || '';
 
       // Verification logic identical to students API
-      if (authUser.role === 'Staff') {
+      const aiRole = normalizeRole(authUser.role);
+      if (isFamily(aiRole)) {
+        return c.json({ success: false, message: 'क्षमा करें, यह कार्य आपके अधिकार में नहीं है।' }, 403);
+      }
+      if (isTeaching(aiRole)) {
         const isTeacher = await isClassTeacher(db, schoolId, className, authUser.sub);
         if (!isTeacher) {
           return c.json({

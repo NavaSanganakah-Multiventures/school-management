@@ -4,8 +4,15 @@ import { getAuthUser, getRequestSchoolId, hashPassword } from '../lib/auth';
 import { getPlanAccess } from '../lib/plan-access';
 import { issueResetToken } from '../lib/reset-tokens';
 import { sendPasswordResetEmail, getRequestOrigin } from '../lib/email';
+import { requireSession, type Role } from '../lib/rbac';
+import { isManagement } from '../lib/roles';
 
 export const staffApp = new Hono<{ Bindings: any }>();
+
+const requireAnyUser = requireSession();
+const requireManager = requireSession({
+  roles: ['Director', 'Principal', 'SuperAdmin'] as Role[],
+});
 
 function mapStaff(r: any): any {
   if (!r) return null;
@@ -29,17 +36,38 @@ function mapStaff(r: any): any {
   };
 }
 
+/**
+ * Salary and login-username are management-only. A Student/Parent must never
+ * receive another employee's compensation, and a teaching role has no need for
+ * a colleague's login id.
+ */
+function mapStaffForRole(r: any, role: string) {
+  const s = mapStaff(r);
+  if (!s) return null;
+  if (!isManagement(role)) {
+    s.salary = null;
+    s.username = '';
+    s.passwordSet = false;
+  }
+  return s;
+}
+
 // GET /api/staff
+//
+// SECURITY FIX: this route called getAuthUser() but never checked the result, so
+// anyone could read the staff list — including salaries, phone numbers, emails
+// and login usernames — with no authentication at all. It now requires a valid
+// session, and salary/login metadata is stripped for non-management roles.
 staffApp.get('/', async (c) => {
-  const db = getDB(c);
+  const guard = await requireAnyUser(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  const schoolId = getRequestSchoolId(c, authUser);
   const department = c.req.query('department');
   const search = (c.req.query('q') || '').toLowerCase();
 
   const rows = await db.prepare('SELECT t.*, u.username AS login_username, u.id AS login_account_id, u.password_hash AS login_password_hash FROM teachers t LEFT JOIN system_users u ON u.id = t.login_user_id WHERE t.school_id = ? ORDER BY t.created_at DESC').bind(schoolId).all();
-  let staff = (rows.results || []).map(mapStaff);
+  let staff: any[] = (rows.results || []).map((r: any) => mapStaffForRole(r, user.role)).filter(Boolean);
 
   if (department && department !== 'All') {
     staff = staff.filter((t) => t.department.toLowerCase().includes(department.toLowerCase()));

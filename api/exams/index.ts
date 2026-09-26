@@ -2,8 +2,16 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { logActivity, resolveActorName } from '../lib/activity-logger';
+import { canActOnStudent, getFamilyStudentScope, requireSession, type Role } from '../lib/rbac';
 
 const examsApp = new Hono<{ Bindings: any }>();
+
+// Route guards (deny-by-default; see api/lib/rbac.ts).
+const requireAnyUser = requireSession();
+const requireManager = requireSession({ roles: ['Director', 'Principal'] as Role[] });
+const requireAcademics = requireSession({
+  roles: ['Director', 'Principal', 'Staff', 'Teacher'] as Role[],
+});
 
 function gradeFor(percentage: number) {
   if (percentage >= 90) return 'A+';
@@ -16,11 +24,10 @@ function gradeFor(percentage: number) {
 
 // GET /api/exams - exam schedule from D1
 examsApp.get('/', async (c) => {
-  const db = getDB(c);
+  const guard = await requireAnyUser(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
 
   let rows = await db.prepare('SELECT * FROM exams WHERE school_id = ? ORDER BY start_date ASC').bind(schoolId).all();
 
@@ -50,12 +57,14 @@ examsApp.get('/', async (c) => {
 });
 
 // POST /api/exams - create a new exam
+//
+// AUTHORIZATION CHANGE: management only. Exam creation previously accepted any
+// authenticated role, so a Student could fabricate school examinations.
 examsApp.post('/', async (c) => {
-  const db = getDB(c);
+  const guard = await requireManager(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
 
   const body = await c.req.json().catch(() => ({}));
   if (!body.examName) {
@@ -92,20 +101,30 @@ examsApp.post('/', async (c) => {
 });
 
 // GET /api/exams/marks - get marks for a student or exam
+//
+// A family role is scoped to its own linked children. Without this, a parent
+// could omit studentId and receive the marks of every student in the school.
 examsApp.get('/marks', async (c) => {
-  const db = getDB(c);
+  const guard = await requireAnyUser(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
   const studentId = c.req.query('studentId');
   const examId = c.req.query('examId');
 
   let query = 'SELECT * FROM exam_marks WHERE school_id = ?';
   const params: any[] = [schoolId];
   if (studentId) {
+    if (!(await canActOnStudent(guard, studentId))) {
+      return c.json({ success: false, message: 'आपको इस छात्र के अंक देखने की अनुमति नहीं है।' }, 403);
+    }
     query += ' AND student_id = ?';
     params.push(studentId);
+  } else if (user.role === 'Parent' || user.role === 'Student') {
+    const scope = await getFamilyStudentScope(guard);
+    if (!scope || scope.size === 0) return c.json({ success: true, marks: [] });
+    query += ' AND student_id IN (' + Array.from(scope).map(() => '?').join(',') + ')';
+    params.push(...Array.from(scope));
   }
   if (examId) {
     query += ' AND exam_id = ?';
@@ -117,12 +136,19 @@ examsApp.get('/marks', async (c) => {
 });
 
 // POST /api/exams/marks - enter / update marks for a student in an exam
+//
+// CRITICAL AUTHORIZATION FIX
+// This route previously required only "a token exists", so a Student or Parent
+// could overwrite the marks of any student in any class — corrupting report
+// cards, analytics, grades and promotion decisions.
+//
+// Now restricted to management plus teaching roles, and a teaching role must be
+// the assigned class teacher of the TARGET student.
 examsApp.post('/marks', async (c) => {
-  const db = getDB(c);
+  const guard = await requireAcademics(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
 
   const body = await c.req.json().catch(() => ({}));
   const { examId, studentId, marks } = body;
@@ -142,6 +168,18 @@ examsApp.post('/marks', async (c) => {
   const st = await db.prepare('SELECT id, first_name, last_name, class_name, section FROM students WHERE school_id = ? AND id = ?').bind(schoolId, studentId).first();
   if (!st) {
     return c.json({ success: false, message: 'छात्र रिकॉर्ड नहीं मिला।' }, 404);
+  }
+
+  // Teaching roles may only mark their OWN assigned class.
+  if (user.role === 'Staff' || user.role === 'Teacher') {
+    const { isClassTeacher } = await import('../lib/permissions');
+    const owns = await isClassTeacher(db, schoolId, st.class_name, user.id);
+    if (!owns) {
+      return c.json({
+        success: false,
+        message: `आप कक्षा "${st.class_name}" के अधिकृत कक्षा अध्यापक नहीं हैं, इसलिए इस छात्र के अंक दर्ज नहीं किए जा सकते।`,
+      }, 403);
+    }
   }
 
   const studentName = (st.first_name || '') + (st.last_name ? ' ' + st.last_name : '');
@@ -189,12 +227,12 @@ examsApp.post('/marks', async (c) => {
     if (existing) {
       await db.prepare(
         'UPDATE exam_marks SET max_marks = ?, marks_obtained = ?, grade = ?, remarks = ?, updated_at = ?, entered_by_user_id = ? WHERE id = ?'
-      ).bind(maxMarks, marksObtained, grade, remarks, timestamp, authUser.sub, existing.id).run();
+      ).bind(maxMarks, marksObtained, grade, remarks, timestamp, user.id, existing.id).run();
     } else {
       const id = 'em-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
       await db.prepare(
         'INSERT INTO exam_marks (id, exam_id, student_id, subject, max_marks, marks_obtained, grade, remarks, school_id, entered_by_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-      ).bind(id, examId, studentId, m.subject.trim(), maxMarks, marksObtained, grade, remarks, schoolId, authUser.sub, timestamp, timestamp).run();
+      ).bind(id, examId, studentId, m.subject.trim(), maxMarks, marksObtained, grade, remarks, schoolId, user.id, timestamp, timestamp).run();
     }
 
     updatedSubjects.push(m.subject.trim());
@@ -210,12 +248,12 @@ examsApp.post('/marks', async (c) => {
     });
   }
 
-  const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+  const actorName = await resolveActorName(db, user.id, user.role);
   await logActivity(db, {
     schoolId,
-    userId: authUser.sub,
+    userId: user.id,
     userName: actorName,
-    userRole: authUser.role,
+    userRole: user.role,
     actionType: 'MARKS_ENTRY',
     actionTitle: 'परीक्षा अंक प्रविष्टि',
     description: `छात्र ${studentName} (कक्षा ${st.class_name || '10वीं'} - ${st.section || ''}) के लिए परीक्षा "${exam.exam_name}" के ${updatedSubjects.length} विषयों के अंक दर्ज/अद्यतित किए गए।`,
@@ -235,14 +273,19 @@ examsApp.post('/marks', async (c) => {
 });
 
 // GET /api/exams/report-card/:studentId - report card computed from marks
+//
+// A family role may only request a report card for its own linked child.
 examsApp.get('/report-card/:studentId', async (c) => {
-  const db = getDB(c);
+  const guard = await requireAnyUser(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
   const studentId = c.req.param('studentId');
   const examId = c.req.query('examId');
+
+  if (!(await canActOnStudent(guard, studentId))) {
+    return c.json({ success: false, message: 'आपको इस छात्र की रिपोर्ट कार्ड की अनुमति नहीं है।' }, 403);
+  }
 
   const st = await db.prepare('SELECT * FROM students WHERE school_id = ? AND id = ?').bind(schoolId, studentId).first();
   if (!st) return c.json({ success: false, message: 'छात्र रिकॉर्ड नहीं मिला।' }, 404);

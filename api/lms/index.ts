@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { logActivity } from '../lib/activity-logger';
+import { isFamily, normalizeRole } from '../lib/roles';
 
 const lmsApp = new Hono<{ Bindings: any }>();
 
@@ -46,12 +47,18 @@ lmsApp.get('/stats', async (c) => {
 });
 
 // 2. GET /api/lms/courses - List courses for the school
+//
+// SECURITY: family roles have no legitimate use for the course catalogue and
+// would otherwise read every course (and its description) school-wide.
 lmsApp.get('/courses', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
 
   const authUser = await getAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'अनधिकृत।' }, 401);
+  if (isFamily(normalizeRole(authUser.role))) {
+    return c.json({ success: false, message: 'LMS पाठ्यक्रम सूची आपके अभिभावक/विद्यार्थी खाते के लिए उपलब्ध नहीं है।' }, 403);
+  }
   const schoolId = getRequestSchoolId(c, authUser);
 
   const className = c.req.query('className');
@@ -281,12 +288,19 @@ lmsApp.post('/courses/:id/assignments', async (c) => {
 });
 
 // 7. GET /api/lms/assignments/:id/submissions - Submissions for assignment
+//
+// SECURITY: every other student's submitted work (and its marks/feedback) was
+// readable by any authenticated role. Now staff/management only.
 lmsApp.get('/assignments/:id/submissions', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
 
   const authUser = await getAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'अनधिकृत।' }, 401);
+  const role = normalizeRole(authUser.role);
+  if (isFamily(role)) {
+    return c.json({ success: false, message: 'असाइनमेंट सबमिशन केवल शिक्षक/प्रशासन के लिए उपलब्ध हैं।' }, 403);
+  }
   const schoolId = getRequestSchoolId(c, authUser);
   const assignmentId = c.req.param('id');
 
@@ -316,11 +330,18 @@ lmsApp.post('/assignments/:id/submit', async (c) => {
   const assignmentId = c.req.param('id');
 
   const body = await c.req.json().catch(() => ({}));
-  const { submissionText, attachmentUrl, studentName } = body;
+  const { submissionText, attachmentUrl } = body;
 
   // Verify the assignment belongs to this school before accepting a submission.
   const assignment = await db.prepare('SELECT id FROM lms_assignments WHERE id = ? AND school_id = ?').bind(assignmentId, schoolId).first();
   if (!assignment) return c.json({ success: false, message: 'असाइनमेंट नहीं मिला।' }, 404);
+
+  // The submitter identity is derived from the session. `studentName` used to be
+  // accepted from the body, so any account could submit work under another
+  // student's name.
+  const me = await db.prepare('SELECT full_name FROM system_users WHERE id = ? AND school_id = ?')
+    .bind(authUser.sub, schoolId).first();
+  const submitterName = me ? me.full_name : (normalizeRole(authUser.role) || 'User');
 
   const submissionId = `subm-${crypto.randomUUID()}`;
 
@@ -333,7 +354,7 @@ lmsApp.post('/assignments/:id/submit', async (c) => {
       schoolId,
       assignmentId,
       authUser.sub || 'student',
-      studentName || authUser.fullName || 'छात्र',
+      submitterName,
       submissionText?.trim() || '',
       attachmentUrl?.trim() || null
     ).run();
