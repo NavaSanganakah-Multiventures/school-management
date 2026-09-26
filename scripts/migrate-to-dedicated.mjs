@@ -17,7 +17,8 @@ import fs from 'fs';
 import { spawnSync } from 'child_process';
 
 const REGISTRY_FILE = 'schools.json';
-const WRANGLER = 'npx --yes wrangler@4';
+// Pinned in package.json; see the note in scripts/deploy-dedicated.mjs.
+const WRANGLER = 'npx wrangler';
 
 // Operational tables that live on a dedicated school worker (school-scoped).
 // ORDER MATTERS: tables are copied in this order, and several tables carry a
@@ -80,7 +81,7 @@ const OPERATIONAL_TABLES = [
 function runD1(args) {
   const isWindows = process.platform === 'win32';
   const executable = isWindows ? 'npx.cmd' : 'npx';
-  const fullArgs = ['--yes', 'wrangler@4', 'd1', 'execute', ...args];
+  const fullArgs = ['wrangler', 'd1', 'execute', ...args];
   const result = spawnSync(executable, fullArgs, { encoding: 'utf-8', shell: false });
   if (result.error) throw result.error;
   if (result.status !== 0) {

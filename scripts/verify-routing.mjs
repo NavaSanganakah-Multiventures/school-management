@@ -53,11 +53,41 @@ function readIfPresent(p) {
 // Strips comments so that prose describing a bad pattern is not mistaken for the
 // bad pattern itself. A check that trips over its own explanatory comment is a
 // check people learn to ignore.
+//
+// LINE ENDINGS MATTER HERE, and getting it wrong makes the stripper a silent
+// no-op.
+//
+// Splitting on '\n' leaves a trailing '\r' on every line of a CRLF file, and in
+// JavaScript regex `.` does NOT match `\r` because it is a line terminator. So
+// `/#.*$/` looks like it should strip a CRLF comment and does not: `.*` stops
+// before the `\r`, `$` does not match mid-string, the match fails, and the
+// comment survives. Confirmed directly:
+//
+//   "      # comment\r".replace(/#.*$/, '')      -> unchanged
+//   "      # comment\r".replace(/#.*/,  '')      -> "      \r"
+//
+// The `$` anchor is what turns a partial match into no match at all. So lines are
+// split on /\r?\n/ and joined with '\n', normalising endings before any stripping.
+// Without that, this file's checks silently passed only on the sources that happen
+// to be LF, and failed on the ones that are CRLF -- which is most of them, and
+// not reproducibly.
+function splitLines(src) {
+  return src.split(/\r?\n/);
+}
+
 function stripComments(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .split('\n')
+  // Block comments span lines, so they are removed from the whole source first.
+  // Then normalise endings, then strip line comments per line.
+  const noBlocks = src.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  return splitLines(noBlocks)
     .map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1'))
+    .join('\n');
+}
+
+// Same idea for TOML and YAML, which use `#`.
+function stripTomlComments(src) {
+  return splitLines(stripComments(src))
+    .map((l) => l.replace(/(^|\s)#.*$/, '$1'))
     .join('\n');
 }
 
@@ -238,6 +268,135 @@ console.log('\nRouting contract verification\n');
     'welcome email is not hardcoded to a single link style',
     /portalPending\s*!==\s*false/.test(email),
     'expected the pending branch to be actually branched on',
+  );
+}
+
+// ---- 6. previews must be Previews, not a second Worker --------------------
+//
+// The branch model asked for is: feature branch -> Preview of the production
+// Worker, main -> production. Cloudflare offers two ways to get an environment,
+// and only one of them is a Preview:
+//
+//   [previews] + `wrangler preview`      -> under the SAME Worker
+//   [env.preview] + `deploy --env`       -> a separately named Worker
+//
+// The second was what this repo had, and it is the model Cloudflare's own
+// comparison page recommends against for branch testing. It also forced two
+// workarounds that existed only because it was a separate Worker: `routes = []`
+// so the env would not claim `pragnya.nasven.com/*`, and a `send_email` binding
+// that let anyone with the preview URL send real email from the real domain.
+// A Preview takes no zone routes and no cron triggers, so neither is expressible.
+{
+  const toml = stripTomlComments(readIfPresent('wrangler.toml') || '');
+
+  check(
+    'wrangler.toml has no [env.preview] (a Wrangler environment is a separate Worker)',
+    !/\[\s*env\s*\.\s*preview/i.test(toml)
+      && !/^\s*env\s*\.\s*preview/im.test(toml),
+    'previews belong in a [previews] block, deployed with `wrangler preview`',
+  );
+  check(
+    'wrangler.toml declares a [previews] block',
+    /^\s*\[previews\]/m.test(toml),
+  );
+  check(
+    'previews are named ENVIRONMENT = "preview"',
+    /^\s*ENVIRONMENT\s*=\s*"preview"\s*$/m.test(toml),
+    'previews do not inherit production vars, so ENVIRONMENT must be restated',
+  );
+  check(
+    'previews bind no send_email',
+    !/previews[\s\S]{0,200}send_email/.test(toml) && !/send_email[\s\S]{0,200}previews/.test(toml),
+    'a preview that can send email is a spam relay on the real sending domain',
+  );
+
+  // Migrations must be able to reach the preview D1 without any binding in the
+  // config they use that points at production.
+  const mig = stripTomlComments(readIfPresent('wrangler.preview-migrations.toml') || '');
+  check(
+    'wrangler.preview-migrations.toml exists',
+    fs.existsSync('wrangler.preview-migrations.toml'),
+    'needed so migrations can never be applied through the production `DB` binding',
+  );
+  check(
+    'the preview migrations binding is not named DB',
+    !/binding\s*=\s*"DB"/.test(mig),
+    'a file with a `DB` binding reads like an ordinary override; a distinct name '
+      + 'makes an accidental production migration a visible mistake',
+  );
+
+  // The migration target and the Preview binding must be the same physical
+  // database, or migrations land somewhere no Preview reads.
+  const migId = (mig.match(/database_id\s*=\s*"([^"]+)"/) || [])[1];
+  const previewBlock = (toml.match(/\[\[previews\.d1_databases\]\]([\s\S]*?)(?=\n\[|$)/) || [])[1] || '';
+  const previewId = (previewBlock.match(/database_id\s*=\s*"([^"]+)"/) || [])[1];
+  check(
+    'the preview migration target matches the previews D1 binding',
+    !!migId && !!previewId && migId === previewId,
+    'wrangler.preview-migrations.toml: ' + migId + ' vs wrangler.toml previews: ' + previewId,
+  );
+
+  // The top-level `DB` binding is production. If the preview migrations file ever
+  // gains one, a branch build could migrate production.
+  const prodId = (toml.match(/^\s*database_id\s*=\s*"([^"]+)"/m) || [])[1];
+  check(
+    'the preview migration target is not the production database',
+    !!migId && !!prodId && migId !== prodId,
+    'preview migrations point at ' + migId + ', production `DB` is ' + prodId,
+  );
+}
+
+// ---- 7. one wrangler version, and new enough for Previews ------------------
+{
+  const pkg = JSON.parse(readIfPresent('package.json') || '{}');
+  const pinned = (pkg.devDependencies || {}).wrangler;
+  check(
+    'wrangler is a devDependency',
+    !!pinned,
+    'a floating npx wrangler@latest means a release can change deploys with no commit',
+  );
+  check(
+    'the wrangler devDependency is pinned exactly (no ^ or ~)',
+    !!pinned && !/^[\^~]/.test(pinned),
+    'found: ' + pinned,
+  );
+
+  const PREVIEWS_MIN = [4, 135, 0];
+  const got = String(pinned || '').split('.').map((n) => parseInt(n, 10) || 0);
+  const newEnough = got[0] > PREVIEWS_MIN[0]
+    || (got[0] === PREVIEWS_MIN[0] && (got[1] > PREVIEWS_MIN[1]
+      || (got[1] === PREVIEWS_MIN[1] && got[2] >= PREVIEWS_MIN[2])));
+  check(
+    'wrangler >= 4.135.0, which Worker Previews require',
+    newEnough,
+    'found ' + pinned + ', need >= 4.135.0 or `wrangler preview` does not exist',
+  );
+
+  // No command may pin its own wrangler version any more: the lockfile is the
+  // single source of truth, and a per-command pin is how three versions drifted
+  // apart in the first place.
+  //
+  // Comments are stripped first. These files all *describe* the pins that used to
+  // exist (`a floating wrangler@4 in three scripts`), and without stripping, the
+  // documentation of the bug reads as the bug. That is the same false positive the
+  // route-pattern and register-form checks had.
+  const sources = [
+    ...fs.readdirSync('.github/workflows').filter((f) => f.endsWith('.yml'))
+      .map((f) => '.github/workflows/' + f),
+    ...fs.readdirSync('scripts').filter((f) => f.endsWith('.mjs')).map((f) => 'scripts/' + f),
+  ];
+  const drifting = [];
+  for (const p of sources) {
+    const src = readIfPresent(p);
+    if (!src) continue;
+    // YAML uses `#`, JS uses `//`. Strip both regardless of the file's language.
+    const code = stripTomlComments(src);
+    for (const m of code.matchAll(/wrangler@\d/g)) drifting.push(p + ' -> ' + m[0]);
+  }
+  check(
+    'no workflow or script pins its own wrangler version',
+    drifting.length === 0,
+    'use the devDependency so every pipeline runs one build: ' + drifting.join(', '),
   );
 }
 

@@ -1,50 +1,64 @@
-name: Deploy Preview (non-production smoke environment)
+name: Deploy Preview (branch preview of the production Worker)
 
-# Deploys the platform API to the `preview` environment in wrangler.toml so a
-# change can be exercised end-to-end BEFORE it goes to production.
+# WHAT THIS DOES
 #
-# This environment has its own D1 (5d969580-4ef9-42eb-9d07-f1e08e1dc599), R2
-# bucket and KV namespace, and is served from a *.workers.dev URL — it does NOT
-# take the *.pragnya.nasven.com wildcard route, so production traffic is
-# unaffected. No D1 data is copied in, so the preview DB starts from the
-# migrations alone and a smoke test there says nothing about production data.
+#   push to a feature branch  ->  a Preview of the `school-management` Worker
+#   merge to main             ->  production, via deploy.yml
 #
-# Migrations are applied to the preview D1 only (`--env preview`). Applying them
-# to production remains the deploy job's responsibility in deploy.yml.
+# A Preview is a full, production-like environment of the SAME Worker, on its own
+# URL, with its own variables, secrets and bindings. It is not a separate Worker.
 #
-# Usage:
-#   gh workflow run deploy-preview.yml
-#   gh run watch
+# This replaces `[env.preview]` + the `school-management-preview` Worker. That
+# model is a Wrangler environment, which Cloudflare documents for persistent
+# staging environments and not for branch testing, and which needed two
+# workarounds that only existed because it was a separate Worker:
+#
+#   - `routes = []`, otherwise the env inherited `pragnya.nasven.com/*` and
+#     deployed over production's route.
+#   - SEND_EMAIL was bound, which let anyone with the URL send real email from
+#     the real domain.
+#
+# A Preview takes no zone routes and no cron triggers, so neither workaround is
+# possible any more. See wrangler.toml for the settings and the reasoning.
+#
+# Requires wrangler >= 4.135.0. Do not lower the pin below that.
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - integration/phase0-2
+    # `branches-ignore` only, never alongside `branches` -- GitHub rejects both
+    # filters on the same event, and the workflow would fail to load at all.
+    # This is "every branch except main", which is the branch model: a feature
+    # branch gets a Preview, and main is handled by deploy.yml.
+    branches-ignore:
+      - main
   pull_request:
     branches:
       - main
-    paths:
-      - api/**
-      - db_migrations/**
-      - scripts/verify-phase*.mjs
-      - scripts/verify-routing.mjs
-      - schools.json
-      - wrangler.toml
-      - wrangler.admin.toml
-      - components/website/**
-      - .github/workflows/deploy-preview.yml
 
 permissions:
   contents: read
 
 concurrency:
-  group: preview-${{ github.ref }}
+  # One preview per branch. A newer push supersedes an in-flight run, so a
+  # branch that is pushed twice in quick succession does not deploy twice, and
+  # does not race its own D1 migrations.
+  group: preview-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
+env:
+  # Worker Previews require wrangler >= 4.135.0. The project pin lives in
+  # package.json devDependencies (exact) and package-lock.json, and `npm ci`
+  # installs it, so this job and deploy.yml run the same wrangler. The repo
+  # previously ran three different builds at once: 3.90.0 for production
+  # migrations, 4.47.0 for the preview, and a floating `wrangler@4` in three
+  # scripts -- so production and preview were not even using the same tool, and a
+  # wrangler release could change production behaviour with no commit for it.
+  WRANGLER_MIN: "4.135.0"
+
 jobs:
-  smoke:
-    name: Migrations + worker deploy + smoke test
+  preview:
+    name: Branch preview + smoke test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -57,125 +71,203 @@ jobs:
 
       - run: npm ci
 
-      # Run the repo's verification harnesses first. A red harness must not
-      # produce a deployed worker.
+      # A red harness must not produce a deployed preview, let alone a deployment
+      # someone then tests and trusts.
       - name: Verify Phase 0 (internal M2M signing)
         run: node scripts/verify-phase0-signing.mjs
 
       # Routing is a static property of the wrangler configs, so this needs no
-      # database and no deploy. It runs here rather than only on PRs because the
-      # wildcard it forbids is exactly the kind of change that looks harmless in
-      # review and only breaks schools mid-provisioning in production.
+      # database and no deploy. It lives here rather than only on PRs because the
+      # wildcard it forbids looks like a harmless safety net and only breaks
+      # schools mid-provisioning in production.
       - name: Verify routing contract
         run: node scripts/verify-routing.mjs
 
-      - name: Install wrangler
-        run: npm i --no-save wrangler@4.47.0
+      # wrangler comes from `npm ci` via devDependencies. This step exists only to
+      # turn "wrangler is too old for Previews" into a clear message here, rather
+      # than a confusing failure from `wrangler preview` several steps later.
+      - name: Assert wrangler supports Previews
+        run: |
+          set -euo pipefail
+          GOT=$(npx wrangler --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+          echo "wrangler $GOT (minimum ${{ env.WRANGLER_MIN }})"
+          [ -n "$GOT" ] || { echo "::error::could not determine the wrangler version"; exit 1; }
+          node -e "
+            const [got, min] = process.argv.slice(1).map(s => s.split('.').map(Number));
+            const ok = got[0] > min[0]
+              || (got[0] === min[0] && (got[1] > min[1] || (got[1] === min[1] && got[2] >= min[2])));
+            if (!ok) {
+              console.error('::error::wrangler ' + process.argv[1] + ' is older than ' + process.argv[2]
+                + ', which Worker Previews require. Bump the wrangler devDependency.');
+              process.exit(1);
+            }
+          " "$GOT" "${{ env.WRANGLER_MIN }}"
 
-      # The preview env inherits the top-level [assets] block, whose directory is
-      # ./out. wrangler refuses to deploy when that directory is absent, so the
-      # Next.js export has to exist even for an API smoke test.
+      # The [assets] block stays top level, and a Preview uploads the assets from
+      # the branch being previewed. wrangler refuses to deploy when ./out is
+      # missing, so the Next.js export has to exist even for an API smoke test.
       - name: Build website (satisfies [assets] directory = ./out)
         run: npm run build
 
-      - name: Apply migrations to PREVIEW D1
-        run: npx wrangler d1 migrations apply DB --env preview --remote
+      # Resolve the preview name to a DNS-safe label. It defaults to the branch
+      # name, but branches like `feat/rbac` contain a `/` and cannot appear in
+      # the <preview>-<worker>.<subdomain>.workers.dev hostname. Two branches that
+      # sanitise to the same label (feat/a and feat-a) would share a Preview, so
+      # the commit is appended to keep them distinct.
+      - name: Resolve preview name
+        id: meta
+        env:
+          RAW_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          LABEL=$(printf '%s' "$RAW_BRANCH" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed 's/[^a-z0-9-]/-/g; s/--*/-/g; s/^-//; s/-$//' \
+            | cut -c1-40)
+          if [ -z "$LABEL" ]; then LABEL="branch"; fi
+          NAME="${LABEL}-${SHA:0:7}"
+          echo "branch=$RAW_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "Preview name: $NAME (from branch '$RAW_BRANCH')"
+
+      # Migrations go to the shared staging D1 only.
+      #
+      # `--config wrangler.preview-migrations.toml` rather than `--env preview`:
+      # that file declares a single PREVIEW_DB binding pointing at the staging
+      # database, so there is no binding in it that reaches production. Running
+      # this against wrangler.toml would migrate the production database from a
+      # branch build, because the top-level `DB` binding is the production one.
+      #
+      # Every branch shares this database, which is Cloudflare's documented
+      # default. Re-applying is a no-op, so branches converge rather than race.
+      - name: Apply migrations to the PREVIEW D1
+        run: npx wrangler d1 migrations apply PREVIEW_DB --remote --config wrangler.preview-migrations.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      # Pass 1: deploy to learn the workers.dev hostname.
+      # Pass 1: deploy to learn the Preview URL.
       #
-      # No `--var` for AUTH_SECRET here on purpose: a --var lands in the worker's
-      # plain-text configuration. It is installed as a real secret further below.
-      # api/lib/auth.ts fails closed when ENVIRONMENT is production/preview and
-      # AUTH_SECRET is absent, so the two steps together are what let the worker
-      # sign sessions.
-      - name: Deploy preview worker (discover URL)
+      # The URL is read from wrangler's own `--json` output. The previous
+      # workflow grepped the human-readable log for a workers.dev hostname, which
+      # broke silently the moment the log wording changed; and an earlier version
+      # read a `deployment-url` step output that plain `wrangler deploy` never
+      # sets, so every probe ran against an empty string.
+      #
+      # No secrets yet, on purpose. `wrangler preview secret put` creates a NEW
+      # deployment per call, so a loop over six secrets meant six deployments and
+      # the last one won -- wasteful, and easy to reason about wrongly. All six
+      # go up in the second pass with a single --secrets-file.
+      - name: Deploy preview (discover URL)
         id: first
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PREVIEW_NAME: ${{ steps.meta.outputs.name }}
         run: |
           set -euo pipefail
-          OUT=$(npx wrangler deploy --env preview 2>&1 | tee /dev/stderr)
-          URL=$(printf '%s\n' "$OUT" | grep -oE 'https://[a-z0-9.-]+\.workers\.dev' | head -n 1 || true)
-          if [ -z "$URL" ]; then
-            echo "::error::could not parse the preview deployment URL from wrangler output"
-            exit 1
-          fi
+          npx wrangler preview --name "$PREVIEW_NAME" --json --message "${{ github.sha }}" > preview.json
+          cat preview.json
+          URL=$(node -e "
+            const fs = require('fs');
+            const d = JSON.parse(fs.readFileSync('preview.json', 'utf-8'));
+            // Wrangler nests the result differently across versions; take the
+            // first https://*.workers.dev string found anywhere in the document
+            // rather than guessing one shape and failing on the other.
+            const found = JSON.stringify(d).match(/https:\/\/[A-Za-z0-9.-]*workers\.dev/g);
+            if (!found) { console.error('no workers.dev URL in wrangler output'); process.exit(1); }
+            process.stdout.write(found[0]);
+          ")
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "Preview URL: $URL"
 
-      # Pass 2: redeploy with APP_BASE_URL pointing at the real preview hostname so
-      # password-reset / invite links generated by the preview worker are usable.
-      - name: Deploy preview worker (final)
-        id: deploy
-        run: |
-          URL="${{ steps.first.outputs.url }}"
-          npx wrangler deploy --env preview --var "APP_BASE_URL:$URL"
+      # Pass 2: APP_BASE_URL now points at the real Preview hostname so
+      # password-reset and invite links are usable, and the secrets go up in the
+      # same deployment.
+      #
+      # PLATFORM_BOOTSTRAP_TOKEN is included so the preview exercises the same
+      # /api/admin/bootstrap path as production. Without it the endpoint fails
+      # closed with 503 before the token comparison runs, and the smoke probe
+      # asserting "a wrong token gets 401" would pass vacuously -- which is
+      # exactly the gap that let a broken constant-time comparison ship.
+      #
+      # SEND_EMAIL is deliberately absent, so api/lib/email.ts no-ops every send.
+      - name: Deploy preview (final)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Put preview worker secrets
+          PREVIEW_NAME: ${{ steps.meta.outputs.name }}
+          PREVIEW_URL: ${{ steps.first.outputs.url }}
         run: |
           set -euo pipefail
-          # PLATFORM_BOOTSTRAP_TOKEN is included so the preview exercises the
-          # same /api/admin/bootstrap code path as production. Without it the
-          # endpoint fails closed with 503 and the gate's comparison logic is
-          # never reached, so the smoke probe asserting "a wrong token gets
-          # 401" would pass vacuously. That is exactly the gap that let a broken
-          # constant-time comparison ship: the assertion could not tell a working
-          # gate from one that never ran.
-          for pair in \
-            "AUTH_SECRET=${{ secrets.AUTH_SECRET }}" \
-            "PLATFORM_ADMIN_EMAIL=${{ secrets.PLATFORM_ADMIN_EMAIL }}" \
-            "PLATFORM_ADMIN_PASSWORD=${{ secrets.PLATFORM_ADMIN_PASSWORD }}" \
-            "PLATFORM_BOOTSTRAP_TOKEN=${{ secrets.PLATFORM_BOOTSTRAP_TOKEN }}" \
-            "RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}" \
-            "RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}"
-          do
-            name="${pair%%=*}"
-            value="${pair#*=}"
-            if [ -n "$value" ]; then
-              printf '%s' "$value" | npx wrangler secret put "$name" --env preview
-            else
-              echo "::warning::preview secret $name is not set in this repo"
-            fi
-          done
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          {
+            echo "{"
+            for pair in \
+              "AUTH_SECRET=${{ secrets.AUTH_SECRET }}" \
+              "PLATFORM_ADMIN_EMAIL=${{ secrets.PLATFORM_ADMIN_EMAIL }}" \
+              "PLATFORM_ADMIN_PASSWORD=${{ secrets.PLATFORM_ADMIN_PASSWORD }}" \
+              "PLATFORM_BOOTSTRAP_TOKEN=${{ secrets.PLATFORM_BOOTSTRAP_TOKEN }}" \
+              "RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}" \
+              "RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}"
+            do
+              name="${pair%%=*}"
+              value="${pair#*=}"
+              if [ -n "$value" ]; then
+                printf '  "%s": "%s",\n' "$name" "$value"
+              else
+                echo "::warning::preview secret $name is not set in this repo"
+              fi
+            done
+            echo "  \"_trailing\": \"\""
+            echo "}"
+          } > preview.secrets.json
+          # Strip the trailing comma left by the loop above.
+          node -e "
+            const fs = require('fs');
+            const o = JSON.parse(fs.readFileSync('preview.secrets.json', 'utf-8'));
+            delete o._trailing;
+            fs.writeFileSync('preview.secrets.json', JSON.stringify(o));
+          "
+          rm -f preview.secrets.json.bak
+          npx wrangler preview \
+            --name "$PREVIEW_NAME" \
+            --var "APP_BASE_URL:$PREVIEW_URL" \
+            --secrets-file preview.secrets.json \
+            --message "${{ github.sha }}"
+          # The file held live credentials in a workspace on a public runner.
+          shred -u preview.secrets.json 2>/dev/null || rm -f preview.secrets.json
 
       - name: Report preview URL
+        env:
+          PREVIEW_URL: ${{ steps.first.outputs.url }}
+          PREVIEW_NAME: ${{ steps.meta.outputs.name }}
+          BRANCH: ${{ steps.meta.outputs.branch }}
         run: |
           {
             echo "### Preview deployed"
             echo
+            echo "**Branch:** \`$BRANCH\`  ·  **Preview:** \`$PREVIEW_NAME\`"
+            echo
             echo '```'
-            echo "${{ steps.first.outputs.url }}"
+            echo "$PREVIEW_URL"
             echo '```'
             echo
-            echo "Preview D1 has the migrations applied but **no production data**."
+            echo "D1 has the migrations applied but **no production data**."
+            echo "Email is a no-op here (no \`SEND_EMAIL\` binding), by design."
+            echo "This Preview has no zone routes and no cron triggers."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Smoke tests. These assert the endpoints that the Phase 0/1/2 changes
-      # touch, against a real running worker.
       # The probes live in scripts/smoke-preview.mjs rather than inline here, so
-      # a deployed worker can be re-checked from a terminal and the workflow and
-      # a local run can never drift apart. It also gets two things the inline
-      # version had wrong: the workers.dev URL is taken from wrangler's own
-      # stdout, and the two secret-dependent endpoints assert "not a success"
-      # instead of a fixed status (503 when the bootstrap token is absent, 401
-      # when it is set; 500 when the webhook secret is absent, 400 when set).
+      # a deployed Preview can be re-checked from a terminal and the workflow and
+      # a local run can never drift apart.
       - name: Smoke test the preview API
+        env:
+          PREVIEW_URL: ${{ steps.first.outputs.url }}
         run: |
           set -euo pipefail
-          URL="${{ steps.first.outputs.url }}"
-          if [ -z "$URL" ]; then
-            echo "::error::could not determine the preview deployment URL"
+          if [ -z "$PREVIEW_URL" ]; then
+            echo "::error::could not determine the preview URL"
             exit 1
           fi
-          node scripts/smoke-preview.mjs "$URL"
-
+          node scripts/smoke-preview.mjs "$PREVIEW_URL"
