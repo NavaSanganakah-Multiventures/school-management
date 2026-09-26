@@ -126,7 +126,7 @@ jobs:
             echo "### Preview deployed"
             echo
             echo '```'
-            echo "${{ steps.deploy.outputs.deployment-url }}"
+            echo "${{ steps.first.outputs.deployment-url }}"
             echo '```'
             echo
             echo "Preview D1 has the migrations applied but **no production data**."
@@ -134,52 +134,20 @@ jobs:
 
       # Smoke tests. These assert the endpoints that the Phase 0/1/2 changes
       # touch, against a real running worker.
+      # The probes live in scripts/smoke-preview.mjs rather than inline here, so
+      # a deployed worker can be re-checked from a terminal and the workflow and
+      # a local run can never drift apart. It also gets two things the inline
+      # version had wrong: the workers.dev URL is taken from wrangler's own
+      # stdout, and the two secret-dependent endpoints assert "not a success"
+      # instead of a fixed status (503 when the bootstrap token is absent, 401
+      # when it is set; 500 when the webhook secret is absent, 400 when set).
       - name: Smoke test the preview API
         run: |
           set -euo pipefail
-          URL="${{ steps.deploy.outputs.deployment-url }}"
-          URL="${URL%/}"
-          fail=0
+          URL="${{ steps.first.outputs.deployment-url }}"
+          if [ -z "$URL" ]; then
+            echo "::error::could not determine the preview deployment URL"
+            exit 1
+          fi
+          node scripts/smoke-preview.mjs "$URL"
 
-          probe() {
-            local desc="$1" expect="$2" path="$3"
-            local code
-            code=$(curl -sS -o /tmp/body -w '%{http_code}' --connect-timeout 10 --max-time 25 "$URL$path" || echo 000)
-            if [ "$code" = "$expect" ]; then
-              echo "  PASS  $desc  ($path -> $code)"
-            else
-              echo "  FAIL  $desc  ($path -> $code, expected $expect)"
-              head -c 300 /tmp/body || true
-              echo
-              fail=1
-            fi
-          }
-
-          echo "Smoke testing $URL"
-
-          # public
-          probe "health endpoint"                 200 /api/health
-          probe "public config"                   200 /api/config/
-
-          # Phase 0: bootstrap must be GATED (401 without the token) and must
-          # NOT have silently created an admin.
-          probe "bootstrap is gated without token" 401 /api/admin/bootstrap
-
-          # Phase 1: authenticated reads must be 401 without a session.
-          probe "students list requires auth"      401 /api/students
-          probe "staff list requires auth"         401 /api/staff
-          probe "fees list requires auth"          401 /api/fees
-          probe "student history requires auth"    401 /api/students/std-1/history
-          probe "notification topics require auth" 401 /api/notifications/topics
-          probe "leave list requires auth"         401 /api/leave-applications
-          probe "attendance register requires auth" 401 /api/attendance
-
-          # Phase 2: payment endpoints must be auth-gated, never open.
-          probe "fee pay requires auth"            401 /api/fees/pay
-          probe "fee create-bulk requires auth"    401 /api/fees/create-bulk
-          probe "recurring subscribe requires auth" 401 /api/billing/subscribe-recurring
-
-          # Webhook must reject an unsigned body.
-          probe "razorpay webhook rejects unsigned" 400 /api/webhooks/razorpay
-
-          exit $fail
