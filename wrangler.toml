@@ -77,46 +77,126 @@ APP_BASE_URL = "https://pragnya.nasven.com"
 WEB_PUSH_VAPID_PUBLIC_KEY = "BJlcKjZBfC5YzmoIxZ1ndHRJAiemr7Rdi4LBuceK6GI7N6g9aV3ctHpKCtZ8RbaPugnfvfJQNBiRTi63CGipHP4"
 WEB_PUSH_VAPID_SUBJECT = "mailto:pragnya@navasanganakah.com"
 
+# Enable workers.dev URLs for Previews, at
+# <preview-name>-school-management.<subdomain>.workers.dev.
+#
+# Without this, `wrangler preview` deploys successfully and then says
+#
+#   Note: This Preview deployment has no active URLs.
+#
+# and every request to the Preview hostname 404s. That is what the first preview
+# run did: the deploy steps were green and all 23 smoke probes came back 404, which
+# reads like a broken Worker rather than a missing URL setting.
+#
+# `preview_urls` and `workers_dev` are configured separately -- this affects
+# Preview URLs only and does not change the production workers.dev URL.
+#
+# The setting is applied by `npx wrangler deploy`, i.e. by a production deploy, so
+# it takes effect the first time this lands on main. It changes no production code
+# or binding.
+preview_urls = true
+
 # -------------------------------------------------------------
-# Preview Environment
+# Previews - branch deployments of THIS worker
 # -------------------------------------------------------------
-[env.preview]
-name = "school-management-preview"
-# Explicitly NO routes. Without this the env inherits the top-level
-# `pragnya.nasven.com/*` pattern and the deploy fails with "Can't deploy routes
-# that are assigned to another worker", because production already owns that
-# pattern. An empty list means the preview is reachable only through its
-# workers.dev URL, which is what a smoke environment should be.
-routes = []
+# A push to `main` deploys production with the settings above. A push to any
+# other branch deploys a Preview of this same worker with the settings below,
+# at `<branch>-school-management.<subdomain>.workers.dev`.
+#
+# This used to be a Wrangler environment (`[env.preview]` +
+# name = "school-management-preview"), i.e. a separately deployed Worker.
+# Cloudflare documents that model for persistent staging environments and
+# explicitly not for branch testing:
+#
+#   Previews              -> "Full environments for branches and pull requests
+#                             under the same Worker"    (npx wrangler preview)
+#   Wrangler environments -> "Separately deployed Workers" (deploy --env <name>)
+#
+# Switching also removes two footguns that the separate worker needed
+# workarounds for, and which a reviewer could not see were workarounds:
+#
+#   - Routes. The old env had to declare `routes = []`, because otherwise it
+#     inherited `pragnya.nasven.com/*` and the deploy failed. Previews never
+#     take zone routes or production custom domains, so a Preview structurally
+#     cannot take over the production website.
+#   - Cron. This worker runs a daily trial-expiry cron. Previews get no scheduled
+#     invocation, so a Preview cannot double-process trial expiries.
+#
+# Requires wrangler >= 4.135.0. The [assets] block stays top level: a Preview
+# uploads assets from the branch being previewed, so the Next.js export must be
+# built (npm run build) or the deploy fails on a missing ./out.
+[previews]
 
-[[env.preview.d1_databases]]
-binding = "DB"
-database_id = "5d969580-4ef9-42eb-9d07-f1e08e1dc599"
-migrations_dir = "./db_migrations"
-
-[[env.preview.r2_buckets]]
-binding = "MEDIA_BUCKET"
-bucket_name = "school-management-preview"
-
-[[env.preview.kv_namespaces]]
-binding = "CONFIG_KV"
-id = "9158f79162824ee1b52e75fe51af71f8"
-
-# Email binding for the preview env too. Without it api/lib/email.ts
-# short-circuits every send, so a preview smoke test would report a successful
-# password reset that never actually delivered a message.
-[[env.preview.send_email]]
-name = "SEND_EMAIL"
-
-# `vars` are NOT inherited by environments, so APP_BASE_URL must be repeated
-# here or wrangler warns and the preview worker has none. The deploy-preview
-# workflow overrides it with the real workers.dev URL once that hostname is
-# known, so password-reset links point at the running preview and not a
-# placeholder.
-[env.preview.vars]
+# Previews do NOT inherit production settings, so `vars` must be repeated here.
+# Without ENVIRONMENT = "preview" the code takes the production branch, e.g.
+# api/lib/auth.ts would not fail closed on a missing AUTH_SECRET.
+[previews.vars]
+# The deploy-preview workflow overrides this with the branch's real Preview URL
+# once that hostname is known, so password-reset links point at the running
+# Preview rather than a placeholder.
 APP_BASE_URL = "https://school-management-preview.workers.dev"
 ENVIRONMENT = "preview"
 WEB_PUSH_VAPID_PUBLIC_KEY = "BJlcKjZBfC5YzmoIxZ1ndHRJAiemr7Rdi4LBuceK6GI7N6g9aV3ctHpKCtZ8RbaPugnfvfJQNBiRTi63CGipHP4"
 WEB_PUSH_VAPID_SUBJECT = "mailto:pragnya@navasanganakah.com"
 # FCM project id is derived from FCM_SERVICE_ACCOUNT_JSON.project_id (see api/lib/fcm.ts).
 SCHOOL_NAME = "Pragnya Mitra Public School (Preview)"
+
+# One staging D1 shared by every branch, which is Cloudflare's documented
+# default. Two Previews bound to the same database_id share rows.
+#
+# Sharing is safe here because the migrations are ordered and idempotent:
+# re-applying them is a no-op, so branches converge on one schema instead of
+# racing. The trade-off is that a branch adding a migration changes the database
+# every other Preview uses. That widens the schema rather than breaking it, but a
+# branch expecting a column another branch just added would test against a schema
+# it should not have. A branch needing true isolation overrides both this
+# binding and `wrangler.preview-migrations.jsonc`.
+#
+# Migrations are applied with that second file, not with `--env`:
+#   npx wrangler d1 migrations apply PREVIEW_DB --remote \
+#     --config wrangler.preview-migrations.jsonc
+[[previews.d1_databases]]
+binding = "DB"
+database_name = "school-management-preview"
+database_id = "5d969580-4ef9-42eb-9d07-f1e08e1dc599"
+migrations_dir = "./db_migrations"
+
+[[previews.r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "school-management-preview"
+
+# NOTE: there is deliberately no `kv_namespaces` binding on Previews.
+#
+# Every CONFIG_KV access in this codebase is a read-only fallback used when the
+# matching env secret is absent: PLATFORM_ADMIN_EMAIL, PLATFORM_ADMIN_PASSWORD,
+# RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET. There is no
+# `.put` anywhere, and no script provisions a preview KV namespace, so a
+# namespace is not a thing this environment can have.
+#
+# The namespace id that used to be configured here,
+# 9158f79162824ee1b52e75fe51af71f, does not exist in the account. That only
+# surfaced when Previews validated the binding:
+#
+#   KV namespace '9158f79162824ee1b52e75fe51af71f' is not valid.
+#   [code: 10042]
+#
+# The old `[env.preview]` had carried that id, so it was a latent lie rather than
+# a working binding.
+#
+# Dropping it is safe: each read site is guarded with `if (env.CONFIG_KV)`, so an
+# absent binding degrades to "not configured" instead of throwing, and the
+# deploy-preview workflow supplies all of those values as real Worker secrets
+# anyway, so the fallback is never reached.
+
+# NOTE: there is deliberately no `send_email` binding on Previews.
+#
+# api/lib/email.ts short-circuits every send when the binding is absent, which
+# is the correct behaviour for a non-production environment. Binding it here
+# would let anyone who finds a Preview URL send real email from the real domain:
+# POST /api/auth/register accepts an arbitrary address and immediately triggers
+# a welcome email, which turns a Preview into a spam relay burning the
+# production sending quota. A password reset aimed at a real customer address
+# would also deliver, appearing to come from production.
+#
+# The old [env.preview] did bind SEND_EMAIL. That was a mistake, and the smoke
+# suite is written so it never depends on real delivery.

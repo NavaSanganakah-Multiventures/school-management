@@ -42,8 +42,13 @@ function check(name, ok) {
 
 // Spawning a `.cmd` shim through execFileSync is not portable (EINVAL on
 // Windows), so wrangler is driven through a shell command string instead.
+//
+// No version is pinned here: wrangler is a devDependency at an exact version, so
+// `npx wrangler` resolves the local build. That is the whole point -- this
+// harness has to exercise the same wrangler that deploy.yml and the preview
+// workflow use, otherwise a green harness says nothing about the deploy.
 function wranglerSql(sql) {
-  const cmd = 'npx --yes wrangler@4.47.0 d1 execute DB --local --json --command='
+  const cmd = 'npx wrangler d1 execute DB --local --json --command='
     + JSON.stringify(sql);
   const out = execSync(cmd, {
     cwd: REPO,

@@ -1,0 +1,35 @@
+# Preview-only migration target.
+#
+# This file exists so that applying D1 migrations can never reach the PRODUCTION
+# database. `wrangler d1 migrations apply <binding>` resolves the binding from a
+# config file, and the top-level wrangler.toml binds `DB` to the production
+# database id 16648fed-788d-4780-a877-fac56d9b5d27. Pointing that command at
+# wrangler.toml would migrate production from a branch build.
+#
+# So this file declares exactly one binding, `PREVIEW_DB`, pointing at the same
+# staging database that `previews.d1_databases` binds in wrangler.toml. A
+# migration can therefore only ever run against preview data:
+#
+#   npx wrangler d1 migrations apply PREVIEW_DB --remote \
+#     --config wrangler.preview-migrations.toml
+#
+# WHY THE BINDING IS NOT CALLED `DB`
+#
+# The name is deliberately different from the production binding. If both were
+# called `DB` the file would read like an ordinary environment override, and the
+# guard would depend on the reader noticing which file is in use. A distinct name
+# makes an accidental production migration a visible mistake rather than a
+# silent one.
+#
+# The database_name and database_id here MUST stay identical to the
+# `previews.d1_databases` entry in wrangler.toml. Cloudflare documents this as
+# the pairing that keeps a branch's migration target aligned with its Preview
+# binding. scripts/verify-routing.mjs asserts they match, because if they drift
+# the migrations would land in a database no Preview is bound to and the Preview
+# would run against an empty schema.
+
+[[d1_databases]]
+binding = "PREVIEW_DB"
+database_name = "school-management-preview"
+database_id = "5d969580-4ef9-42eb-9d07-f1e08e1dc599"
+migrations_dir = "./db_migrations"

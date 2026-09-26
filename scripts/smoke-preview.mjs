@@ -21,7 +21,24 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-const URL = (process.argv[2] || 'https://school-management-preview.nssite.workers.dev').replace(/\/+$/, '');
+// The URL is required, with no default.
+//
+// These scripts used to default to the old `school-management-preview` worker,
+// which was a separate Wrangler environment. Previews are now branch-named
+// deployments of the production worker, so there is no single fixed URL to
+// default to and no correct value to hardcode: each branch gets
+// `<branch>-school-management.<subdomain>.workers.dev`. A hardcoded default
+// would silently keep pointing at a deleted worker and every run would fail with
+// a confusing connection error instead of an obvious usage mistake.
+const URL = String(process.argv[2] || '').replace(/\/+$/, '');
+if (!URL) {
+  console.error(
+    '\nUsage: node scripts/smoke-preview.mjs <preview-url>\n'
+    + 'Get it from the "Deploy Preview" workflow summary on the branch, or:\n'
+    + '  npx wrangler preview list\n',
+  );
+  process.exit(2);
+}
 
 // A unique per-run directory rather than a fixed filename. A predictable path in
 // the shared temp directory is vulnerable to a symlink planted by another local

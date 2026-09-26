@@ -17,7 +17,17 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-const URL = (process.argv[2] || 'https://school-management-preview.nssite.workers.dev').replace(/\/+$/, '');
+// The URL is required, with no default. Previews are branch-named deployments of
+// the production worker, so there is no single fixed URL; a hardcoded default
+// would point at the deleted `school-management-preview` worker.
+const URL = String(process.argv[2] || '').replace(/\/+$/, '');
+if (!URL) {
+  console.error(
+    '\nUsage: node scripts/smoke-auth-flow.mjs <preview-url>\n'
+    + 'Get it from the "Deploy Preview" workflow summary on the branch.\n',
+  );
+  process.exit(2);
+}
 
 // A unique per-run directory rather than fixed filenames in the shared temp
 // directory. A predictable path there is vulnerable to a symlink planted by

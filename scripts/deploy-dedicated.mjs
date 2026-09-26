@@ -22,8 +22,11 @@ import { execSync } from 'child_process';
 import { migrateSchool } from './migrate-to-dedicated.mjs';
 
 const REGISTRY_FILE = 'schools.json';
-// Direct dedicated-worker deploys use wrangler 4.x.
-const WRANGLER = 'npx --yes wrangler@4';
+// The wrangler version is pinned in package.json devDependencies and installed by
+// `npm ci`, so `npx wrangler` resolves the local build. It was previously a
+// floating `npx --yes wrangler@4`, which meant a new wrangler release silently
+// changed how dedicated workers were deployed, with no commit recording it.
+const WRANGLER = 'npx wrangler';
 
 function run(cmd) {
   console.log('> ' + cmd);
