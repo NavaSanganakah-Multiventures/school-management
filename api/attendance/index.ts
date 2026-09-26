@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { isClassTeacher } from '../lib/permissions';
+import { isFamily, isManagement, isTeaching, normalizeRole } from '../lib/roles';
 import { logActivity } from '../lib/activity-logger';
 import { broadcastAlert } from '../notifications';
 import { buildTokenMessage, isFcmConfigured, isRealFcmToken, sendFcmMessage } from '../lib/fcm';
@@ -37,11 +38,22 @@ attendanceApp.get('/', async (c) => {
   const date = c.req.query('date') || new Date().toISOString().split('T')[0];
   const className = c.req.query('class') || null;
 
-  const assignedClasses = authUser.role === 'Staff'
+  const role = normalizeRole(authUser.role);
+
+  // SECURITY FIX: a family account (Parent/Student) is not a staff member, so
+  // `assignedClasses` was empty for it, `isAdmin` was false, and the else-branch
+  // fell through to `queryClasses = null` — which returns EVERY active student
+  // in the school together with their parent phone numbers. Family roles are
+  // not allowed on the school-wide attendance register.
+  if (isFamily(role)) {
+    return c.json({ success: false, message: 'उपस्थिति रजिस्टर केवल शिक्षक, प्रधानाचार्य या निदेशक के लिए उपलब्ध है।' }, 403);
+  }
+
+  const assignedClasses = isTeaching(role)
     ? (await db.prepare('SELECT class_name FROM class_teachers WHERE school_id = ? AND teacher_user_id = ? ORDER BY class_name').bind(schoolId, authUser.sub).all()).results?.map((r: any) => r.class_name) || []
     : [];
 
-  const isAdmin = authUser.role === 'Director' || authUser.role === 'Principal' || authUser.role === 'SuperAdmin';
+  const isAdmin = isManagement(role) || role === 'SuperAdmin';
   const targetClass = className && className !== 'All' ? className : null;
 
   let queryClasses: string[] | null = null;
@@ -52,7 +64,7 @@ attendanceApp.get('/', async (c) => {
     queryClasses = targetClass ? [targetClass] : null;
     canMark = true;
   } else {
-    // Staff member (Class Teacher or Non-Class Teacher)
+    // Teaching role (assigned class teacher, or not)
     if (targetClass) {
       queryClasses = [targetClass];
       const isAssigned = assignedClasses.includes(targetClass);
@@ -129,8 +141,15 @@ attendanceApp.get('/absentees-summary', async (c) => {
   const date = c.req.query('date') || new Date().toISOString().split('T')[0];
   const className = c.req.query('class') || null;
 
-  const isAdmin = authUser.role === 'Director' || authUser.role === 'Principal' || authUser.role === 'SuperAdmin';
-  const assignedClasses = authUser.role === 'Staff'
+  // Same bypass as GET /: a family account would get `queryClasses = null` and
+  // receive every absentee in the school with their parent phone numbers.
+  const role = normalizeRole(authUser.role);
+  if (isFamily(role)) {
+    return c.json({ success: false, message: 'गैरहाज़िर सारांश केवल शिक्षक, प्रधानाचार्य या निदेशक के लिए उपलब्ध है।' }, 403);
+  }
+
+  const isAdmin = isManagement(role) || role === 'SuperAdmin';
+  const assignedClasses = isTeaching(role)
     ? (await db.prepare('SELECT class_name FROM class_teachers WHERE school_id = ? AND teacher_user_id = ? ORDER BY class_name').bind(schoolId, authUser.sub).all()).results?.map((r: any) => r.class_name) || []
     : [];
 
@@ -196,6 +215,20 @@ attendanceApp.get('/summary', async (c) => {
   const studentId = c.req.query('studentId') || null;
   const className = c.req.query('class') || null;
   const today = new Date().toISOString().split('T')[0];
+
+  // A family account may only read its own linked child's statistics; without a
+  // studentId it would otherwise receive whole-school aggregates.
+  const role = normalizeRole(authUser.role);
+  if (isFamily(role)) {
+    const { canActOnStudent } = await import('../lib/rbac');
+    const guardLite = { ok: true as const, user: { id: authUser.sub, email: authUser.email || '', role, schoolId, raw: authUser }, schoolId, db };
+    if (!studentId) {
+      return c.json({ success: false, message: 'कृपया अपने बच्चे की सींक दर्ज करें।' }, 400);
+    }
+    if (!(await canActOnStudent(guardLite as any, studentId))) {
+      return c.json({ success: false, message: 'आपको इस छात्र की उपस्थिति विवरण की अनुमति नहीं है।' }, 403);
+    }
+  }
 
   if (studentId) {
     const student = await db.prepare('SELECT id, first_name, last_name, class_name, section, roll_number FROM students WHERE id = ? AND school_id = ?').bind(studentId, schoolId).first();

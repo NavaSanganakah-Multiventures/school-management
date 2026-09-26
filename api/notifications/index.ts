@@ -11,8 +11,12 @@ import {
 } from '../lib/fcm';
 import { isWebPushConfigured, sendWebPushNotification } from '../lib/webpush';
 import { sendSchoolEmail } from '../lib/email';
+import { requireSession, type Role } from '../lib/rbac';
 
 const notificationsApp = new Hono();
+
+const requireAnyUser = requireSession();
+const requireManager = requireSession({ roles: ['Director', 'Principal', 'SuperAdmin'] as Role[] });
 
 const WEB_STAFF_ROLES = ['Director', 'Principal', 'Staff', 'SuperAdmin', 'Teachers'];
 
@@ -408,9 +412,13 @@ async function broadcastHandler(c: any) {
 }
 
 notificationsApp.get('/topics', async (c) => {
-  const db = getDB(c);
-  const authUser = await getAuthUser(c);
-  const schoolId = getRequestSchoolId(c, authUser);
+  // SECURITY FIX: this route called getAuthUser() but never rejected a null
+  // result, so anyone could enumerate a tenant's FCM topic keys and subscriber
+  // counts (and, on a shared worker, the default tenant's).
+  const guard = await requireAnyUser(c);
+  if (!guard.ok) return guard.response;
+  const db = guard.db;
+  const schoolId = guard.schoolId;
   const topics = generateSchoolTopics(schoolId);
 
   let subscriberCounts: Record<string, number> = {};
