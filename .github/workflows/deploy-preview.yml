@@ -28,7 +28,11 @@ on:
       - api/**
       - db_migrations/**
       - scripts/verify-phase*.mjs
+      - scripts/verify-routing.mjs
+      - schools.json
       - wrangler.toml
+      - wrangler.admin.toml
+      - components/website/**
       - .github/workflows/deploy-preview.yml
 
 permissions:
@@ -57,6 +61,13 @@ jobs:
       # produce a deployed worker.
       - name: Verify Phase 0 (internal M2M signing)
         run: node scripts/verify-phase0-signing.mjs
+
+      # Routing is a static property of the wrangler configs, so this needs no
+      # database and no deploy. It runs here rather than only on PRs because the
+      # wildcard it forbids is exactly the kind of change that looks harmless in
+      # review and only breaks schools mid-provisioning in production.
+      - name: Verify routing contract
+        run: node scripts/verify-routing.mjs
 
       - name: Install wrangler
         run: npm i --no-save wrangler@4.47.0

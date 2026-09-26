@@ -90,6 +90,21 @@ export interface WelcomeEmailInput {
   name?: string;
   schoolName?: string;
   portalUrl: string;
+  /**
+   * True when the school's dedicated worker has not finished deploying, so
+   * `portalUrl` does not yet resolve to a portal.
+   *
+   * This is the normal state at registration, because instant-trial
+   * auto-provisioning is asynchronous: it commits the school to schools.json and
+   * a later deploy creates the worker. The subdomain meanwhile falls through to
+   * the platform's public website, so a "go to your school portal" button
+   * pointing at it lands the director on the marketing landing page. When this
+   * flag is set, the portal address is shown as plain text and the only
+   * clickable link is the platform website.
+   */
+  portalPending?: boolean;
+  /** Public website, used as the actionable link while `portalPending`. */
+  platformUrl?: string;
   trialDays?: number;
 }
 
@@ -110,18 +125,36 @@ export async function sendWelcomeEmail(env: any, input: WelcomeEmailInput): Prom
   const name = input.name || 'स्कूल डायरेक्टर';
   const schoolName = input.schoolName || 'आपका स्कूल';
   const days = input.trialDays || 7;
+  const pending = input.portalPending !== false;
+  const platformUrl = input.platformUrl || 'https://pragnya.nasven.com';
+
+  // While the portal is pending the only link we can honestly offer is the
+  // platform website. `portalUrl` is printed as plain text, never as an
+  // actionable "go to your portal" link, because following it right now lands
+  // the director on the marketing landing page.
+  const portalLine = pending
+    ? [
+      '<p style="font-size:14px;margin:0 0 24px;">आपके स्कूल का निजी पोर्टल <strong>' + input.portalUrl + '</strong> पर तैयार हो रहा है। पोर्टल तैयार होने पर हम आपको ईमेल करेंगे। तब तक नीचे दिए गए लिंक से प्लेटफ़ॉर्म देख सकते हैं:</p>',
+      '<p style="text-align:center;margin:0 0 24px;">',
+      '<a href="' + platformUrl + '" style="background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:bold;font-size:14px;display:inline-block;">प्लेटफ़ॉर्म देखें</a>',
+      '</p>',
+      '<p style="font-size:12px;color:#64748b;margin:0 0 4px;">आपका पोर्टल (तैयार होने पर): ' + input.portalUrl + '</p>',
+      '<p style="font-size:12px;color:#64748b;margin:0 0 4px;">यदि पोर्टल अभी तैयार नहीं हुआ है तो कृपया 10–20 मिनट बाद पुनः प्रयास करें।</p>',
+    ]
+    : [
+      '<p style="font-size:14px;margin:0 0 24px;">आपके स्कूल का निजी पोर्टल तैयार है। लॉगिन करने के लिए नीचे दिए गए लिंक का उपयोग करें:</p>',
+      '<p style="text-align:center;margin:0 0 24px;">',
+      '<a href="' + input.portalUrl + '" style="background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:bold;font-size:14px;display:inline-block;">अपने स्कूल पोर्टल पर जाएं</a>',
+      '</p>',
+      '<p style="font-size:12px;color:#64748b;margin:0 0 4px;">आपका पोर्टल: <a href="' + input.portalUrl + '" style="color:#4f46e5;">' + input.portalUrl + '</a></p>',
+    ];
 
   const html = [
     '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1e293b;line-height:1.6">',
     '<h1 style="font-size:20px;color:#4f46e5;margin:0 0 16px;">Pragnya Mitra — स्कूल प्रबंधन प्लेटफ़ॉर्म</h1>',
     '<p style="font-size:14px;margin:0 0 12px;">नमस्ते ' + name + ',</p>',
     '<p style="font-size:14px;margin:0 0 12px;">आपका स्कूल <strong>' + schoolName + '</strong> सफलतापूर्वक पंजीकृत हो चुका है और <strong>' + days + '-दिन का FREE TRIAL तुरंत सक्रिय</strong> हो गया है। किसी approval की आवश्यकता नहीं है।</p>',
-    '<p style="font-size:14px;margin:0 0 24px;">आपके स्कूल का निजी पोर्टल कुछ ही मिनटों में तैयार हो जाएगा। लॉगिन करने के लिए नीचे दिए गए लिंक का उपयोग करें:</p>',
-    '<p style="text-align:center;margin:0 0 24px;">',
-    '<a href="' + input.portalUrl + '" style="background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:bold;font-size:14px;display:inline-block;">अपने स्कूल पोर्टल पर जाएं</a>',
-    '</p>',
-    '<p style="font-size:12px;color:#64748b;margin:0 0 4px;">आपका पोर्टल: <a href="' + input.portalUrl + '" style="color:#4f46e5;">' + input.portalUrl + '</a></p>',
-    '<p style="font-size:12px;color:#64748b;margin:0 0 4px;">यदि पोर्टल अभी तैयार नहीं हुआ है तो कृपया 10–20 मिनट बाद पुनः प्रयास करें।</p>',
+  ].join('') + portalLine.join('') + [
     '<p style="font-size:12px;color:#94a3b8;margin:0;border-top:1px solid #e2e8f0;padding-top:12px;">किसी भी सहायता के लिए संपर्क करें: pragnya@navasanganakah.com</p>',
     '</div>'
   ].join('');
@@ -133,13 +166,20 @@ export async function sendWelcomeEmail(env: any, input: WelcomeEmailInput): Prom
     '',
     'आपका स्कूल "' + schoolName + '" सफलतापूर्वक पंजीकृत हो चुका है और ' + days + '-दिन का FREE TRIAL तुरंत सक्रिय हो गया है। किसी approval की आवश्यकता नहीं है।',
     '',
-    'आपके स्कूल का निजी पोर्टल कुछ ही मिनटों में तैयार हो जाएगा:',
+  ].concat(pending ? [
+    'आपके स्कूल का निजी पोर्टल तैयार हो रहा है:',
     input.portalUrl,
+    'पोर्टल तैयार होने पर हम आपको ईमेल करेंगे। तब तक यहाँ से प्लेटफ़ॉर्म देख सकते हैं:',
+    platformUrl,
     '',
     'यदि पोर्टल अभी तैयार नहीं हुआ है तो कृपया 10–20 मिनट बाद पुनः प्रयास करें।',
+  ] : [
+    'आपके स्कूल का निजी पोर्टल तैयार है:',
+    input.portalUrl,
+  ]).concat([
     '',
     'सहायता: pragnya@navasanganakah.com'
-  ].join('\n');
+  ]).join('\n');
 
   try {
     await binding.send({

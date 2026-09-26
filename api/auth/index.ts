@@ -431,12 +431,40 @@ authApp.post('/register', async (c) => {
     console.warn('[Register] auto-provision error:', provErr);
   }
 
+  // Is the dedicated worker actually serving this school yet?
+  //
+  // Auto-provisioning is asynchronous: it commits the school to schools.json,
+  // which triggers a deploy that creates the D1/R2/KV and deploys the per-school
+  // worker. Until that finishes, `<slug>.pragnya.nasven.com` does not resolve to a
+  // school portal. So at registration time this is essentially always false, and
+  // that is the point: previously the response advertised the URL unconditionally
+  // and the customer opened it to the platform's marketing website.
+  //
+  // Re-read the tenant rather than assuming, because provisionDedicatedWorker
+  // returns `skipped` when the school is already pending or live, in which case
+  // the URL is real and should be handed over.
+  let portalLive = false;
+  try {
+    const tenant = await db.prepare('SELECT provisioning_status FROM school_tenants WHERE id = ?')
+      .bind(schoolId).first();
+    portalLive = !!tenant && String(tenant.provisioning_status || '') === 'live';
+  } catch (_) {
+    // Non-fatal: fall through to "not live yet", which is the safe direction
+  }
+
+  const portalUrl = 'https://' + portalDomain;
+  // The public website. Only reachable one, and the thing we can honestly offer
+  // while the dedicated worker is still deploying.
+  const platformUrl = 'https://pragnya.nasven.com';
+
   try {
     await sendWelcomeEmail(c.env, {
       to: email,
       name: directorName,
       schoolName,
-      portalUrl: 'https://' + portalDomain,
+      portalUrl,
+      portalPending: !portalLive,
+      platformUrl,
       trialDays: TRIAL_DAYS,
     });
   } catch (_) {
@@ -448,8 +476,20 @@ authApp.post('/register', async (c) => {
     message: 'पंजीकरण सफल! आपके स्कूल का 7-दिन FREE TRIAL तुरंत सक्रिय हो गया है। ' + provisioningMessage,
     schoolId,
     subdomain,
-    dedicatedDomain: portalDomain,
-    dedicatedUrl: 'https://' + portalDomain,
+    // The subdomain this school WILL have. Always present so the UI can show
+    // what to expect, and clearly separate from the live link below.
+    portalDomain,
+    // `live` once the dedicated worker is serving the school, `provisioning`
+    // until then. The client must not present a `provisioning` URL as a working
+    // portal link.
+    portalStatus: portalLive ? 'live' : 'provisioning',
+    // Null while provisioning. Deliberately not the subdomain: a link that
+    // resolves to the marketing website is worse than no link, because the
+    // customer believes they have reached their portal.
+    dedicatedDomain: portalLive ? portalDomain : null,
+    dedicatedUrl: portalLive ? portalUrl : null,
+    // What the customer can actually open right now.
+    platformUrl,
     trialEndsAt: trialEndDate,
   });
 });
