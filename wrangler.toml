@@ -80,7 +80,13 @@ id = "9158f79162824ee1b52e75fe51af71f8"
 [[env.preview.send_email]]
 name = "SEND_EMAIL"
 
+# `vars` are NOT inherited by environments, so APP_BASE_URL must be repeated
+# here or wrangler warns and the preview worker has none. The deploy-preview
+# workflow overrides it with the real workers.dev URL once that hostname is
+# known, so password-reset links point at the running preview and not a
+# placeholder.
 [env.preview.vars]
+APP_BASE_URL = "https://school-management-preview.workers.dev"
 ENVIRONMENT = "preview"
 WEB_PUSH_VAPID_PUBLIC_KEY = "BJlcKjZBfC5YzmoIxZ1ndHRJAiemr7Rdi4LBuceK6GI7N6g9aV3ctHpKCtZ8RbaPugnfvfJQNBiRTi63CGipHP4"
 WEB_PUSH_VAPID_SUBJECT = "mailto:pragnya@navasanganakah.com"
