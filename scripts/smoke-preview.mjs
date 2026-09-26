@@ -98,6 +98,25 @@ expectStatus('health endpoint', 200, '/api/health');
 // no trailing slash.
 expectStatus('public config', 200, '/api/config');
 
+// A dedicated school worker and the platform worker are different targets, not
+// different versions of the same one, and a few probes have a different correct
+// answer on each. /api/config reports which one this is.
+//
+// The distinction matters for /api/admin/*: a dedicated worker refuses the whole
+// admin surface at the routing layer, so those requests never reach the handler
+// and the per-endpoint token gate is not what answers them. A probe written only
+// for the platform would then report a false failure against a perfectly correct
+// school worker, and someone chasing it might be tempted to weaken the platform
+// gate to satisfy the test.
+const IS_DEDICATED = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(BODY_FILE, 'utf-8')).isDedicated === true;
+  } catch (_) {
+    return false;
+  }
+})();
+console.log('  target: ' + (IS_DEDICATED ? 'dedicated school worker' : 'platform / shared worker') + '\n');
+
 // ---- Phase 0 ----------------------------------------------------------------
 // 503 is the intended fail-closed answer when PLATFORM_BOOTSTRAP_TOKEN is unset;
 // 401 is the answer when it is set. Both refuse, so either proves the gate is
@@ -117,11 +136,19 @@ expectRefusal('bootstrap never runs unauthenticated', '/api/admin/bootstrap', 'P
 // also a refusal. Asserting the specific status does see it, and 500 is never
 // correct here: it means the gate itself is broken, not that the caller was
 // denied.
-expectStatus(
-  'bootstrap rejects a wrong token with 401', 401,
-  '/api/admin/bootstrap', 'POST',
-  ['X-Bootstrap-Token: definitely-not-the-real-token-0000'],
-);
+//
+// On a dedicated worker 403 is the correct answer instead, because the admin
+// router rejects the request before the token gate runs. Skipping it there is
+// deliberate: the platform worker is where that gate has to be proven.
+if (IS_DEDICATED) {
+  console.log('  SKIP  bootstrap wrong-token gate (admin surface is refused at the routing layer here)');
+} else {
+  expectStatus(
+    'bootstrap rejects a wrong token with 401', 401,
+    '/api/admin/bootstrap', 'POST',
+    ['X-Bootstrap-Token: definitely-not-the-real-token-0000'],
+  );
+}
 
 // ---- Phase 1 ----------------------------------------------------------------
 // These reads used to answer with no session at all, or with any role.
