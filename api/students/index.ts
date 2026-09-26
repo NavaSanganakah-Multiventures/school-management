@@ -4,8 +4,23 @@ import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { getPlanAccess } from '../lib/plan-access';
 import { isClassTeacher } from '../lib/permissions';
 import { logActivity, resolveActorName } from '../lib/activity-logger';
+import {
+  canActOnStudent,
+  getFamilyStudentScope,
+  redactListForRole,
+  requireClassTeacherAccess,
+  requireSession,
+  type Role,
+} from '../lib/rbac';
 
 const studentsApp = new Hono<{ Bindings: any }>();
+
+// Route guards (deny-by-default; see api/lib/rbac.ts).
+const requireAnyUser = requireSession();
+const requireManager = requireSession({ roles: ['Director', 'Principal'] as Role[] });
+const requireAcademics = requireSession({
+  roles: ['Director', 'Principal', 'Staff', 'Teacher'] as Role[],
+});
 
 function mapStudent(r: any): any {
   if (!r) return null;
@@ -65,6 +80,26 @@ const CUSTOM_FIELD_TYPES = ['text', 'number', 'dropdown', 'date', 'checkbox'];
 
 function isFieldManager(role: string) {
   return role === 'Director' || role === 'Principal';
+}
+
+/**
+ * Strips PII that a given role has no operational need for.
+ * Management keeps full detail; teaching and family roles get nulls.
+ * Previously every authenticated role received Aadhaar, Samagra and bank
+ * details for every student in the school from the list endpoint.
+ */
+function mapStudentForRole(r: any, role: string) {
+  const s = mapStudent(r);
+  if (!s) return null;
+  const management = role === 'Director' || role === 'Principal';
+  if (!management) {
+    s.aadhaarNumber = '';
+    s.samagraId = '';
+    s.bankAccountNo = '';
+    s.bankName = '';
+    s.ifscCode = '';
+  }
+  return s;
 }
 
 function parseCustomFieldOptions(raw: any): string[] {
@@ -177,18 +212,43 @@ async function writeStudent(db: any, schoolId: any, id: any, v: any) {
 }
 
 // GET /api/students
+//
+// AUTHORIZATION CHANGE
+// This used to require only "any valid token", so a Parent or Student account
+// received every student's full record for the whole school, including Aadhaar,
+// Samagra ID and bank details. Now:
+//   - Parent/Student see ONLY their own linked children (parent_student_links,
+//     migration 0039). An unlinked account sees nothing — fail closed.
+//   - Teaching roles keep whole-school visibility (they need it) but with PII
+//     redacted.
+//   - Management sees everything.
 studentsApp.get('/', async (c) => {
-  const db = getDB(c);
+  const guard = await requireAnyUser(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
+
   const className = c.req.query('class');
   const status = c.req.query('status');
   const search = (c.req.query('q') || '').trim().toLowerCase();
 
-  const rows = await db.prepare('SELECT * FROM students WHERE school_id = ? ORDER BY created_at DESC').bind(schoolId).all();
-  let students = (rows.results || []).map(mapStudent);
+  const familyScope = await getFamilyStudentScope(guard);
+  let sql = 'SELECT * FROM students WHERE school_id = ?';
+  const binds: any[] = [schoolId];
+  if (familyScope) {
+    if (familyScope.size === 0) {
+      return c.json({ success: true, total: 0, students: [] });
+    }
+    const placeholders = Array.from(familyScope).map(() => '?').join(',');
+    sql += ' AND id IN (' + placeholders + ')';
+    binds.push(...Array.from(familyScope));
+  }
+  sql += ' ORDER BY created_at DESC';
+
+  const rows = await db.prepare(sql).bind(...binds).all();
+  let students: any[] = (rows.results || [])
+    .map((r: any) => mapStudentForRole(r, user.role))
+    .filter(Boolean);
 
   if (className && className !== 'All') {
     students = students.filter((s) => s.className.toLowerCase() === className.toLowerCase());
@@ -218,25 +278,20 @@ studentsApp.get('/', async (c) => {
 
 // GET /api/students/custom-fields — active defs for this school
 studentsApp.get('/custom-fields', async (c) => {
-  const db = getDB(c);
+  const guard = await requireAnyUser(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
   const fields = await getCustomFieldDefs(db, schoolId);
   return c.json({ success: true, fields });
 });
 
 // POST /api/students/custom-fields — create a new field (Director/Principal)
 studentsApp.post('/custom-fields', async (c) => {
-  const db = getDB(c);
+  const guard = await requireManager(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  if (!isFieldManager(authUser.role)) {
-    return c.json({ success: false, message: 'केवल निदेशक या प्राचार्य ही अतिरिक्त फ़ील्ड जोड़ सकते हैं।' }, 403);
-  }
-  const schoolId = getRequestSchoolId(c, authUser);
   const body = await c.req.json().catch(() => ({}));
   const fieldKey = String(body.fieldKey || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
   const label = String(body.label || '').trim();
@@ -260,7 +315,7 @@ studentsApp.post('/custom-fields', async (c) => {
     id, schoolId, fieldKey, label, fieldType, options,
     body.required ? 1 : 0,
     Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0,
-    authUser.sub, new Date().toISOString(), new Date().toISOString()
+    user.id, new Date().toISOString(), new Date().toISOString()
   ).run();
 
   const field = (await getCustomFieldDefs(db, schoolId)).find((f: any) => f.id === id) || null;
@@ -269,14 +324,10 @@ studentsApp.post('/custom-fields', async (c) => {
 
 // PUT /api/students/custom-fields/:fieldId — update def (Director/Principal)
 studentsApp.put('/custom-fields/:fieldId', async (c) => {
-  const db = getDB(c);
+  const guard = await requireManager(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  if (!isFieldManager(authUser.role)) {
-    return c.json({ success: false, message: 'केवल निदेशक या प्राचार्य ही अतिरिक्त फ़ील्ड संपादित कर सकते हैं।' }, 403);
-  }
-  const schoolId = getRequestSchoolId(c, authUser);
   const fieldId = c.req.param('fieldId');
   const existing = await db.prepare(
     'SELECT * FROM student_custom_field_defs WHERE id = ? AND school_id = ?'
@@ -305,14 +356,10 @@ studentsApp.put('/custom-fields/:fieldId', async (c) => {
 
 // DELETE /api/students/custom-fields/:fieldId — delete def + its values (Director/Principal)
 studentsApp.delete('/custom-fields/:fieldId', async (c) => {
-  const db = getDB(c);
+  const guard = await requireManager(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  if (!isFieldManager(authUser.role)) {
-    return c.json({ success: false, message: 'केवल निदेशक या प्राचार्य ही अतिरिक्त फ़ील्ड हटा सकते हैं।' }, 403);
-  }
-  const schoolId = getRequestSchoolId(c, authUser);
   const fieldId = c.req.param('fieldId');
   const existing = await db.prepare(
     'SELECT * FROM student_custom_field_defs WHERE id = ? AND school_id = ?'
@@ -326,15 +373,19 @@ studentsApp.delete('/custom-fields/:fieldId', async (c) => {
 });
 
 // GET /api/students/:id
+//
+// Family roles are additionally restricted to their own linked children.
 studentsApp.get('/:id', async (c) => {
-  const db = getDB(c);
+  const guard = await requireAnyUser(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
   const id = c.req.param('id');
   const row = await db.prepare('SELECT * FROM students WHERE school_id = ? AND (id = ? OR scholar_number = ?)').bind(schoolId, id, id).first();
-  const student = mapStudent(row);
+  if (row && !(await canActOnStudent(guard, row.id))) {
+    return c.json({ success: false, message: 'आपको इस छात्र की जानकारी देखने की अनुमति नहीं है।' }, 403);
+  }
+  const student = mapStudentForRole(row, user.role);
   if (!student) return c.json({ success: false, message: 'छात्र रिकॉर्ड नहीं मिला।' }, 404);
   // Attach per-school extra field values for this student
   try {
@@ -347,28 +398,25 @@ studentsApp.get('/:id', async (c) => {
 });
 
 // POST /api/students
+//
+// AUTHORIZATION CHANGE
+// The old check was `if (role === 'Staff') { verifyClassTeacher() }`, which
+// denied only Staff. A 'Parent' or 'Student' token (valid since migration 0034)
+// therefore passed and could create student records. The allowlist is now
+// explicit: management always, teaching roles only for their own class.
 studentsApp.post('/', async (c) => {
-  const db = getDB(c);
+  const guard = await requireAcademics(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
   const body = await c.req.json().catch(() => ({}));
 
   if (!body.fullName || !body.className || !body.fatherName || !body.parentPhone) {
     return c.json({ success: false, message: 'छात्र का नाम, कक्षा, पिता का नाम और अभिभावक फोन नंबर अनिवार्य हैं।' }, 400);
   }
 
-  // Permission Check: If Staff, must be the assigned class teacher of this class
-  if (authUser.role === 'Staff') {
-    const isTeacher = await isClassTeacher(db, schoolId, body.className, authUser.sub);
-    if (!isTeacher) {
-      return c.json({
-        success: false,
-        message: `केवल अधिकृत कक्षा अध्यापक या प्रधानाचार्य/निदेशक ही कक्षा "${body.className}" में छात्र प्रवेश दर्ज कर सकते हैं।`,
-      }, 403);
-    }
-  }
+  const denied = await requireClassTeacherAccess(c, guard, String(body.className));
+  if (denied) return denied;
 
   const planId = await getPlanId(db, schoolId);
   const access = await getPlanAccess(planId, db);
@@ -395,10 +443,10 @@ studentsApp.post('/', async (c) => {
     console.warn('[Students] Error saving custom fields on add:', err);
   }
 
-  const row = await db.prepare('SELECT * FROM students WHERE id = ?').bind(id).first();
+  const row = await db.prepare('SELECT * FROM students WHERE id = ? AND school_id = ?').bind(id, schoolId).first();
   const student = mapStudent(row);
 
-  const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+  const actorName = await resolveActorName(db, user.id, user.role);
 
   // 1. Record Initial Admission in Academic History
   try {
@@ -415,9 +463,9 @@ studentsApp.post('/', async (c) => {
       body.academicSession || '2026-2027',
       student.className,
       student.section || 'A',
-      authUser.sub,
+      user.id,
       actorName,
-      authUser.role,
+      user.role,
       body.remarks || 'प्रथम स्कॉलर प्रवेश (Initial Admission)'
     ).run();
   } catch (err) {
@@ -427,9 +475,9 @@ studentsApp.post('/', async (c) => {
   // 2. Record in School Activity Log
   await logActivity(db, {
     schoolId,
-    userId: authUser.sub,
+    userId: user.id,
     userName: actorName,
-    userRole: authUser.role,
+    userRole: user.role,
     actionType: 'STUDENT_ADD',
     actionTitle: 'नया स्कॉलर प्रवेश',
     description: `कक्षा ${student.className} (वर्ग ${student.section}) में नए छात्र ${student.fullName} (स्कॉलर सं.: ${student.scholarNumber}) का प्रवेश दर्ज किया गया।`,
@@ -443,15 +491,22 @@ studentsApp.post('/', async (c) => {
 });
 
 // GET /api/students/:id/history
+//
+// SECURITY FIX: this route previously called getAuthUser() but never rejected a
+// null result, so anyone who knew or guessed a student id or scholar number
+// could read that student's full academic + TC history with no authentication.
 studentsApp.get('/:id/history', async (c) => {
-  const db = getDB(c);
+  const guard = await requireAnyUser(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  const schoolId = getRequestSchoolId(c, authUser);
   const id = c.req.param('id');
 
   const studentRow = await db.prepare('SELECT * FROM students WHERE school_id = ? AND (id = ? OR scholar_number = ?)').bind(schoolId, id, id).first();
   if (!studentRow) return c.json({ success: false, message: 'छात्र रिकॉर्ड नहीं मिला।' }, 404);
+  if (!(await canActOnStudent(guard, studentRow.id))) {
+    return c.json({ success: false, message: 'आपको इस छात्र की रिकॉर्ड देखने की अनुमति नहीं है।' }, 403);
+  }
 
   const historyRows = await db.prepare(
     'SELECT * FROM student_academic_history WHERE school_id = ? AND (student_id = ? OR scholar_number = ?) ORDER BY event_date ASC, created_at ASC'
@@ -515,11 +570,10 @@ studentsApp.get('/:id/history', async (c) => {
 
 // POST /api/students/:id/readmit (Re-Admission after gap/transfer)
 studentsApp.post('/:id/readmit', async (c) => {
-  const db = getDB(c);
+  const guard = await requireAcademics(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
   const id = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
 
@@ -535,16 +589,9 @@ studentsApp.post('/:id/readmit', async (c) => {
   const academicSession = body.academicSession || '2026-2027';
   const remarks = body.remarks || 'अन्य विद्यालय में अध्ययन के उपरांत पुनः प्रवेश दर्ज हुआ।';
 
-  // Permission Check: If Staff, must be class teacher of target class
-  if (authUser.role === 'Staff') {
-    const isTeacher = await isClassTeacher(db, schoolId, newClass, authUser.sub);
-    if (!isTeacher) {
-      return c.json({
-        success: false,
-        message: `केवल अधिकृत कक्षा अध्यापक या प्रधानाचार्य/निदेशक ही कक्षा "${newClass}" में पुनः प्रवेश दर्ज कर सकते हैं।`,
-      }, 403);
-    }
-  }
+  // Teaching roles may only re-admit into a class they are assigned to.
+  const readmitDenied = await requireClassTeacherAccess(c, guard, newClass);
+  if (readmitDenied) return readmitDenied;
 
   // Update student status to Active and update class/section/intermediate details
   await db.prepare(
@@ -563,7 +610,7 @@ studentsApp.post('/:id/readmit', async (c) => {
     schoolId
   ).run();
 
-  const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+  const actorName = await resolveActorName(db, user.id, user.role);
   const scholarNum = existingRow.scholar_number || existingRow.roll_number || '';
 
   // Record Re_Admission event in Academic History
@@ -584,24 +631,24 @@ studentsApp.post('/:id/readmit', async (c) => {
       'अन्य विद्यालय में अध्ययन के उपरांत पुनः प्रवेश',
       intermediateSchool,
       intermediateTcNo,
-      authUser.sub,
+      user.id,
       actorName,
-      authUser.role,
+      user.role,
       remarks
     ).run();
   } catch (err) {
     console.warn('[Students] Error recording re-admission history:', err);
   }
 
-  const updatedRow = await db.prepare('SELECT * FROM students WHERE id = ?').bind(id).first();
+  const updatedRow = await db.prepare('SELECT * FROM students WHERE id = ? AND school_id = ?').bind(id, schoolId).first();
   const student = mapStudent(updatedRow);
 
   // Record in Activity Log
   await logActivity(db, {
     schoolId,
-    userId: authUser.sub,
+    userId: user.id,
     userName: actorName,
-    userRole: authUser.role,
+    userRole: user.role,
     actionType: 'STUDENT_READMIT',
     actionTitle: 'छात्र पुनः प्रवेश (Re-Admission)',
     description: `पूर्व छात्र ${student.fullName} (स्कॉलर सं.: ${student.scholarNumber}) का कक्षा ${newClass} (वर्ग ${newSection}) में पुनः प्रवेश दर्ज किया गया। मध्यवर्ती स्कूल: ${intermediateSchool || 'उल्लेखित नहीं'}`,
@@ -619,23 +666,24 @@ studentsApp.post('/:id/readmit', async (c) => {
 });
 
 // PUT /api/students/:id
+//
+// A teaching role must own BOTH the source and the destination class, otherwise
+// a class teacher could move a student out of a class they do not teach.
 studentsApp.put('/:id', async (c) => {
-  const db = getDB(c);
+  const guard = await requireAcademics(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
   const id = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
   const existingRow = await db.prepare('SELECT * FROM students WHERE school_id = ? AND id = ?').bind(schoolId, id).first();
   if (!existingRow) return c.json({ success: false, message: 'छात्र रिकॉर्ड नहीं मिला।' }, 404);
 
-  // If staff, verify class teacher permission
-  if (authUser.role === 'Staff') {
-    const isTeacher = await isClassTeacher(db, schoolId, existingRow.class_name, authUser.sub);
-    if (!isTeacher) {
-      return c.json({ success: false, message: 'केवल अधिकृत कक्षा अध्यापक या प्रशासनिक अधिकारी ही छात्र विवरण बदल सकते हैं।' }, 403);
-    }
+  const sourceDenied = await requireClassTeacherAccess(c, guard, existingRow.class_name);
+  if (sourceDenied) return sourceDenied;
+  if (body.className && body.className !== existingRow.class_name) {
+    const targetDenied = await requireClassTeacherAccess(c, guard, String(body.className));
+    if (targetDenied) return targetDenied;
   }
 
   const merged = Object.assign({}, mapStudent(existingRow), body);
@@ -650,7 +698,7 @@ studentsApp.put('/:id', async (c) => {
     console.warn('[Students] Error saving custom fields on update:', err);
   }
 
-  const row = await db.prepare('SELECT * FROM students WHERE id = ?').bind(id).first();
+  const row = await db.prepare('SELECT * FROM students WHERE id = ? AND school_id = ?').bind(id, schoolId).first();
   const student = mapStudent(row);
   try {
     student.customFields = await readCustomFieldValues(db, schoolId, id);
@@ -659,12 +707,12 @@ studentsApp.put('/:id', async (c) => {
     student.customFields = {};
   }
 
-  const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+  const actorName = await resolveActorName(db, user.id, user.role);
   await logActivity(db, {
     schoolId,
-    userId: authUser.sub,
+    userId: user.id,
     userName: actorName,
-    userRole: authUser.role,
+    userRole: user.role,
     actionType: 'STUDENT_UPDATE',
     actionTitle: 'छात्र विवरण अद्यतन',
     description: `छात्र ${student.fullName} (स्कॉलर सं.: ${student.scholarNumber}, कक्षा: ${student.className}) का रिकॉर्ड अद्यतित किया गया।`,
@@ -678,14 +726,10 @@ studentsApp.put('/:id', async (c) => {
 
 // POST /api/students/:id/issue-tc
 studentsApp.post('/:id/issue-tc', async (c) => {
-  const db = getDB(c);
+  const guard = await requireManager(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  if (authUser.role !== 'Director' && authUser.role !== 'Principal') {
-    return c.json({ success: false, message: 'केवल निदेशक या प्राचार्य ही टी.सी. निर्गत कर सकते हैं।' }, 403);
-  }
-  const schoolId = getRequestSchoolId(c, authUser);
   const id = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
   const row = await db.prepare('SELECT * FROM students WHERE school_id = ? AND id = ?').bind(schoolId, id).first();
@@ -712,10 +756,10 @@ studentsApp.post('/:id/issue-tc', async (c) => {
 
   await db.prepare('UPDATE students SET status = ?, tc_issue_date = ?, remarks = ?, updated_at = ? WHERE id = ? AND school_id = ?')
     .bind('Inactive', today, reason, new Date().toISOString(), id, schoolId).run();
-  const updated = await db.prepare('SELECT * FROM students WHERE id = ?').bind(id).first();
+  const updated = await db.prepare('SELECT * FROM students WHERE id = ? AND school_id = ?').bind(id, schoolId).first();
   const student = mapStudent(updated);
 
-  const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+  const actorName = await resolveActorName(db, user.id, user.role);
 
   // Record TC issuance in Academic History
   try {
@@ -735,9 +779,9 @@ studentsApp.post('/:id/issue-tc', async (c) => {
       tcNum,
       today,
       reason,
-      authUser.sub,
+      user.id,
       actorName,
-      authUser.role,
+      user.role,
       tcDetails || 'स्थानांतरण प्रमाण पत्र निर्गत (TC Issued)'
     ).run();
   } catch (err) {
@@ -747,9 +791,9 @@ studentsApp.post('/:id/issue-tc', async (c) => {
   // Record in Activity Log
   await logActivity(db, {
     schoolId,
-    userId: authUser.sub,
+    userId: user.id,
     userName: actorName,
-    userRole: authUser.role,
+    userRole: user.role,
     actionType: 'TC_ISSUE',
     actionTitle: 'स्थानांतरण प्रमाण पत्र (TC) जारी',
     description: `छात्र ${student.fullName} (कक्षा ${student.className}, स्कॉलर सं.: ${student.scholarNumber}) को टीसी (${tcNum}) जारी की गई। कारण: ${reason}`,
@@ -763,15 +807,16 @@ studentsApp.post('/:id/issue-tc', async (c) => {
 });
 
 // DELETE /api/students/:id
+//
+// AUTHORIZATION CHANGE
+// The old check was `if (role === 'Staff') { deny }`, which allowed every other
+// role — including Parent and Student — to delete the school's student records.
+// Now management only.
 studentsApp.delete('/:id', async (c) => {
-  const db = getDB(c);
+  const guard = await requireManager(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  if (authUser.role === 'Staff') {
-    return c.json({ success: false, message: 'केवल प्रधानाचार्य या निदेशक ही छात्र रिकॉर्ड हटा सकते हैं।' }, 403);
-  }
-  const schoolId = getRequestSchoolId(c, authUser);
   const id = c.req.param('id');
   const row = await db.prepare('SELECT * FROM students WHERE school_id = ? AND id = ?').bind(schoolId, id).first();
   if (!row) return c.json({ success: false, message: 'छात्र नहीं मिला।' }, 404);
@@ -779,12 +824,12 @@ studentsApp.delete('/:id', async (c) => {
   const full = (row.first_name || '') + (row.last_name ? ' ' + row.last_name : '');
   await db.prepare('DELETE FROM students WHERE id = ? AND school_id = ?').bind(id, schoolId).run();
 
-  const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+  const actorName = await resolveActorName(db, user.id, user.role);
   await logActivity(db, {
     schoolId,
-    userId: authUser.sub,
+    userId: user.id,
     userName: actorName,
-    userRole: authUser.role,
+    userRole: user.role,
     actionType: 'STUDENT_DELETE',
     actionTitle: 'छात्र रिकॉर्ड हटाया गया',
     description: `छात्र ${full} (कक्षा ${row.class_name}, स्कॉलर सं.: ${row.scholar_number || row.roll_number}) का रिकॉर्ड हटाया गया।`,

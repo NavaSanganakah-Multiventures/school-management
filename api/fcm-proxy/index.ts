@@ -87,21 +87,10 @@ app.post('/register-token', async (c) => {
     try {
       const db = c.env.DB;
 
-      await db.prepare(
-        "CREATE TABLE IF NOT EXISTS user_notification_tokens (" +
-        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-        "user_id TEXT NOT NULL, " +
-        "device_token TEXT NOT NULL, " +
-        "platform TEXT NOT NULL DEFAULT 'web', " +
-        "device_info TEXT, " +
-        "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
-        "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
-        "UNIQUE(user_id, device_token)" +
-        ")"
-      ).run().catch((e: any) => {
-        console.warn('[FCM] Table check:', e.message);
-      });
-
+      // No runtime DDL. db_migrations/0010 owns user_notification_tokens, and
+      // db_migrations/0006 owns fcm_device_tokens. Creating them here would
+      // silently install a reduced schema with no migration-ledger entry,
+      // hiding migration drift. A failure here must surface.
       console.log('[FCM] Checking for existing token...');
       const existing = await db.prepare(
         "SELECT id FROM user_notification_tokens " +
@@ -140,26 +129,10 @@ app.post('/register-token', async (c) => {
         ).run();
       }
 
-      // Also sync to fcm_device_tokens table
+      // Also sync to fcm_device_tokens table (owned by db_migrations/0006)
       try {
         const id = hasRealToken ? ('devtok-' + Date.now()) : ('web-' + schoolId + '-' + userId);
         const now = new Date().toISOString();
-        await db.prepare(
-          "CREATE TABLE IF NOT EXISTS fcm_device_tokens (" +
-          "id TEXT PRIMARY KEY, " +
-          "school_id TEXT NOT NULL, " +
-          "user_id TEXT, " +
-          "role TEXT DEFAULT 'Parents', " +
-          "device_token TEXT UNIQUE NOT NULL, " +
-          "device_type TEXT DEFAULT 'mobile_app', " +
-          "platform TEXT DEFAULT 'flutter', " +
-          "subscribed_topics TEXT DEFAULT '[]', " +
-          "is_active INTEGER DEFAULT 1, " +
-          "last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
-          "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
-          ")"
-        ).run().catch(() => {});
-
         await db.prepare(
           "INSERT INTO fcm_device_tokens " +
           "(id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at) " +
@@ -176,7 +149,8 @@ app.post('/register-token', async (c) => {
         ).bind(id, schoolId, String(userId), role, deviceToken, deviceType, platform, JSON.stringify(topics), now, now).run();
         console.log('[FCM] Token stored in fcm_device_tokens for school:', schoolId);
       } catch (syncErr: any) {
-        console.log('[FCM] fcm_device_tokens sync skipped:', syncErr.message);
+        // Best-effort secondary table; the primary write above already succeeded.
+        console.warn('[FCM] fcm_device_tokens sync skipped:', syncErr && syncErr.message);
       }
 
       console.log('[FCM] Token successfully stored in database');
@@ -319,6 +293,21 @@ app.post('/test-notification', async (c) => {
           success: false,
           mode: 'none',
           error: 'इस यूज़र के लिए कोई web push subscription या FCM token नहीं मिला।'
+        }, 404);
+      }
+
+      // SECURITY: the fallback used to broadcast to school_<id>_all whenever the
+      // requested user had no registered device. That is NOT a test of one
+      // device — it pushes an arbitrary caller-supplied title/body to every
+      // device in the school, and it was reachable by any authenticated role
+      // with no rate limit. A school-wide send is a management action
+      // (POST /api/notifications/broadcast), not a per-device test.
+      if (targetUserId !== (authUser.sub || authUser.id)
+        && authUser.role !== 'Director' && authUser.role !== 'Principal' && authUser.role !== 'SuperAdmin') {
+        return c.json({
+          success: false,
+          mode: 'none',
+          error: 'इस यूज़र का कोई पंजीकृत डिवाइस नहीं है। स्कूल-वाइड संदेश भेजने के लिए /api/notifications/broadcast का उपयोग करें।'
         }, 404);
       }
 

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { getAssignedClassNames } from '../lib/permissions';
+import { isManagement, isTeaching, normalizeRole } from '../lib/roles';
 
 const activityLogsApp = new Hono<{ Bindings: any }>();
 
@@ -25,11 +26,27 @@ activityLogsApp.get('/', async (c) => {
   const userRole = authUser.role;
 
   // Role-based visibility enforcement
+  //
+  // SECURITY FIX: this was an if/else-if chain with no final `else`. A
+  // 'Parents' or 'Students' token (valid since migration 0034) matched no
+  // branch, so NO visibility condition was added and the caller received every
+  // activity log in the school — which includes student names, class names,
+  // fee/payment actions and admin identities.
+  //
+  // Now deny-by-default: anything that is not explicitly management or teaching
+  // is scoped to only its own rows.
   let whereConditions: string[] = ['school_id = ?'];
   let params: any[] = [schoolId];
 
-  if (userRole === 'Staff') {
-    // Class teacher/Staff can see only their own activity or activities regarding their assigned classes
+  const role = normalizeRole(userRole);
+  if (isManagement(role)) {
+    // Principal / Director / SuperAdmin see the whole school.
+    if (targetUserId) {
+      whereConditions.push('user_id = ?');
+      params.push(targetUserId);
+    }
+  } else if (isTeaching(role)) {
+    // Teaching roles see their own activity plus their assigned classes.
     const assignedClasses = await getAssignedClassNames(db, schoolId, authUser.sub);
     if (assignedClasses.length > 0) {
       const placeholders = assignedClasses.map(() => '?').join(',');
@@ -39,18 +56,10 @@ activityLogsApp.get('/', async (c) => {
       whereConditions.push('user_id = ?');
       params.push(authUser.sub);
     }
-  } else if (userRole === 'Principal') {
-    // Principal can see all staff and teacher activity across the school (and their own)
-    if (targetUserId) {
-      whereConditions.push('user_id = ?');
-      params.push(targetUserId);
-    }
-  } else if (userRole === 'Director' || userRole === 'SuperAdmin') {
-    // Director/SuperAdmin can see all school logs
-    if (targetUserId) {
-      whereConditions.push('user_id = ?');
-      params.push(targetUserId);
-    }
+  } else {
+    // Parent / Student / any unknown role: only rows they themselves created.
+    whereConditions.push('user_id = ?');
+    params.push(authUser.sub);
   }
 
   if (actionType && actionType !== 'All') {

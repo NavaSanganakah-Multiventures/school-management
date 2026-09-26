@@ -60,6 +60,12 @@ WEB_PUSH_VAPID_SUBJECT = "mailto:pragnya@navasanganakah.com"
 # -------------------------------------------------------------
 [env.preview]
 name = "school-management-preview"
+# Explicitly NO routes. Without this the env inherits the top-level
+# `*.pragnya.nasven.com/*` pattern and the deploy fails with "Can't deploy
+# routes that are assigned to another worker", because production already owns
+# that pattern. An empty list means the preview is reachable only through its
+# workers.dev URL, which is what a smoke environment should be.
+routes = []
 
 [[env.preview.d1_databases]]
 binding = "DB"
@@ -74,7 +80,19 @@ bucket_name = "school-management-preview"
 binding = "CONFIG_KV"
 id = "9158f79162824ee1b52e75fe51af71f8"
 
+# Email binding for the preview env too. Without it api/lib/email.ts
+# short-circuits every send, so a preview smoke test would report a successful
+# password reset that never actually delivered a message.
+[[env.preview.send_email]]
+name = "SEND_EMAIL"
+
+# `vars` are NOT inherited by environments, so APP_BASE_URL must be repeated
+# here or wrangler warns and the preview worker has none. The deploy-preview
+# workflow overrides it with the real workers.dev URL once that hostname is
+# known, so password-reset links point at the running preview and not a
+# placeholder.
 [env.preview.vars]
+APP_BASE_URL = "https://school-management-preview.workers.dev"
 ENVIRONMENT = "preview"
 WEB_PUSH_VAPID_PUBLIC_KEY = "BJlcKjZBfC5YzmoIxZ1ndHRJAiemr7Rdi4LBuceK6GI7N6g9aV3ctHpKCtZ8RbaPugnfvfJQNBiRTi63CGipHP4"
 WEB_PUSH_VAPID_SUBJECT = "mailto:pragnya@navasanganakah.com"

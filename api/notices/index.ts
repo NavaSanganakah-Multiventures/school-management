@@ -3,8 +3,12 @@ import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { broadcastAlert } from '../notifications';
 import { logActivity, resolveActorName } from '../lib/activity-logger';
+import { requireSession, type Role } from '../lib/rbac';
 
 const noticesApp = new Hono<{ Bindings: any }>();
+
+const requireAnyUser = requireSession();
+const requireManager = requireSession({ roles: ['Director', 'Principal'] as Role[] });
 
 function mapNotice(r: any): any {
   if (!r) return null;
@@ -31,28 +35,31 @@ function audienceToTopic(schoolId: string, audience: string): string {
 
 // GET /api/notices
 noticesApp.get('/', async (c) => {
-  const db = getDB(c);
+  const guard = await requireAnyUser(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
   const category = c.req.query('category');
   const rows = await db.prepare('SELECT * FROM notices WHERE school_id = ? ORDER BY published_date DESC').bind(schoolId).all();
-  let list = (rows.results || []).map(mapNotice);
+  let list: any[] = (rows.results || []).map(mapNotice);
   if (category && category !== 'All') {
-    list = list.filter((n) => n.category.toLowerCase() === category.toLowerCase());
+    list = list.filter((n: any) => n.category.toLowerCase() === category.toLowerCase());
   }
   return c.json({ success: true, notices: list });
 });
 
 // POST /api/notices
-
+//
+// AUTHORIZATION CHANGE: management only. Publishing a notice triggers a real
+// push broadcast to a school-wide or role-targeted FCM topic, so previously
+// any authenticated account (including a Student) could spam every device in
+// the school and impersonate the publisher via the caller-supplied
+// `publishedBy` field. The author is now derived from the session.
 noticesApp.post('/', async (c) => {
-  const db = getDB(c);
+  const guard = await requireManager(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
   const body = await c.req.json().catch(() => ({}));
 
   if (!body.title || !body.content) {
@@ -64,8 +71,11 @@ noticesApp.post('/', async (c) => {
   const priority = body.priority || 'Normal';
   const fcmPriority = (priority === 'Urgent' || priority === 'High') ? 'high' : 'normal';
 
+  // published_by comes from the session, never from the request body.
+  const publisherName = await resolveActorName(db, user.id, user.role);
+
   await db.prepare('INSERT INTO notices (id, title, content, category, target_audience, published_by, published_date, priority, fcm_broadcast_status, school_id) VALUES (?,?,?,?,?,?,?,?,?,?)')
-    .bind(id, body.title, body.content, body.category || 'General', targetAudience, body.publishedBy || 'प्रशासन कार्यालय', new Date().toISOString().split('T')[0], priority, 'Pending', schoolId).run();
+    .bind(id, body.title, body.content, body.category || 'General', targetAudience, publisherName, new Date().toISOString().split('T')[0], priority, 'Pending', schoolId).run();
 
   const broadcast = await broadcastAlert(db, c.env, {
     title: body.title,
@@ -82,17 +92,17 @@ noticesApp.post('/', async (c) => {
   });
 
   const fcmStatus = broadcast.payload && broadcast.payload.success ? 'Sent' : 'Failed';
-  await db.prepare('UPDATE notices SET fcm_broadcast_status = ? WHERE id = ?').bind(fcmStatus, id).run();
+  await db.prepare('UPDATE notices SET fcm_broadcast_status = ? WHERE id = ? AND school_id = ?').bind(fcmStatus, id, schoolId).run();
 
-  const row = await db.prepare('SELECT * FROM notices WHERE id = ?').bind(id).first();
+  const row = await db.prepare('SELECT * FROM notices WHERE id = ? AND school_id = ?').bind(id, schoolId).first();
   const notice = mapNotice(row);
 
-  const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+  const actorName = publisherName;
   await logActivity(db, {
     schoolId,
-    userId: authUser.sub,
+    userId: user.id,
     userName: actorName,
-    userRole: authUser.role,
+    userRole: user.role,
     actionType: 'NOTICE_PUBLISH',
     actionTitle: 'सूचना प्रकाशित की गई',
     description: `शीर्षक: "${body.title}" (लक्षित वर्ग: ${targetAudience}, प्राथमिकता: ${priority}) सूचना पट्ट पर जारी की गई।`,
@@ -112,22 +122,25 @@ noticesApp.post('/', async (c) => {
 });
 
 // DELETE /api/notices/:id
+//
+// AUTHORIZATION CHANGE: management only. Deleting an official notice was
+// previously open to any authenticated role.
 noticesApp.delete('/:id', async (c) => {
-  const db = getDB(c);
+  const guard = await requireManager(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
   const id = c.req.param('id');
   const existing = await db.prepare('SELECT title FROM notices WHERE id = ? AND school_id = ?').bind(id, schoolId).first();
+  if (!existing) return c.json({ success: false, message: 'नोटिस नहीं मिला।' }, 404);
   await db.prepare('DELETE FROM notices WHERE id = ? AND school_id = ?').bind(id, schoolId).run();
 
-  const actorName = await resolveActorName(db, authUser.sub, authUser.role);
+  const actorName = await resolveActorName(db, user.id, user.role);
   await logActivity(db, {
     schoolId,
-    userId: authUser.sub,
+    userId: user.id,
     userName: actorName,
-    userRole: authUser.role,
+    userRole: user.role,
     actionType: 'NOTICE_DELETE',
     actionTitle: 'सूचना हटाई गई',
     description: `सूचना "${existing?.title || id}" को नोटिस बोर्ड से हटाया गया।`,

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { logActivity, resolveActorName } from '../lib/activity-logger';
+import { isFamily, isTeaching, normalizeRole } from '../lib/roles';
 import { isClassTeacher } from '../lib/permissions';
 import { GoogleGenAI, Type } from '@google/genai';
 import { broadcastAlert } from '../notifications';
@@ -15,6 +16,13 @@ aiApp.post('/chat', async (c) => {
     if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
     const authUser = await getAuthUser(c);
     if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+    // SECURITY: the AI chat has no role allowlist, and its addStudent tool only
+    // special-cased 'Staff'. A Parent/Student token could therefore drive the
+    // model to create student records. The assistant is an administrative tool,
+    // so family roles are excluded outright.
+    if (isFamily(normalizeRole(authUser.role))) {
+      return c.json({ success: false, message: 'AI सहायक केवल शिक्षक, प्रधानाचार्य या निदेशक के लिए उपलब्ध है।' }, 403);
+    }
     const schoolId = getRequestSchoolId(c, authUser);
     const body = await c.req.json().catch(() => ({}));
     const prompt = body.prompt;
@@ -159,7 +167,11 @@ Always respond in Hindi. Be polite and concise.`;
       const missingDetails = args.missingDetails || '';
 
       // Verification logic identical to students API
-      if (authUser.role === 'Staff') {
+      const aiRole = normalizeRole(authUser.role);
+      if (isFamily(aiRole)) {
+        return c.json({ success: false, message: 'क्षमा करें, यह कार्य आपके अधिकार में नहीं है।' }, 403);
+      }
+      if (isTeaching(aiRole)) {
         const isTeacher = await isClassTeacher(db, schoolId, className, authUser.sub);
         if (!isTeacher) {
           return c.json({
@@ -230,9 +242,22 @@ Always respond in Hindi. Be polite and concise.`;
         });
 
         // Fetch emails of Director/Principal to send email alert
-        const adminUsers = await db.prepare(
-          `SELECT email FROM auth_users WHERE school_id = ? AND role IN ('Director', 'Principal') AND is_active = 1`
-        ).bind(schoolId).all();
+        //
+        // FIX: this queried `auth_users`, which does not exist in any migration
+        // (the real table is `system_users`, per migrations 0002/0004/0034). The
+        // query therefore threw — but only AFTER the student had been inserted
+        // and the two FCM broadcasts had been sent, so the endpoint returned 500
+        // for an operation that had already half-succeeded, and any client retry
+        // created a duplicate student. The `status` column also replaces the
+        // non-existent `is_active`.
+        let adminUsers: { results?: any[] } | null = null;
+        try {
+          adminUsers = await db.prepare(
+            `SELECT email FROM system_users WHERE school_id = ? AND role IN ('Director', 'Principal') AND status = 'Active'`
+          ).bind(schoolId).all();
+        } catch (e: any) {
+          console.error('[ai/chat] director/principal alert lookup failed:', e && e.message);
+        }
 
         if (adminUsers && adminUsers.results) {
           for (const admin of adminUsers.results as any[]) {

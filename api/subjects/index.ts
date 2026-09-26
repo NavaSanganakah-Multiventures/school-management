@@ -68,6 +68,15 @@ subjectsApp.post('/map', async (c) => {
     return c.json({ success: false, message: 'कक्षा और विषय आवश्यक हैं।' }, 400);
   }
 
+  // Tenant-verify the referenced subject. Previously any subjectId was accepted,
+  // so a school could attach another tenant's subject row to its own class (and
+  // read that subject's name/code back through the joined list endpoint).
+  const subject = await db.prepare('SELECT id FROM subjects WHERE id = ? AND school_id = ?')
+    .bind(body.subjectId, schoolId).first();
+  if (!subject) {
+    return c.json({ success: false, message: 'विषय इस स्कूल से संबंधित नहीं है।' }, 400);
+  }
+
   const id = `cs-${crypto.randomUUID()}`;
   await db.prepare(
     `INSERT INTO class_subjects (id, school_id, class_name, subject_id, subject_type, is_optional, max_marks) 

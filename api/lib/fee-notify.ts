@@ -15,10 +15,16 @@ export async function notifyFeePayment(db: any, env: any, invoice: any, schoolId
   // Resolve the student's email from the students table (student/parent contact).
   let studentEmail = '';
   try {
-    const st = await db.prepare('SELECT email, full_name, parent_phone, whatsapp_number FROM students WHERE id = ? AND school_id = ?')
+    // FIX: this selected `full_name`, which does not exist on `students`
+    // (migration 0001 defines first_name/last_name and nothing ever added
+    // full_name). The query therefore threw, the catch swallowed it, and
+    // studentEmail stayed '' — so fee receipt emails were NEVER sent.
+    const st = await db.prepare('SELECT email, first_name, last_name, parent_phone, whatsapp_number FROM students WHERE id = ? AND school_id = ?')
       .bind(invoice.student_id, schoolId).first();
     if (st && st.email) studentEmail = String(st.email);
-  } catch (_) {}
+  } catch (e) {
+    console.error('[fee-notify] student lookup failed:', e && (e as any).message);
+  }
 
   // A. Receipt email to student/parent.
   if (studentEmail) {

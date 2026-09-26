@@ -19,6 +19,15 @@ const REGISTRY_FILE = 'schools.json';
 // Must stay identical to isSlugValid() in api/lib/provisioning.ts.
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
+// Must stay identical to RESERVED_SLUGS in api/lib/provisioning.ts.
+const RESERVED_SLUGS = new Set([
+  'admin', 'api', 'app', 'assets', 'cdn', 'docs', 'help', 'mail',
+  'media', 'pragnya', 'static', 'status', 'support', 'www',
+]);
+
+// Collects reserved-slug collisions so the run can report them at the end.
+const reservedCollisions = [];
+
 // Public vars kept in sync with the shared worker (wrangler.toml).
 const PLATFORM_VARS = {
   ENVIRONMENT: 'production',
@@ -66,6 +75,37 @@ async function main() {
 
     if (!school.slug || !school.schoolId) {
       console.warn('⚠️ Skipping invalid dedicated school entry (missing slug or schoolId):', school);
+      continue;
+    }
+
+    // Refuse anything that is not a strict DNS label before it becomes a Worker
+    // name, a route pattern and a filename. A hostile or malformed schools.json
+    // (or a poisoned main-DB registry row) must not be able to steer the deploy.
+    if (!SLUG_RE.test(String(school.slug))) {
+      console.warn('⚠️ Skipping school with an invalid slug (must be a DNS label, a-z 0-9 and -):', school.slug);
+      continue;
+    }
+
+    // Refuse platform-owned slugs. A dedicated school claims
+    // `<slug>.pragnya.nasven.com`, and the Super Admin console already owns
+    // `admin.pragnya.nasven.com`. When a school was registered with slug `admin`,
+    // the generated wrangler-admin.toml claimed that route and
+    // scripts/deploy-dedicated.mjs aborted the WHOLE fleet with "Can't deploy
+    // routes that are assigned to another worker" — so one bad entry stopped
+    // every school from receiving the authorization and payment fixes.
+    //
+    // This runs BEFORE the D1 check: it is a naming conflict, not a provisioning
+    // gap, and reporting it as "run provision-school.mjs first" would send an
+    // operator down the wrong path.
+    //
+    // Skipping (rather than aborting) is deliberate: the remaining schools must
+    // still deploy. The collision is reported loudly at the end of the run.
+    if (RESERVED_SLUGS.has(String(school.slug))) {
+      console.error('❌ RESERVED SLUG: "' + school.slug + '" (' + (school.name || '') + ') cannot be provisioned.');
+      console.error('   "' + school.slug + '.' + sharedDomain + '" is owned by the platform.');
+      console.error('   Its public URL must be changed to a non-reserved subdomain.');
+      console.error('   Skipping it so the rest of the fleet can still deploy.');
+      reservedCollisions.push(String(school.slug));
       continue;
     }
 
@@ -146,6 +186,14 @@ async function main() {
       '[[kv_namespaces]]',
       'binding = "CONFIG_KV"',
       'id = ' + JSON.stringify(kvNamespaceId),
+      '',
+      // Cloudflare Email binding. Without this on a dedicated worker,
+      // api/lib/email.ts short-circuits every send and the school's password
+      // reset / invite emails fail SILENTLY — the API reported success while no
+      // message was ever delivered. The sending domain must be onboarded in
+      // Cloudflare Email Service (see .env.example).
+      '[[send_email]]',
+      'name = "SEND_EMAIL"',
     );
     const toml = lines.join('\n') + '\n';
 
@@ -168,6 +216,19 @@ async function main() {
       ? ' (' + dbSourced + ' school(s) sourced from main DB registry, rest from schools.json).'
       : ' (sourced from schools.json only).'),
   );
+
+  // Do NOT exit non-zero. A reserved-slug school cannot be provisioned, but it
+  // must not stop every other school from being deployed and receiving security
+  // fixes. It is surfaced as an error annotation and a non-zero exit is left to
+  // the operator, who has to change the school's public URL.
+  if (reservedCollisions.length > 0) {
+    console.error('');
+    console.error('::error::' + reservedCollisions.length
+      + ' school(s) use a platform-reserved slug and were NOT provisioned: '
+      + reservedCollisions.join(', '));
+    console.error('   Their public URL must be moved to a non-reserved subdomain,');
+    console.error('   otherwise they stay on the shared worker and cannot be deployed.');
+  }
 }
 
 main().catch((err) => {

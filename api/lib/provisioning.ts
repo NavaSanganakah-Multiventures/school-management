@@ -19,8 +19,60 @@ export function sanitizeSlug(s: string): string {
   return String(s || '').toLowerCase().trim().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
 }
 
+/**
+ * Slugs the platform owns. A school may never claim one of these.
+ *
+ * WHY THIS EXISTS
+ * Every dedicated school gets `<slug>.pragnya.nasven.com`, and its generated
+ * wrangler config declares that route. A school registered with slug `admin`
+ * therefore produced `wrangler-admin.toml` claiming
+ * `admin.pragnya.nasven.com/*`, which the Super Admin console worker already
+ * owns. `scripts/deploy-dedicated.mjs` then aborted with
+ *
+ *     Can't deploy routes that are assigned to another worker.
+ *
+ * and because that is a single loop over every school, the ONE bad entry stopped
+ * the entire fleet from deploying — so no school received the authorization and
+ * payment-integrity fixes either. A single school slug is therefore a
+ * fleet-wide denial of service on releases.
+ *
+ * The apex domain and `www` are included for the same reason: they are the public
+ * website, not a tenant subdomain.
+ */
+export const RESERVED_SLUGS = new Set<string>([
+  'admin',
+  'api',
+  'app',
+  'assets',
+  'cdn',
+  'docs',
+  'help',
+  'mail',
+  'media',
+  'pragnya',
+  'static',
+  'status',
+  'support',
+  'www',
+]);
+
 export function isSlugValid(slug: string): boolean {
-  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug);
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug)) return false;
+  if (RESERVED_SLUGS.has(slug)) return false;
+  return true;
+}
+
+/** Human-readable reason a slug is unusable, or '' when it is fine. */
+export function slugRejectionReason(slug: string): string {
+  const s = String(slug || '').trim().toLowerCase();
+  if (!s) return 'slug khali hai।';
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(s)) {
+    return 'slug mein sirf a-z, 0-9 aur "-" ho sakte hain, aur shuru/antar mein "-" nahi।';
+  }
+  if (RESERVED_SLUGS.has(s)) {
+    return 'slug "' + s + '" platform ke liye reserve hai (Super Admin console / public website)।';
+  }
+  return '';
 }
 
 function utf8ToBase64(s: string): string {
