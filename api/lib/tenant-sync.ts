@@ -4,6 +4,7 @@
 
 import { getDB } from '../db';
 import { deriveSyncKey, decryptPayload, getInternalSyncSecret } from './tenant-crypto';
+import { buildInternalAuthHeaders } from './internal-request-auth';
 
 export async function syncTenantFromPlatform(c: any, targetSchoolId?: string): Promise<{ success: boolean; message: string; count?: number }> {
   const env = c && c.env;
@@ -28,12 +29,19 @@ export async function syncTenantFromPlatform(c: any, targetSchoolId?: string): P
 
   try {
     const platformBase = String((env && (env.PLATFORM_BASE_URL || env.PLATFORM_API_URL)) || 'https://pragnya.nasven.com').replace(/\/+$/, '');
-    const platformUrl = platformBase + '/api/internal/tenant-sync/' + encodeURIComponent(schoolId);
-    const res = await fetch(platformUrl, {
+    const syncPath = '/api/internal/tenant-sync/' + encodeURIComponent(schoolId);
+    // Sign the request: the static secret alone is replayable, this is not.
+    const authHeaders = await buildInternalAuthHeaders({
+      secret: syncSecret,
+      method: 'GET',
+      path: syncPath,
+      body: '',
+    });
+    const res = await fetch(platformBase + syncPath, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'X-Internal-Secret': syncSecret,
+        ...authHeaders,
       },
     });
 

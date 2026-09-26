@@ -559,17 +559,15 @@ export function AdminConsoleScreen() {
     finally { setBusyId(null); }
   };
 
-  const deprovisionDedicated = async (s: SchoolRow) => {
-    if (!confirm(`क्या आप निश्चित रूप से "${s.schoolName}" को शेयर्ड वर्कर मोड में वापस बदलना चाहते हैं? इससे यह स्कूल pragnya.nasven.com पर कार्य करेगा।`)) return;
-    setBusyId('deprovision-' + s.id);
-    try {
-      const data = await post('/api/admin/schools/provision/deprovision', { schoolId: s.id });
-      if (data.success) {
-        flashSuccess(data.message || 'स्कूल को शेयर्ड वर्कर मोड में बदल दिया गया।');
-        await loadData();
-      } else setErrorMsg(data.message || 'डी-प्रोविजनिंग विफल।');
-    } catch (e) { setErrorMsg('नेटवर्क त्रुटि।'); }
-    finally { setBusyId(null); }
+  // Deprovisioning is disabled server-side (it flipped routing without copying
+  // the school's dedicated D1/R2/KV data, which looked like data loss). Keep the
+  // UI honest instead of firing a request that always 410s.
+  const deprovisionDedicated = async (_s: SchoolRow) => {
+    setErrorMsg(
+      'डी-प्रोविजनिंग अभी बंद है। यह स्कूल का डेटा dedicated worker से shared worker में कॉपी किए बिना routing बदल देता था, '
+      + 'जिससे रिकॉर्ड गायब दिख सकते थे। सुरक्षित कटओवर (backup + reconciliation + verified copy) लागू होने तक यह उपलब्ध नहीं है। '
+      + 'जरूरत हो तो Super Admin से संपर्क करें।'
+    );
   };
 
   const checkProvision = async (schoolId: string) => {
