@@ -511,30 +511,27 @@ notificationsApp.post('/register-token', async (c) => {
     return c.json({ success: true, message: 'डिवाइस टोकन अनुबंध सहेजा गया (डेटाबेस उपलब्ध नहीं)।', subscription: subscription }, 200);
   }
 
-  // Ensure table exists
-  await db.prepare(
-    'CREATE TABLE IF NOT EXISTS fcm_device_tokens (' +
-    'id TEXT PRIMARY KEY, ' +
-    'school_id TEXT NOT NULL, ' +
-    'user_id TEXT, ' +
-    "role TEXT DEFAULT 'Parents', " +
-    'device_token TEXT UNIQUE NOT NULL, ' +
-    "device_type TEXT DEFAULT 'mobile_app', " +
-    "platform TEXT DEFAULT 'flutter', " +
-    "subscribed_topics TEXT DEFAULT '[]', " +
-    'is_active INTEGER DEFAULT 1, ' +
-    'last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, ' +
-    'created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP' +
-    ')'
-  ).run().catch(() => {});
-
+  // Schema is owned by db_migrations. This route used to run
+  // `CREATE TABLE IF NOT EXISTS` in production and swallow the error, which
+  // would silently "self-heal" a missing table into a REDUCED schema with no
+  // indexes or constraints and no entry in the migration ledger — hiding
+  // migration drift until a later write failed. A missing table must surface.
+  //
+  // migrations 0006 (fcm_device_tokens) and 0011 (web_push_subscriptions) own
+  // these tables. If this insert fails, the deployment is behind; the error is
+  // logged and returned rather than being absorbed.
   const id = isWebToken ? ('web-' + schoolId + '-' + userId) : ('devtok-' + Date.now());
   const now = new Date().toISOString();
-  await db.prepare(
-    'INSERT INTO fcm_device_tokens (id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at) ' +
-    'VALUES (?,?,?,?,?,?,?,?,1,?,?) ' +
-    'ON CONFLICT(device_token) DO UPDATE SET school_id=excluded.school_id, user_id=excluded.user_id, role=excluded.role, device_type=excluded.device_type, platform=excluded.platform, subscribed_topics=excluded.subscribed_topics, is_active=1, last_seen_at=excluded.last_seen_at'
-  ).bind(id, schoolId, String(userId), role, String(token).trim(), deviceType, platform, JSON.stringify(topics), now, now).run();
+  try {
+    await db.prepare(
+      'INSERT INTO fcm_device_tokens (id, school_id, user_id, role, device_token, device_type, platform, subscribed_topics, is_active, last_seen_at, created_at) ' +
+      'VALUES (?,?,?,?,?,?,?,?,1,?,?) ' +
+      'ON CONFLICT(device_token) DO UPDATE SET school_id=excluded.school_id, user_id=excluded.user_id, role=excluded.role, device_type=excluded.device_type, platform=excluded.platform, subscribed_topics=excluded.subscribed_topics, is_active=1, last_seen_at=excluded.last_seen_at'
+    ).bind(id, schoolId, String(userId), role, String(token).trim(), deviceType, platform, JSON.stringify(topics), now, now).run();
+  } catch (err: any) {
+    console.error('[notifications/register-token] insert failed — is the D1 migration state current?', err && err.message);
+    return c.json({ success: false, message: 'डिवाइस टोकन सहेजा नहीं जा सका। कृपया बाद में पुनः प्रयास करें।' }, 503);
+  }
 
   return c.json({
     success: true,
@@ -565,22 +562,8 @@ notificationsApp.post('/register-client', async (c) => {
   const clientToken = 'web-client-' + schoolId + '-' + userId;
 
   if (db) {
-    await db.prepare(
-      'CREATE TABLE IF NOT EXISTS fcm_device_tokens (' +
-      'id TEXT PRIMARY KEY, ' +
-      'school_id TEXT NOT NULL, ' +
-      'user_id TEXT, ' +
-      "role TEXT DEFAULT 'Parents', " +
-      'device_token TEXT UNIQUE NOT NULL, ' +
-      "device_type TEXT DEFAULT 'mobile_app', " +
-      "platform TEXT DEFAULT 'flutter', " +
-      "subscribed_topics TEXT DEFAULT '[]', " +
-      'is_active INTEGER DEFAULT 1, ' +
-      'last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, ' +
-      'created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP' +
-      ')'
-    ).run().catch(() => {});
-
+    // No runtime DDL here — see the note in register-token. db_migrations owns
+    // the schema (0006 / 0011).
     const now = new Date().toISOString();
     await db.prepare(
       'INSERT INTO fcm_device_tokens ' +
@@ -637,38 +620,29 @@ notificationsApp.post('/register-web-push', async (c) => {
     return c.json({ success: true, message: 'Web Push subscription सहेजा गया (डेटाबेस उपलब्ध नहीं)।' }, 200);
   }
 
-  await db.prepare(
-    'CREATE TABLE IF NOT EXISTS web_push_subscriptions (' +
-    'id TEXT PRIMARY KEY, ' +
-    'school_id TEXT NOT NULL, ' +
-    'user_id TEXT, ' +
-    "role TEXT DEFAULT 'Staff', " +
-    'endpoint TEXT UNIQUE NOT NULL, ' +
-    'p256dh TEXT NOT NULL, ' +
-    'auth TEXT NOT NULL, ' +
-    "subscribed_topics TEXT DEFAULT '[]', " +
-    'is_active INTEGER DEFAULT 1, ' +
-    'last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, ' +
-    'created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP' +
-    ')'
-  ).run().catch(() => {});
-
+  // No runtime DDL — db_migrations/0011 owns web_push_subscriptions. See the note
+  // in register-token for why a production CREATE TABLE IF NOT EXISTS is harmful.
   const now = new Date().toISOString();
   const id = 'webpush-' + schoolId + '-' + String(userId) + '-' + Date.now();
-  await db.prepare(
-    'INSERT INTO web_push_subscriptions ' +
-    '(id, school_id, user_id, role, endpoint, p256dh, auth, subscribed_topics, is_active, last_seen_at, created_at) ' +
-    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?) ' +
-    'ON CONFLICT(endpoint) DO UPDATE SET ' +
-    'school_id = excluded.school_id, ' +
-    'user_id = excluded.user_id, ' +
-    'role = excluded.role, ' +
-    'p256dh = excluded.p256dh, ' +
-    'auth = excluded.auth, ' +
+  try {
+    await db.prepare(
+      'INSERT INTO web_push_subscriptions ' +
+      '(id, school_id, user_id, role, endpoint, p256dh, auth, subscribed_topics, is_active, last_seen_at, created_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?) ' +
+      'ON CONFLICT(endpoint) DO UPDATE SET ' +
+      'school_id = excluded.school_id, ' +
+      'user_id = excluded.user_id, ' +
+      'role = excluded.role, ' +
+      'p256dh = excluded.p256dh, ' +
+      'auth = excluded.auth, ' +
     'subscribed_topics = excluded.subscribed_topics, ' +
     'is_active = 1, ' +
     'last_seen_at = excluded.last_seen_at'
-  ).bind(id, schoolId, String(userId), role, String(endpoint), String(p256dh), String(auth), JSON.stringify(topics), now, now).run();
+    ).bind(id, schoolId, String(userId), role, String(endpoint), String(p256dh), String(auth), JSON.stringify(topics), now, now).run();
+  } catch (err: any) {
+    console.error('[notifications/register-web-push] insert failed — is the D1 migration state current?', err && err.message);
+    return c.json({ success: false, message: 'Web Push subscription सहेजा नहीं जा सका। कृपया बाद में पुनः प्रयास करें।' }, 503);
+  }
 
   return c.json({ success: true, message: 'Web Push subscription सफलतापूर्वक पंजीकृत हुआ।', endpoint: String(endpoint), topics }, 200);
 });

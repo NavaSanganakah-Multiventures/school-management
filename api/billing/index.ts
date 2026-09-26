@@ -286,7 +286,30 @@ billingApp.post('/subscribe-recurring', async (c) => {
   const period = billingCycle === 'annual' ? 'yearly' : 'monthly';
   const interval = billingCycle === 'quarterly' ? 3 : 1;
   const cyclesPerYear = billingCycle === 'monthly' ? 12 : (billingCycle === 'quarterly' ? 4 : 1);
-  const totalCycles = Math.max(1, Math.round((body.totalCycles || cyclesPerYear)));
+  // Cap the caller-supplied cycle count. Previously `body.totalCycles` was used
+  // verbatim, so a client could create a Razorpay subscription that auto-debits
+  // for an unbounded number of cycles. Clamp to one year of the chosen cycle.
+  const requestedCycles = Number(body.totalCycles || cyclesPerYear);
+  const totalCycles = Math.min(
+    Math.max(1, Number.isFinite(requestedCycles) ? Math.round(requestedCycles) : cyclesPerYear),
+    cyclesPerYear,
+  );
+
+  // Idempotency: refuse to create a second live auto-debit mandate while one is
+  // already in progress. Every call previously created a NEW Razorpay
+  // subscription, so a retry or a double-tap left the school with duplicate
+  // auto-debit obligations against one card.
+  const liveSub = await db.prepare(
+    "SELECT razorpay_subscription_id, status FROM school_subscriptions WHERE school_id = ? AND razorpay_subscription_id IS NOT NULL AND razorpay_subscription_id != '' AND status IN ('Active','Trial','Pending')"
+  ).bind(schoolId).first().catch(() => null);
+  if (liveSub) {
+    return c.json({
+      success: false,
+      code: 'ALREADY_SUBSCRIBED',
+      razorpaySubscriptionId: liveSub.razorpay_subscription_id,
+      message: 'इस स्कूल की एक सक्रिय ऑटो-डेबिट सदस्यता पहले से मौजूद है। नई सदस्यता बनाने से पहले मौजूदा सदस्यता रद्द करें।',
+    }, 409);
+  }
 
   let razorpayPlanId = '';
   let razorpayItemId = '';
@@ -349,9 +372,16 @@ billingApp.post('/subscribe-recurring', async (c) => {
   if (subResult.error) return c.json({ success: false, message: subResult.error }, 400);
 
   // 4. Store subscription reference in DB
+  //
+  // Both branches previously swallowed their errors and still returned
+  // success:true, so a school could be handed a live Razorpay mandate that the
+  // platform had no record of — it would auto-debit with no way to cancel or
+  // reconcile from our side. A failed local write must now surface, and the
+  // caller should not be told the setup succeeded.
   const now = new Date().toISOString();
+  let persisted = false;
   try {
-    await db.prepare(`
+    const upd = await db.prepare(`
       UPDATE school_subscriptions SET
         razorpay_plan_id = ?,
         razorpay_subscription_id = ?,
@@ -363,15 +393,35 @@ billingApp.post('/subscribe-recurring', async (c) => {
         updated_at = ?
       WHERE school_id = ?
     `).bind(razorpayPlanId, subResult.id, customerId, totalCycles, totalCycles, now, schoolId).run();
+    persisted = ((upd as any)?.meta?.changes ?? 0) > 0;
   } catch (updErr: any) {
-    // If no subscription row exists yet, insert one
+    console.error('[billing/subscribe-recurring] subscription UPDATE failed:', updErr && updErr.message);
+  }
+
+  if (!persisted) {
+    // No row for this school yet — create one.
     try {
       const subId = 'sub-' + Date.now();
       await db.prepare(`
         INSERT INTO school_subscriptions (id, school_id, plan_id, plan_name, billing_cycle, price_per_cycle, status, auto_pay_enabled, razorpay_plan_id, razorpay_subscription_id, total_cycles, remaining_cycles, mandate_status, updated_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `).bind(subId, schoolId, plan.id, plan.name, billingCycle, baseAmount, 'Active', 1, razorpayPlanId, subResult.id, totalCycles, totalCycles, 'pending', now).run();
-    } catch (_) {}
+      persisted = true;
+    } catch (insErr: any) {
+      console.error('[billing/subscribe-recurring] subscription INSERT failed:', insErr && insErr.message);
+    }
+  }
+
+  if (!persisted) {
+    // The mandate exists at Razorpay but not here. Tell the operator explicitly
+    // so it can be cancelled, instead of silently losing a recurring charge.
+    return c.json({
+      success: false,
+      code: 'LOCAL_PERSIST_FAILED',
+      razorpaySubscriptionId: subResult.id,
+      message: 'सदस्यता Razorpay पर बन गई लेकिन यहाँ सहेजी नहीं जा सकी। कृपया Super Admin से तुरंत संपर्क करें — '
+        + 'Razorpay से इस सदस्यता को रद्द करवाएँ ताकि ऑटो-डेबिट न हो।',
+    }, 502);
   }
 
   return c.json({
@@ -457,9 +507,45 @@ billingApp.post('/subscription/cancel', async (c) => {
   if (result.error) return c.json({ success: false, message: result.error }, 400);
 
   const now = new Date().toISOString();
-  await db.prepare(`UPDATE school_subscriptions SET status = 'Canceled', mandate_status = 'revoked', updated_at = ? WHERE school_id = ?`).bind(now, schoolId).run().catch(() => {});
+  // Local state must reflect what Razorpay actually did. `cancel_at_cycle_end`
+  // leaves the subscription ACTIVE until the cycle ends, but the old code
+  // unconditionally wrote status='Canceled' + mandate_status='revoked', so the
+  // platform claimed the mandate was dead while Razorpay could still debit.
+  //
+  // mandate_status stays inside its documented domain
+  // (none / pending / active / revoked, see migration 0032). A cancel-at-cycle-end
+  // keeps the mandate 'active' — it is still authorized and still chargeable —
+  // and `cancel_at_cycle_end = 1` records the intent. The terminal
+  // Canceled/revoked state is reconciled by the subscription.cancelled webhook,
+  // which now matches on razorpay_subscription_id.
+  const upd = await db.prepare(`
+    UPDATE school_subscriptions
+    SET status = ?, mandate_status = ?, cancel_at_cycle_end = ?, updated_at = ?
+    WHERE school_id = ?
+  `).bind(
+    cancelAtCycleEnd ? 'Active' : 'Canceled',
+    cancelAtCycleEnd ? 'active' : 'revoked',
+    cancelAtCycleEnd ? 1 : 0,
+    now,
+    schoolId,
+  ).run();
 
-  return c.json({ success: true, message: cancelAtCycleEnd ? 'सदस्यता वर्तमान चक्र के अंत में रद्द हो जाएगी।' : 'सदस्यता तुरंत रद्द कर दी गई।', razorpayStatus: result.status });
+  if (((upd as any)?.meta?.changes ?? 0) === 0) {
+    console.error('[billing/subscription/cancel] Razorpay cancelled but no local subscription row was updated for', schoolId);
+    return c.json({
+      success: false,
+      code: 'LOCAL_PERSIST_FAILED',
+      message: 'Razorpay पर रद्दीकरण हो गया लेकिन स्थानीय रिकॉर्ड अपडेट नहीं हुआ। कृपया Super Admin से संपर्क करें।',
+    }, 502);
+  }
+
+  return c.json({
+    success: true,
+    message: cancelAtCycleEnd
+      ? 'सदस्यता वर्तमान चक्र के अंत में रद्द हो जाएगी (अभी सक्रिय)।'
+      : 'सदस्यता तुरंत रद्द कर दी गई।',
+    razorpayStatus: result.status,
+  });
 });
 
 // POST /api/billing/subscription/pause - pause recurring subscription
@@ -478,7 +564,14 @@ billingApp.post('/subscription/pause', async (c) => {
   const result = await pauseRazorpaySubscription(c.env, sub.razorpay_subscription_id);
   if (result.error) return c.json({ success: false, message: result.error }, 400);
 
-  await db.prepare(`UPDATE school_subscriptions SET paused_at = ?, updated_at = ? WHERE school_id = ?`).bind(new Date().toISOString(), new Date().toISOString(), schoolId).run().catch(() => {});
+  // paused_at records the pause; the mandate itself is still authorized, so
+  // mandate_status correctly stays 'active' (migration 0032 domain).
+  const upd = await db.prepare(
+    "UPDATE school_subscriptions SET paused_at = ?, updated_at = ? WHERE school_id = ?"
+  ).bind(new Date().toISOString(), new Date().toISOString(), schoolId).run();
+  if (((upd as any)?.meta?.changes ?? 0) === 0) {
+    return c.json({ success: false, code: 'LOCAL_PERSIST_FAILED', message: 'स्थानीय रिकॉर्ड अपडेट नहीं हुआ।' }, 502);
+  }
   return c.json({ success: true, message: 'सदस्यता रोक दी गई (paused)।' });
 });
 
@@ -498,7 +591,12 @@ billingApp.post('/subscription/resume', async (c) => {
   const result = await resumeRazorpaySubscription(c.env, sub.razorpay_subscription_id);
   if (result.error) return c.json({ success: false, message: result.error }, 400);
 
-  await db.prepare(`UPDATE school_subscriptions SET paused_at = NULL, status = 'Active', updated_at = ? WHERE school_id = ?`).bind(new Date().toISOString(), schoolId).run().catch(() => {});
+  const upd = await db.prepare(
+    "UPDATE school_subscriptions SET paused_at = NULL, status = 'Active', updated_at = ? WHERE school_id = ?"
+  ).bind(new Date().toISOString(), schoolId).run();
+  if (((upd as any)?.meta?.changes ?? 0) === 0) {
+    return c.json({ success: false, code: 'LOCAL_PERSIST_FAILED', message: 'स्थानीय रिकॉर्ड अपडेट नहीं हुआ।' }, 502);
+  }
   return c.json({ success: true, message: 'सदस्यता फिर से शुरू हो गई (resumed)।' });
 });
 

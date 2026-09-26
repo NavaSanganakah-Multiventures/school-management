@@ -7,6 +7,73 @@ import { getAuthUser } from '../lib/auth';
 
 export const webhooksApp = new Hono<{ Bindings: any }>();
 
+/**
+ * True only for a SQLite UNIQUE-constraint violation.
+ *
+ * The previous code had a single `catch` around the event-log insert and
+ * returned HTTP 200 for ANY error, treating it as a duplicate. That meant a
+ * transient D1 failure, a schema drift error or a size limit would permanently
+ * discard a captured payment while telling Razorpay there was nothing to
+ * retry. Only a genuine uniqueness conflict may be swallowed as a duplicate;
+ * everything else must surface as 500 so Razorpay re-delivers.
+ */
+function isUniqueViolation(err: any): boolean {
+  const msg = String((err && (err.message || err)) || '').toLowerCase();
+  return (
+    msg.includes('unique constraint failed') ||
+    msg.includes('constraint failed: unique') ||
+    msg.includes('sqlite_constraint_unique') ||
+    (msg.includes('unique') && msg.includes('constraint'))
+  );
+}
+
+/**
+ * Claims a payment id in payment_ledger BEFORE applying any side effect.
+ *
+ * `razorpay_webhook_events.event_id` only deduplicated a single delivery. It
+ * could not stop one payment being applied twice, because Razorpay emits both
+ * `payment.captured` and `order.paid` for the same payment and the old code
+ * synthesised the event id as `eventType + '-' + paymentId`, giving the two
+ * events different keys. Keying on the payment id itself fixes that.
+ *
+ * Returns true when the caller owns the right to apply the payment.
+ */
+async function claimPayment(
+  db: any,
+  paymentId: string,
+  schoolId: string,
+  kind: string,
+  referenceId: string,
+  amountINR: number,
+): Promise<{ claimed: boolean; alreadyApplied: boolean }> {
+  if (!paymentId) return { claimed: true, alreadyApplied: false };
+  try {
+    await db.prepare(
+      'INSERT INTO payment_ledger (payment_id, school_id, kind, reference_id, amount_inr) VALUES (?,?,?,?,?)'
+    ).bind(paymentId, schoolId || '', kind, referenceId || '', Number(amountINR) || 0).run();
+    return { claimed: true, alreadyApplied: false };
+  } catch (err) {
+    if (isUniqueViolation(err)) return { claimed: false, alreadyApplied: true };
+    // Not a duplicate: the claim could not be recorded, so we must NOT apply
+    // the side effect (we would lose the ability to make it idempotent).
+    throw err;
+  }
+}
+
+/**
+ * Releases a claim so a genuine failure can be retried. Without this, a claim
+ * taken before a failed activation would permanently block the retry and the
+ * payment would be lost the other way round.
+ */
+async function releasePaymentClaim(db: any, paymentId: string): Promise<void> {
+  if (!paymentId) return;
+  try {
+    await db.prepare('DELETE FROM payment_ledger WHERE payment_id = ?').bind(paymentId).run();
+  } catch (_) {
+    // Best effort; the reconcile job can clear stale rows.
+  }
+}
+
 // Razorpay webhook — source of truth for payment tracking.
 // Razorpay POSTs signed JSON events here after a payment is captured/failed.
 // Register this URL in the Razorpay dashboard: https://pragnya.nasven.com/api/webhooks/razorpay
@@ -103,16 +170,28 @@ webhooksApp.post('/razorpay', async (c) => {
     }
   }
 
-  // 2. Log the event for audit + idempotency.
+  // 2. Log the event for audit + per-delivery idempotency.
+  //
+  // Razorpay sends a unique X-Razorpay-Event-Id per delivery, which is the
+  // correct key for "have I already processed this exact delivery". The old
+  // code derived a synthetic id from eventType + paymentId instead, which both
+  // collided across event types and missed the real per-delivery guarantee.
+  const deliveryEventId = c.req.header('X-Razorpay-Event-Id') || eventId || (eventType + '-' + (razorpay_payment_id || razorpay_order_id || 'unknown'));
   const logId = 'wh-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
   try {
     await db.prepare(
       'INSERT INTO razorpay_webhook_events (id, event_id, event_type, entity_id, school_id, payload, processed, received_at) VALUES (?,?,?,?,?,?,0,?)'
-    ).bind(logId, eventId || (eventType + '-' + razorpay_payment_id), eventType, razorpay_payment_id || razorpay_order_id, schoolId || '', rawBody.slice(0, 16000), nowIso).run();
-  } catch (logErr) {
-    // If event_id already exists (UNIQUE), this is a duplicate webhook — idempotent no-op.
-    console.error('[webhook/razorpay] event log insert failed (likely duplicate):', (logErr as any) && (logErr as any).message);
-    return c.json({ success: true, message: 'duplicate event — already processed' });
+    ).bind(logId, deliveryEventId, eventType, razorpay_payment_id || razorpay_order_id, schoolId || '', rawBody.slice(0, 16000), nowIso).run();
+  } catch (logErr: any) {
+    if (isUniqueViolation(logErr)) {
+      // A genuine redelivery of an event we already accepted.
+      return c.json({ success: true, message: 'duplicate delivery — already processed' });
+    }
+    // Anything else is our fault, not Razorpay's. Returning 200 here is what
+    // permanently lost captured payments: Razorpay stops retrying and the
+    // subscription/fee is never activated. Surface the error instead.
+    console.error('[webhook/razorpay] event log insert failed (not a duplicate):', logErr && logErr.message);
+    return c.json({ success: false, message: 'इवेंट लॉग विफल। कृपया पुनः प्रयास करें।' }, 500);
   }
 
   // 3. Handle events.
@@ -124,11 +203,32 @@ webhooksApp.post('/razorpay', async (c) => {
 
     // Plugin payment — activate the plugin in school_plugins.
     if (paymentType === 'plugin' && pluginId) {
+      let claim;
       try {
-        const cycleEnd = billingCycle === 'annual'
-          ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        await db.prepare(`
+        claim = await claimPayment(db, razorpay_payment_id, schoolId, 'plugin', pluginId, paidAmountINR);
+      } catch (e: any) {
+        return c.json({ success: false, message: 'प्लगइन भुगतान रिकॉर्ड नहीं हो सका।', schoolId, pluginId }, 500);
+      }
+      if (claim.alreadyApplied) {
+        try { await db.prepare('UPDATE razorpay_webhook_events SET processed=1, processed_at=? WHERE id=?').bind(nowIso, logId).run(); } catch (_) {}
+        return c.json({ success: true, message: 'duplicate (already applied)', schoolId, pluginId });
+      }
+      try {
+        // Anchor validity to the existing expiry when one is already in the
+        // future, so a redelivery or a second order cannot silently push the
+        // end date further out each time.
+        const existing = await db.prepare(
+          'SELECT valid_until FROM school_plugins WHERE school_id = ? AND plugin_id = ?'
+        ).bind(schoolId, pluginId).first();
+        const today = nowIso.split('T')[0];
+        const currentValid = existing && existing.valid_until && String(existing.valid_until) > today
+          ? String(existing.valid_until)
+          : '';
+        const addedDays = billingCycle === 'annual' ? 365 : 30;
+        const baseMs = currentValid ? Date.parse(currentValid + 'T00:00:00Z') : Date.now();
+        const cycleEnd = new Date(baseMs + addedDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+        const upd = await db.prepare(`
           UPDATE school_plugins
           SET status = 'active', payment_status = 'active',
               valid_until = ?, next_billing_date = ?,
@@ -137,17 +237,36 @@ webhooksApp.post('/razorpay', async (c) => {
           WHERE school_id = ? AND plugin_id = ?
         `).bind(cycleEnd, cycleEnd, schoolId, pluginId).run();
 
+        if ((upd as any)?.meta?.changes === 0) {
+          // No plugin row to activate: the ledger entry promised a service we
+          // cannot grant, so refund the claim rather than charge for nothing.
+          await releasePaymentClaim(db, razorpay_payment_id);
+          return c.json({ success: false, message: 'प्लगइन रिकॉर्ड नहीं मिला।', schoolId, pluginId }, 404);
+        }
+
         try {
           await db.prepare('UPDATE razorpay_webhook_events SET processed=1, processed_at=? WHERE id=?').bind(nowIso, logId).run();
         } catch (_) {}
         return c.json({ success: true, message: 'प्लगइन सक्रिय हो गया।', schoolId, pluginId });
       } catch (e: any) {
+        await releasePaymentClaim(db, razorpay_payment_id);
         return c.json({ success: false, message: 'प्लगइन एक्टिवेशन विफल: ' + (e?.message || ''), schoolId, pluginId }, 500);
       }
     }
 
     // Student fee payment — mark the fee invoice paid.
     if (paymentType === 'student_fee') {
+      let claim;
+      try {
+        claim = await claimPayment(db, razorpay_payment_id, schoolId, 'student_fee', feeInvoiceId, paidAmountINR);
+      } catch (e: any) {
+        return c.json({ success: false, message: 'फीस भुगतान रिकॉर्ड नहीं हो सका।', schoolId }, 500);
+      }
+      if (claim.alreadyApplied) {
+        try { await db.prepare('UPDATE razorpay_webhook_events SET processed=1, processed_at=? WHERE id=?').bind(nowIso, logId).run(); } catch (_) {}
+        return c.json({ success: true, message: 'duplicate (already applied)', schoolId, invoiceId: feeInvoiceId });
+      }
+
       const feeResult = await activateFeePaymentFromRazorpay({
         db,
         env: c.env,
@@ -159,48 +278,72 @@ webhooksApp.post('/razorpay', async (c) => {
         paidAmountINR,
         webhookReceivedAt: nowIso,
       });
+      if (!feeResult.success) {
+        await releasePaymentClaim(db, razorpay_payment_id);
+        return c.json({ success: false, message: feeResult.error || 'फीस भुगतान दर्ज करने में विफल।', schoolId }, 500);
+      }
       try {
         await db.prepare('UPDATE razorpay_webhook_events SET processed=1, processed_at=? WHERE id=?').bind(nowIso, logId).run();
       } catch (_) {}
-      if (feeResult.success) {
-        return c.json({ success: true, message: feeResult.alreadyPaid ? 'duplicate (already paid)' : feeResult.message, schoolId, invoiceId: feeInvoiceId });
-      }
-      return c.json({ success: false, message: feeResult.error || 'फीस भुगतान दर्ज करने में विफल।', schoolId }, 500);
+      return c.json({ success: true, message: feeResult.alreadyPaid ? 'duplicate (already paid)' : feeResult.message, schoolId, invoiceId: feeInvoiceId });
     }
 
     // Subscription payment — activate the school subscription.
-    const result = await activateSubscriptionFromPayment({
-      db,
-      env: c.env,
-      schoolId,
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_payment_link_id,
-      planId,
-      billingCycle,
-      paidAmountINR,
-      webhookReceivedAt: nowIso,
-    });
+    {
+      let claim;
+      try {
+        claim = await claimPayment(db, razorpay_payment_id, schoolId, 'subscription', planId, paidAmountINR);
+      } catch (e: any) {
+        return c.json({ success: false, message: 'सदस्यता भुगतान रिकॉर्ड नहीं हो सका।', schoolId }, 500);
+      }
+      if (claim.alreadyApplied) {
+        try { await db.prepare('UPDATE razorpay_webhook_events SET processed=1, processed_at=? WHERE id=?').bind(nowIso, logId).run(); } catch (_) {}
+        return c.json({ success: true, message: 'duplicate (already applied)', schoolId, planId });
+      }
 
-    if (result.success) {
+      const result = await activateSubscriptionFromPayment({
+        db,
+        env: c.env,
+        schoolId,
+        razorpay_order_id,
+        razorpay_payment_id,
+        razorpay_payment_link_id,
+        planId,
+        billingCycle,
+        paidAmountINR,
+        webhookReceivedAt: nowIso,
+      });
+
+      if (!result.success) {
+        await releasePaymentClaim(db, razorpay_payment_id);
+        return c.json({ success: false, message: result.error || 'एक्टिवेशन विफल।', schoolId }, 500);
+      }
       try {
         await db.prepare('UPDATE razorpay_webhook_events SET processed=1, processed_at=? WHERE id=?').bind(nowIso, logId).run();
       } catch (_) {}
       return c.json({ success: true, message: result.alreadyPaid ? 'duplicate (already paid)' : result.message, schoolId, planId: (result.plan && result.plan.id) || planId });
     }
-    return c.json({ success: false, message: result.error || 'एक्टिवेशन विफल।', schoolId }, 500);
   }
 
   if (eventType === 'payment.failed') {
-    // Mark the matching invoice as Failed (best-effort).
+    // Mark the matching invoice as Failed — but NEVER downgrade an invoice that
+    // has already been paid. Razorpay can deliver `payment.failed` for an
+    // earlier attempt AFTER a later `payment.captured` for the same order, and
+    // the unguarded UPDATE relabelled a genuinely paid invoice as Failed.
     try {
       if (razorpay_order_id) {
-        await db.prepare('UPDATE billing_invoices SET payment_status=? WHERE razorpay_order_id=?').bind('Failed', razorpay_order_id).run();
+        await db.prepare(
+          "UPDATE billing_invoices SET payment_status = 'Failed' WHERE razorpay_order_id = ? AND payment_status != 'Paid'"
+        ).bind(razorpay_order_id).run();
       }
       if (razorpay_payment_link_id) {
-        await db.prepare('UPDATE billing_invoices SET payment_status=? WHERE razorpay_payment_link_id=?').bind('Failed', razorpay_payment_link_id).run();
+        await db.prepare(
+          "UPDATE billing_invoices SET payment_status = 'Failed' WHERE razorpay_payment_link_id = ? AND payment_status != 'Paid'"
+        ).bind(razorpay_payment_link_id).run();
       }
-    } catch (_) {}
+    } catch (e: any) {
+      console.error('[webhook/razorpay] payment.failed update failed:', e?.message);
+    }
     try {
       await db.prepare('UPDATE razorpay_webhook_events SET processed=1, processed_at=? WHERE id=?').bind(nowIso, logId).run();
     } catch (_) {}
@@ -212,6 +355,28 @@ webhooksApp.post('/razorpay', async (c) => {
   // ==========================================
   const rawSubscription = rawSubscriptionWrapper ? rawSubscriptionWrapper.entity : null;
   const razorpaySubscriptionId = rawSubscription ? rawSubscription.id : (notes.subscription_id || '');
+
+  // Every subscription state change is matched on the razorpay_subscription_id
+  // as well as the school id.
+  //
+  // The previous code keyed only on `school_id`, taken from `notes.school_id` in
+  // the webhook body. A school that cancelled and later re-subscribed has one
+  // `school_subscriptions` row but two subscription ids, so a delayed event for
+  // the OLD subscription could cancel, pause or reactivate the NEW one.
+  // Requiring the stored id to match means a stale event is ignored instead.
+  // A missing id is also refused: ownership cannot be verified, so nothing runs.
+  const applySubscriptionState = async (sets: string, binds: any[]): Promise<number> => {
+    if (!schoolId || !razorpaySubscriptionId) return 0;
+    try {
+      const upd = await db.prepare(
+        'UPDATE school_subscriptions SET ' + sets + ' WHERE school_id = ? AND razorpay_subscription_id = ?'
+      ).bind(...binds, schoolId, razorpaySubscriptionId).run();
+      return (upd as any)?.meta?.changes ?? 0;
+    } catch (e: any) {
+      console.error('[webhook] ' + eventType + ' update failed:', e?.message);
+      return 0;
+    }
+  };
 
   if (eventType === 'subscription.activated') {
     if (schoolId && razorpaySubscriptionId) {
@@ -292,65 +457,41 @@ webhooksApp.post('/razorpay', async (c) => {
 
   if (eventType === 'subscription.pending') {
     // Payment pending for current cycle — school stays active, flag as Past_Due
-    if (schoolId) {
-      try {
-        await db.prepare("UPDATE school_subscriptions SET status = 'Past_Due', updated_at = ? WHERE school_id = ?").bind(nowIso, schoolId).run();
-      } catch (_) {}
-    }
+    await applySubscriptionState('status = ?, updated_at = ?', ['Past_Due', nowIso]);
     try { await db.prepare('UPDATE razorpay_webhook_events SET processed=1, processed_at=? WHERE id=?').bind(nowIso, logId).run(); } catch (_) {}
-    return c.json({ success: true, message: 'subscription.pending', schoolId });
+    return c.json({ success: true, message: 'subscription.pending', schoolId, razorpaySubscriptionId });
   }
 
   if (eventType === 'subscription.failed') {
     // Auto-debit failed — mark as Past_Due, school stays active for grace period
-    if (schoolId) {
-      try {
-        await db.prepare("UPDATE school_subscriptions SET status = 'Past_Due', updated_at = ? WHERE school_id = ?").bind(nowIso, schoolId).run();
-      } catch (_) {}
-    }
+    await applySubscriptionState('status = ?, updated_at = ?', ['Past_Due', nowIso]);
     try { await db.prepare('UPDATE razorpay_webhook_events SET processed=1, processed_at=? WHERE id=?').bind(nowIso, logId).run(); } catch (_) {}
-    return c.json({ success: true, message: 'subscription.failed', schoolId });
+    return c.json({ success: true, message: 'subscription.failed', schoolId, razorpaySubscriptionId });
   }
 
   if (eventType === 'subscription.paused') {
-    if (schoolId) {
-      try {
-        await db.prepare("UPDATE school_subscriptions SET paused_at = ?, updated_at = ? WHERE school_id = ?").bind(nowIso, nowIso, schoolId).run();
-      } catch (_) {}
-    }
+    await applySubscriptionState('paused_at = ?, updated_at = ?', [nowIso, nowIso]);
     try { await db.prepare('UPDATE razorpay_webhook_events SET processed=1, processed_at=? WHERE id=?').bind(nowIso, logId).run(); } catch (_) {}
-    return c.json({ success: true, message: 'subscription.paused', schoolId });
+    return c.json({ success: true, message: 'subscription.paused', schoolId, razorpaySubscriptionId });
   }
 
   if (eventType === 'subscription.resumed') {
-    if (schoolId) {
-      try {
-        await db.prepare("UPDATE school_subscriptions SET paused_at = NULL, status = 'Active', updated_at = ? WHERE school_id = ?").bind(nowIso, schoolId).run();
-      } catch (_) {}
-    }
+    await applySubscriptionState('paused_at = NULL, status = ?, updated_at = ?', ['Active', nowIso]);
     try { await db.prepare('UPDATE razorpay_webhook_events SET processed=1, processed_at=? WHERE id=?').bind(nowIso, logId).run(); } catch (_) {}
-    return c.json({ success: true, message: 'subscription.resumed', schoolId });
+    return c.json({ success: true, message: 'subscription.resumed', schoolId, razorpaySubscriptionId });
   }
 
   if (eventType === 'subscription.cancelled') {
-    if (schoolId) {
-      try {
-        await db.prepare("UPDATE school_subscriptions SET status = 'Canceled', mandate_status = 'revoked', updated_at = ? WHERE school_id = ?").bind(nowIso, schoolId).run();
-      } catch (_) {}
-    }
+    await applySubscriptionState("status = 'Canceled', mandate_status = 'revoked', updated_at = ?", [nowIso]);
     try { await db.prepare('UPDATE razorpay_webhook_events SET processed=1, processed_at=? WHERE id=?').bind(nowIso, logId).run(); } catch (_) {}
-    return c.json({ success: true, message: 'subscription.cancelled', schoolId });
+    return c.json({ success: true, message: 'subscription.cancelled', schoolId, razorpaySubscriptionId });
   }
 
   if (eventType === 'subscription.expired') {
     // All cycles completed
-    if (schoolId) {
-      try {
-        await db.prepare("UPDATE school_subscriptions SET status = 'Past_Due', remaining_cycles = 0, updated_at = ? WHERE school_id = ?").bind(nowIso, schoolId).run();
-      } catch (_) {}
-    }
+    await applySubscriptionState('status = ?, remaining_cycles = 0, updated_at = ?', ['Past_Due', nowIso]);
     try { await db.prepare('UPDATE razorpay_webhook_events SET processed=1, processed_at=? WHERE id=?').bind(nowIso, logId).run(); } catch (_) {}
-    return c.json({ success: true, message: 'subscription.expired', schoolId });
+    return c.json({ success: true, message: 'subscription.expired', schoolId, razorpaySubscriptionId });
   }
 
   // Unhandled event type — still acknowledge 200 so Razorpay doesn't retry forever.

@@ -15,9 +15,12 @@
 -- scope, never as "all students". A parent with no linked child therefore sees
 -- nothing until a Principal links them — which is the correct default for PII.
 --
--- No BEGIN/COMMIT: `wrangler d1 migrations apply` already wraps each file in its
--- own atomic transaction, and raw BEGIN/COMMIT is rejected by wrangler@4 on
--- remote D1 with error code 7500. See .agents/rules/ai-instructions.md.
+-- Transaction-free: `wrangler d1 migrations apply` already wraps each file in its
+-- own atomic transaction, and a manual one is rejected by wrangler on remote D1.
+-- IMPORTANT: wrangler's splitter reads the raw file and does NOT strip `--`
+-- comments, so naming those keywords even inside a comment makes it reject the
+-- file with "contains several transactions". That is exactly what made fresh
+-- databases unmigratable via migration 0034. Keep them out of this file.
 
 CREATE TABLE IF NOT EXISTS parent_student_links (
     id TEXT PRIMARY KEY,

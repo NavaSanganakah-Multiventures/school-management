@@ -3,7 +3,11 @@
 -- School Directors/Principals can define extra fields (text/number/dropdown/date/checkbox)
 -- that appear ONLY for their school in the Add/Edit Student forms and Student Detail view.
 -- Definitions are one row per school (school_id); values are stored per student.
--- Transaction-free (wrangler@4 remote D1 rejects BEGIN/COMMIT with code 7500).
+-- Transaction-free. `wrangler d1 migrations apply` supplies its own transaction
+-- and rejects files it believes contain more than one. IMPORTANT: wrangler's
+-- splitter does not strip `--` comments, so even naming those keywords in a
+-- comment makes it reject the file (this is what broke migration 0034). Keep
+-- them out of this file.
 
 CREATE TABLE IF NOT EXISTS student_custom_field_defs (
     id TEXT PRIMARY KEY,

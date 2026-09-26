@@ -1,12 +1,27 @@
 -- 0034: Relax system_users.role CHECK to allow 'Parents' and 'Students' roles.
 -- SQLite cannot ALTER a CHECK constraint in place, so the table must be rebuilt.
 --
--- Note: no explicit BEGIN/COMMIT here. D1's `wrangler d1 migrations apply`
--- already wraps each migration file in its own atomic transaction, so raw
--- `BEGIN TRANSACTION` statements would be redundant AND are rejected by
--- wrangler@4 on remote D1 (errors with code 7500).
+-- IMPORTANT WHEN EDITING THIS FILE
+--
+-- This migration used to open with two statements that toggled SQLite's
+-- foreign-key enforcement off and then back on around the table rebuild. They
+-- have been removed, for two reasons.
+--
+-- First, correctness: SQLite ignores that setting inside a transaction,
+-- and `wrangler d1 migrations apply` has already opened one, so the toggle was
+-- a no-op. The rebuild does not need it either — it only drops and recreates
+-- `system_users`, and nothing in migrations 0001-0038 declares a foreign key
+-- that points at that table.
+--
+-- Second, and more seriously: `wrangler d1 migrations apply` scans the raw file
+-- for transaction keywords and does NOT strip `--` comments first. Any of the
+-- following words appearing even inside a comment makes it reject the file
+-- with "contains several transactions" — which meant a FRESH database could
+-- not be migrated at all, so a newly provisioned school could never finish
+-- `provision-school.mjs`. The removed statements are named here only
+-- descriptively; please keep the literal keywords out of this file, and keep it
+-- free of explicit transaction statements since D1 supplies its own.
 
-PRAGMA foreign_keys=off;
 
 CREATE TABLE system_users_new (
     id TEXT PRIMARY KEY,
@@ -33,5 +48,3 @@ FROM system_users;
 
 DROP TABLE system_users;
 ALTER TABLE system_users_new RENAME TO system_users;
-
-PRAGMA foreign_keys=on;
