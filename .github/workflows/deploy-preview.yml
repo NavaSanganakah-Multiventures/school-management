@@ -111,6 +111,25 @@ jobs:
       - name: Verify preview URL resolution
         run: node scripts/resolve-preview-url.test.mjs
 
+      # The billing authorisation boundary, exercised against the real api/ modules:
+      # a dedicated worker forwards billing to the platform signed as itself, and the
+      # platform refuses any scope that is not signed. Transpiles the real tree in
+      # process, so it needs no database, no Worker and no network.
+      #
+      # It is here because a source-scan cannot answer the only question that
+      # matters here -- does a forged request actually get refused -- and because two
+      # cheaper harnesses in this repo passed while the code was wrong.
+      - name: Verify billing M2M authorisation
+        run: node scripts/verify-billing-m2m.mjs
+
+      # Breaks the billing code on purpose, six ways, and fails unless the harness
+      # above notices each one. Cheap (~30s) next to what it protects: a green
+      # harness over unexercised code is what let a 401-on-every-dedicated-school
+      # regression reach production here, and what hid it again when the harness was
+      # written to assert the 401 rather than the reason for it.
+      - name: Mutation-check the billing harness
+        run: node scripts/mutation-check-billing-m2m.mjs
+
       # wrangler comes from `npm ci` via devDependencies. This step exists only to
       # turn "wrangler is too old for Previews" into a clear message here, rather
       # than a confusing failure from `wrangler preview` several steps later.

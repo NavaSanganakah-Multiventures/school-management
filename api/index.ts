@@ -1,5 +1,8 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { buildInternalAuthHeaders } from './lib/internal-request-auth';
+import { getInternalSyncSecret } from './lib/tenant-crypto';
+import { getAuthUser } from './lib/auth';
 import authApp from './auth';
 import studentsApp from './students';
 import attendanceApp from './attendance';
@@ -51,20 +54,99 @@ app.use('*', async (c, next) => {
     }
 
     if (path.startsWith('/api/billing') || path.startsWith('/api/plugins') || path.startsWith('/api/features')) {
-      try {
-        const platformUrl = new URL(c.req.url);
-        platformUrl.hostname = 'pragnya.nasven.com';
-        platformUrl.protocol = 'https:';
-        const proxyRequest = new Request(platformUrl.toString(), c.req.raw);
-        return await fetch(proxyRequest);
-      } catch (err: any) {
-        console.error('Error proxying to platform worker pragnya.nasven.com:', err);
+      // The platform worker is the only billing authority, so these routes have to
+      // be answered there. But the school's own user token must NOT travel with the
+      // request: a school role is only valid on its dedicated worker, and the
+      // platform tier refuses school roles outright (api/lib/auth.ts). Forwarding
+      // the token therefore answered every authenticated billing call on a
+      // dedicated worker with 401 -- verified live against
+      // yagyaashram.pragnya.nasven.com, where /api/billing/subscription returned
+      // 401 while /api/auth/me returned 200.
+      //
+      // So the proxy authenticates as the WORKER, not as the user, and the school
+      // is taken from SCHOOL_ID in this worker's own env -- which a caller cannot
+      // influence, because a dedicated worker only ever serves one school.
+      //
+      // The request is retargeted at /api/internal/<schoolId>/... rather than
+      // /api/... for one specific reason: the M2M signing string covers the path,
+      // so putting the school id INSIDE the path puts it inside the signature.
+      // INTERNAL_SYNC_SECRET is fleet-wide, so a header-carried school id could be
+      // swapped by any dedicated worker and the signature would still verify. In
+      // the path it cannot.
+      const schoolId = String((c.env && c.env.SCHOOL_ID) || '').trim();
+      if (!schoolId) {
+        // Without a school id the platform cannot scope the answer, and guessing
+        // is exactly the invented-tenant behaviour that was removed.
         return c.json({
           success: false,
-          error: 'केंद्रीय प्लेटफ़ॉर्म सेवा अस्थायी रूप से अनुपलब्ध है। कृपया कुछ समय बाद पुनः प्रयास करें।',
-          details: err?.message || 'Platform proxy unreachable'
-        }, 502);
+          message: 'इस dedicated worker पर SCHOOL_ID सेट नहीं है, इसलिए billing सेवा नहीं दी जा सकती।',
+        }, 500);
       }
+
+      // A token that is PRESENT but does not verify is rejected here. A request with
+      // no token at all is still forwarded, because parts of billing are public --
+      // /api/billing/plans and /api/billing/razorpay/config carry no auth and the
+      // pricing page has to render before anyone logs in. Demanding a token for the
+      // whole prefix turned those into 401 on every dedicated school, which is the
+      // same class of outage as the one this change fixes.
+      //
+      // What the platform then does with it is the single authority: a public route
+      // needs no role, an authenticated route without a verified role is refused
+      // there. So the role is forwarded only when a token actually verified here.
+      const caller = await getAuthUser(c);
+      if (c.req.header('Authorization') && !caller) {
+        return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+      }
+
+      const secret = await getInternalSyncSecret(c.env);
+      if (!secret) {
+        return c.json({
+          success: false,
+          message: 'Internal sync secret configured नहीं है, इसलिए billing सेवा अनुपलब्ध है।',
+        }, 500);
+      }
+
+      // Read the body once: the signature is computed over it, and the body can
+      // only be consumed once.
+      const rawBody = ['GET', 'HEAD'].includes(c.req.method)
+        ? ''
+        : await c.req.text();
+
+      // `/api/billing/x` -> `/api/internal/<schoolId>/api/billing/x`. The school
+      // id has to sit inside the signed path, not in a header: INTERNAL_SYNC_SECRET
+      // is fleet-wide, so it proves "a dedicated worker asked" and not "this
+      // dedicated worker asked", and a header could be swapped by any of them.
+      const targetPath = `/api/internal/${encodeURIComponent(schoolId)}${path}`;
+      const platformUrl = new URL(c.req.url);
+      platformUrl.hostname = 'pragnya.nasven.com';
+      platformUrl.protocol = 'https:';
+      platformUrl.pathname = targetPath;
+
+      const headers = new Headers();
+      headers.set('Content-Type', c.req.header('Content-Type') || 'application/json');
+      for (const [k, v] of Object.entries(await buildInternalAuthHeaders({
+        secret,
+        method: c.req.method,
+        path: targetPath,
+        body: rawBody,
+      }))) {
+        headers.set(k, v);
+      }
+      // Identity for auditing and for the platform's role checks, both taken from
+      // the token this worker just verified -- never from a request header. An
+      // earlier draft forwarded X-Forwarded-User straight through, which let any
+      // caller write whatever identity it liked into the platform's audit trail.
+      if (caller) {
+        headers.set('X-Acting-Role', String(caller.role || ''));
+        headers.set('X-Acting-Email', String(caller.email || ''));
+      }
+
+      const proxyRequest = new Request(platformUrl.toString(), {
+        method: c.req.method,
+        headers,
+        body: rawBody || undefined,
+      });
+      return await fetch(proxyRequest);
     }
   }
   await next();

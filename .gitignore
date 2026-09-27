@@ -78,3 +78,8 @@ service-account*.json
 *serviceAccount*.json
 firebase-adminsdk*.json
 *private*key*.json
+
+# Build output of scripts/verify-billing-m2m.mjs, which transpiles the real api/ tree
+# to CommonJS so the harness can require it. tsconfig.apitest.json IS committed; this
+# directory is not.
+.tmp-apitest/
