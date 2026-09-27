@@ -78,17 +78,56 @@ async function main() {
     console.log('\n=== Deploying Dedicated Worker: ' + slug + ' ===\n');
 
     const schoolSecrets = SECRETS_JSON[slug] || {};
+
+    // Every dedicated worker must sign with its OWN key.
+    //
+    // This used to fall back to the platform's AUTH_SECRET, which meant all schools
+    // shared one signing key: a leak was a fleet-wide leak, and a token minted for one
+    // school verified on every other. `getAuthUser` already pins SCHOOL_ID so a
+    // cross-school token was refused anyway -- this closes the second line of defence
+    // that the first one was standing in for.
+    //
+    // It is now FAIL-CLOSED on purpose. Silently falling back is how the shared key
+    // came to be in the first place: one missing entry in DEDICATED_SECRETS_JSON would
+    // quietly put every school back on one key, and the only symptom would be tokens
+    // that verify in more places than they should. A deploy that stops with a clear
+    // message is much cheaper than that.
+    const perSchoolAuthSecret = schoolSecrets.AUTH_SECRET;
+    if (!perSchoolAuthSecret) {
+      console.error(
+        '\n  REFUSING TO DEPLOY ' + slug + ': no per-school AUTH_SECRET.\n\n' +
+        '  DEDICATED_SECRETS_JSON has no AUTH_SECRET for slug "' + slug + '".\n' +
+        '  Falling back to the platform AUTH_SECRET would put this school back on the\n' +
+        '  shared signing key, which is the exact condition this check exists to stop.\n\n' +
+        '  Add one, then redeploy:\n' +
+        '    node scripts/rotate-per-school-auth-secret.mjs\n\n',
+      );
+      process.exit(1);
+    }
+
     const secrets = {
       RAZORPAY_KEY_ID: schoolSecrets.RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID,
       RAZORPAY_KEY_SECRET: schoolSecrets.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRET,
-      AUTH_SECRET: schoolSecrets.AUTH_SECRET || process.env.AUTH_SECRET,
-      INTERNAL_SYNC_SECRET: schoolSecrets.INTERNAL_SYNC_SECRET || process.env.INTERNAL_SYNC_SECRET,
+      AUTH_SECRET: perSchoolAuthSecret,
+      // Fleet-wide on purpose. See the comment added to deploy.yml: deriving this from
+      // AUTH_SECRET would give every school a different M2M secret now that the auth
+      // keys differ per school, and the billing proxy would fail everywhere.
+      INTERNAL_SYNC_SECRET: process.env.INTERNAL_SYNC_SECRET || schoolSecrets.INTERNAL_SYNC_SECRET,
       FCM_SERVICE_ACCOUNT_JSON: process.env.FCM_SERVICE_ACCOUNT_JSON,
       WEB_PUSH_VAPID_PRIVATE_KEY: process.env.WEB_PUSH_VAPID_PRIVATE_KEY,
       FIREBASE_WEB_CONFIG_JSON: process.env.FIREBASE_WEB_CONFIG_JSON,
     };
     for (const key of Object.keys(secrets)) {
       if (!secrets[key]) delete secrets[key];
+    }
+    if (!secrets.INTERNAL_SYNC_SECRET) {
+      console.error(
+        '\n  REFUSING TO DEPLOY ' + slug + ': INTERNAL_SYNC_SECRET is not set.\n\n' +
+        '  Without it, getInternalSyncSecret derives m2m_<hmac(AUTH_SECRET)>, and since\n' +
+        '  each school now has its own AUTH_SECRET the platform could no longer verify\n' +
+        '  any school\'s M2M signature. Billing would break on every school at once.\n\n',
+      );
+      process.exit(1);
     }
 
     // Apply D1 migrations first so the schema is ready when the worker goes live.
