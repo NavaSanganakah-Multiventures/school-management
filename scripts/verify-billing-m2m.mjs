@@ -507,27 +507,40 @@ globalThis.fetch = async (input, init) => {
   // wrong reason.
   const incoming = input instanceof Request ? input : new Request(input, init);
   const url = new URL(incoming.url);
-  check('hop ' + hops + ' arrived on the platform host', url.hostname === 'pragnya.nasven.com', url.hostname);
   return app.fetch(new Request(url.toString(), incoming), platformEnv(), undefined);
 };
+
+// One top-level dedicated request must cost exactly ONE network hop: dedicated worker
+// -> platform. The platform side has to re-enter its own routing in process.
+//
+// This assertion exists because of what happened when it did not. The first version
+// of the internal handler called fetch() against the worker's own public hostname to
+// reach the billing app, and Cloudflare answers a Worker fetching its own route with
+// 522/523. In production every signed billing call returned 522, with the tail
+// reporting "Ok" and an empty exceptions array -- so a status check alone would have
+// read 522 and moved on. Counting hops catches the extra round trip, and an in-process
+// re-entry keeps the count at one.
+function assertSingleHop(name, result, expectedStatus) {
+  check(name + ' (' + expectedStatus + ')', result.status === expectedStatus, 'got ' + result.status);
+  check(name + ' -- exactly one network hop', hops === 1, hops + ' hop(s)');
+}
+
 try {
+  hops = 0;
   const e2e = await app.request(
     '/api/billing/subscription',
     { headers: { Authorization: 'Bearer ' + directorToken } },
     dedicatedEnv,
   );
   const body = await e2e.json().catch(() => ({}));
-  check(
-    'a logged-in Director on a dedicated school reads their own subscription (200)',
-    e2e.status === 200,
-    'got ' + e2e.status + ' ' + JSON.stringify(body).slice(0, 160),
-  );
+  assertSingleHop('a logged-in Director on a dedicated school reads their own subscription', e2e, 200);
   check(
     'and it is their own school, not another one',
     body.subscription && body.subscription.schoolId === SCHOOL_ID,
     JSON.stringify(body.subscription || {}),
   );
 
+  hops = 0;
   const e2eAnon = await app.request('/api/billing/subscription', {}, dedicatedEnv);
   check(
     'an anonymous call on the same route is still refused end to end',
@@ -535,25 +548,23 @@ try {
     'got ' + e2eAnon.status,
   );
 
+  hops = 0;
   const e2ePlans = await app.request('/api/billing/plans', {}, dedicatedEnv);
-  check(
-    'the public pricing page still works end to end on a dedicated school',
-    e2ePlans.status === 200,
-    'got ' + e2ePlans.status,
-  );
+  assertSingleHop('the public pricing page still works end to end on a dedicated school', e2ePlans, 200);
 
-  // A Teacher is a real school role but may not buy a plan, and that has to hold
-  // across the proxy too -- otherwise the role check is decoration.
+  // A Teacher is a real school role and may read the subscription, and that has to
+  // hold across the proxy too -- otherwise the role check is decoration.
   const teacherToken = await authLib.signToken(
     { env: dedicatedEnv },
     { userId: 'u-teacher', email: 'teacher@test.school', role: 'Teacher', schoolId: SCHOOL_ID },
   );
+  hops = 0;
   const e2eTeacher = await app.request(
     '/api/billing/subscription',
     { headers: { Authorization: 'Bearer ' + teacherToken } },
     dedicatedEnv,
   );
-  check('a Teacher can still read the subscription (200)', e2eTeacher.status === 200, 'got ' + e2eTeacher.status);
+  assertSingleHop('a Teacher can still read the subscription', e2eTeacher, 200);
 } finally {
   globalThis.fetch = realFetch;
 }

@@ -27,7 +27,7 @@ import aiApp from './ai';
 import configApp from './config';
 import lmsApp from './lms';
 import emailApp from './email';
-import internalApp from './internal';
+import internalApp, { setInternalRootApp } from './internal';
 import featuresApp from './features';
 import webhooksApp from './webhooks';
 import { processTrialExpirations, processPluginTrialExpirations, processSubscriptionRenewals } from './lib/trial-expiration';
@@ -188,6 +188,11 @@ app.route('/config', configApp);
 app.route('/lms', lmsApp);
 app.route('/email', emailApp);
 app.route('/internal', internalApp);
+
+// Let the internal surface re-enter this app in process for the school-scoped
+// billing/plugins/features routes. Registered after the mounts so the root app is
+// fully routed by the time any request can reach it.
+setInternalRootApp(app);
 app.route('/features', featuresApp);
 app.route('/webhooks', webhooksApp);
 

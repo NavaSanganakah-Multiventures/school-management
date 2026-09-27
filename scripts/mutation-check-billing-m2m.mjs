@@ -21,6 +21,12 @@ const ROOT = process.cwd();
 // patterns silently matched nothing -- so both mistakes were reported as green.
 const MUTATIONS = [
   {
+    name: 'internal route re-enters over the network instead of in process',
+    file: 'api/internal/index.ts',
+    pattern: /  if \(rootApp\) \{\n    return rootApp\.fetch\(reentry, c\.env, undefined\);\n  \}/,
+    replace: '  if (rootApp) {\n    return fetch(reentry);\n  }',
+  },
+  {
     name: 'internal route stops re-signing for the billing path',
     file: 'api/internal/index.ts',
     pattern: /\n  for \(const \[k, v\][\s\S]*?headers\.set\(k, v\);\n  \}\n/,

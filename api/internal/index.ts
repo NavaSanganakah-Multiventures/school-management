@@ -5,6 +5,20 @@ import { signatureRequired, verifyInternalSignature, buildInternalAuthHeaders } 
 
 export const internalApp = new Hono<{ Bindings: any }>();
 
+// The root app, so the school-scoped surface below can be re-entered IN PROCESS.
+//
+// This exists because the first version of that handler did `fetch()` against the
+// worker's own public hostname, and Cloudflare refuses that: a Worker fetching its
+// own route comes back 522/523. In production the platform worker answered every
+// signed billing request with 522 while the handler itself reported "Ok" and no
+// exception was raised, so nothing local showed the problem. Calling app.fetch()
+// directly runs the same routing in the same isolate, with no network hop.
+let rootApp: any = null;
+
+export function setInternalRootApp(app: any) {
+  rootApp = app;
+}
+
 // Shared authorization gate for every /api/internal/* route.
 //
 // Preferred path: a short-lived HMAC signature over method + path + body +
@@ -189,12 +203,27 @@ internalApp.all('/:schoolId/api/:surface/*', async (c) => {
   const platformUrl = new URL(c.req.url);
   platformUrl.pathname = rest;
 
-  return fetch(
-    new Request(platformUrl.toString(), {
-      method: c.req.method,
-      headers,
-      body: rawBody || undefined,
-    }),
+  const reentry = new Request(platformUrl.toString(), {
+    method: c.req.method,
+    headers,
+    body: rawBody || undefined,
+  });
+
+  // In process, NOT over the network. See setInternalRootApp above: a Worker
+  // fetching its own public hostname is answered 522/523 by Cloudflare, which is
+  // what this returned in production while reporting no error at all.
+  //
+  // c.executionCtx is deliberately NOT forwarded. Reading that getter throws when no
+  // ExecutionContext exists, so touching it here turned a routing decision into a
+  // 500 anywhere the context is absent -- which is exactly what the in-process test
+  // harness is. Nothing under /api/billing, /api/plugins or /api/features uses it.
+  if (rootApp) {
+    return rootApp.fetch(reentry, c.env, undefined);
+  }
+
+  return c.json(
+    { success: false, message: 'Internal dispatcher not registered (server misconfiguration).' },
+    500,
   );
 });
 
