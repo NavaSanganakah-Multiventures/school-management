@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".tmp-apitest",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "isolatedModules": false,
+    "incremental": false,
+    "jsx": "react-jsx",
+    "plugins": []
+  },
+  "include": ["api/**/*.ts"],
+  "exclude": ["node_modules", ".next"]
+}

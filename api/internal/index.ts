@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { getDB } from '../db';
 import { deriveSyncKey, encryptPayload, getInternalSyncSecret } from '../lib/tenant-crypto';
-import { signatureRequired, verifyInternalSignature } from '../lib/internal-request-auth';
+import { signatureRequired, verifyInternalSignature, buildInternalAuthHeaders } from '../lib/internal-request-auth';
 
 export const internalApp = new Hono<{ Bindings: any }>();
 
@@ -87,6 +87,116 @@ async function authorizeInternalRequest(
 
   return { ok: true, secret: expectedSecret };
 }
+
+// ALL /api/internal/:schoolId/* -- the platform-authoritative surface a dedicated
+// worker reaches for billing, plugins and features.
+//
+// WHY THIS EXISTS
+//
+// A dedicated worker does not answer billing itself; the platform worker holds the
+// only authoritative subscription records, so the request has to be answered here.
+// It used to be a transparent proxy that forwarded the school's own user token, and
+// that broke the moment the two tiers were made mutually exclusive: a school role is
+// valid only on its dedicated worker, and the platform tier refuses school roles, so
+// every authenticated billing call on a dedicated school answered 401. Verified live
+// on yagyaashram.pragnya.nasven.com: /api/auth/me 200, /api/billing/subscription 401.
+//
+// So the dedicated worker now signs the request as ITSELF (M2M) and does not forward
+// a user credential at all. The platform therefore decides the answer from its own
+// database, which is the property that keeps this from becoming a billing bypass: a
+// school cannot name its own plan, it can only ask.
+//
+// WHY THE SCHOOL ID IS IN THE PATH
+//
+// INTERNAL_SYNC_SECRET is fleet-wide, so it authenticates "a dedicated worker" and not
+// "this dedicated worker". A school id carried in a header could be swapped by any
+// dedicated worker and the signature would still verify. The signing string covers
+// the path, so putting the school id inside the path puts it inside the signature --
+// no change to the signing scheme, and the school id becomes tamper-evident.
+//
+// The route shape is `/:schoolId/api/:surface/*`, which is what the dedicated
+// worker generates. It is deliberately narrow rather than `/:schoolId/*`: Hono
+// matches in registration order, and a two-segment wildcard would also match
+// `/tenant-sync/<schoolId>`, `/provisioning/record` and
+// `/provisioning/registry` as schoolId='tenant-sync' etc. Those have their own
+// handlers further down this file and must keep winning. This shape needs four
+// segments, so nothing here can collide with them.
+//
+// The handler below is reached only after authorizeInternalRequest succeeds, so the
+// scope it pins is authenticated. The downstream billing handler is still told who is
+// asking, via a header that requires the internal secret to be present, so a request
+// arriving from anywhere else cannot borrow it.
+internalApp.all('/:schoolId/api/:surface/*', async (c) => {
+  const rawBody = c.req.method === 'GET' || c.req.method === 'HEAD'
+    ? ''
+    : await c.req.text().catch(() => '');
+
+  const auth = await authorizeInternalRequest(c, rawBody);
+  if (!auth.ok) return auth.response;
+
+  const schoolId = String(c.req.param('schoolId') || '').trim();
+  if (!schoolId) {
+    return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
+  }
+
+  // Only the three proxied surfaces are reachable here. This is not a general
+  // "call anything as any school" door: /api/admin and every other platform route
+  // stay out of reach, and the school id is fixed by the signed path.
+  const rest = new URL(c.req.url).pathname.replace(/^\/api\/internal\/[^/]+/, '');
+  if (!/^\/api\/(billing|plugins|features)(\/|$)/.test(rest)) {
+    return c.json({ success: false, message: 'यह internal route नहीं है।' }, 404);
+  }
+
+  const headers = new Headers();
+  const contentType = c.req.header('Content-Type');
+  if (contentType) headers.set('Content-Type', contentType);
+
+  // Re-sign for the path being entered, not the one that arrived.
+  //
+  // The signature the dedicated worker produced covers /api/internal/<schoolId>/...,
+  // because that is what it sent. This handler re-enters the billing app at
+  // /api/billing/..., and api/billing verifies a signature over the path IT sees. So
+  // the original signature does not verify there and every request was refused with
+  // "Unauthorized internal request" -- while each hop passed in isolation, because
+  // neither hop was ever asked about the other's path.
+  //
+  // Re-signing is the right fix rather than relaxing the check: the school id stays
+  // inside the signed string, so the scope the billing app is told to trust is still
+  // the scope that was signed.
+  for (const [k, v] of Object.entries(await buildInternalAuthHeaders({
+    secret: auth.secret,
+    method: c.req.method,
+    path: rest,
+    body: rawBody,
+  }))) {
+    headers.set(k, v);
+  }
+
+  // Set only after authorizeInternalRequest passed. billing reads this as the
+  // authoritative school scope instead of a user token, and it re-verifies the
+  // signature above, so the header cannot be asserted by a public caller.
+  headers.set('X-Verified-School-Scope', schoolId);
+  // The acting role, as verified by the dedicated worker that sent this. Passed
+  // through here because it arrived over the verified M2M channel, but it is NOT
+  // treated as trusted at this point: api/billing re-normalises it against the
+  // role list and refuses SuperAdmin, so a header that reached this far still
+  // cannot buy platform-wide access.
+  const actingRole = c.req.header('X-Acting-Role') || '';
+  const actingEmail = c.req.header('X-Acting-Email') || '';
+  if (actingRole) headers.set('X-Acting-Role', actingRole);
+  if (actingEmail) headers.set('X-Acting-Email', actingEmail);
+
+  const platformUrl = new URL(c.req.url);
+  platformUrl.pathname = rest;
+
+  return fetch(
+    new Request(platformUrl.toString(), {
+      method: c.req.method,
+      headers,
+      body: rawBody || undefined,
+    }),
+  );
+});
 
 // GET /api/internal/tenant-sync/:schoolId
 // Internal endpoint used by dedicated workers and deployment scripts to sync tenant metadata

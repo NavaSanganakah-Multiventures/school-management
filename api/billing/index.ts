@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
 import { getDB, SUBSCRIPTION_PLANS, loadSubscriptionPlans, loadSubscriptionPlanById, BillingCycle } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
+import { verifyInternalSignature } from '../lib/internal-request-auth';
+import { getInternalSyncSecret } from '../lib/tenant-crypto';
+import { normalizeRole, SUPER_ADMIN } from '../lib/roles';
 import { provisionDedicatedWorker } from '../lib/provisioning';
 import { createRazorpayOrder, verifyRazorpaySignature, createRazorpayPlan, createRazorpaySubscription, createRazorpayCustomer, fetchRazorpaySubscription, cancelRazorpaySubscription, pauseRazorpaySubscription, resumeRazorpaySubscription, getRazorpayKeyId, getRazorpayKeySecret } from '../lib/razorpay';
 import { checkSingleSchoolTrialStatus } from '../lib/trial-expiration';
@@ -60,11 +63,76 @@ billingApp.get('/razorpay/config', async (c) => {
   return c.json({ success: true, keyId: await getRazorpayKeyId(c.env) });
 });
 
+// Auth for every billing route, which covers both ways a request can legitimately
+// arrive here.
+//
+// A dedicated worker cannot answer billing itself -- the platform holds the only
+// authoritative subscription records -- so it forwards the request there signed as
+// itself, with the school named in the SIGNED PATH instead of in a user token. The
+// platform's tier rules then correctly refuse that school token, which is why these
+// routes used to answer 401 for every dedicated school. So the forwarded request is
+// authenticated here by re-verifying the M2M signature, and the result is the same
+// shape getAuthUser() returns, so the routes below need no special-casing.
+//
+// WHY THE SIGNATURE IS RE-VERIFIED HERE, NOT JUST THE SECRET
+//
+// An earlier draft accepted any request that merely carried a non-empty
+// `X-Internal-Secret`, on the theory that only the internal route sets the scope
+// header. That is not a defence: a public caller can set BOTH headers to any values,
+// including `X-Internal-Secret: anything` and `X-Verified-School-Scope: <someone
+// else's school>`, and would have been handed that school's subscription. Comparing
+// the secret would not have been enough either, because the secret is fleet-wide and
+// static, so leaking it would have been a fleet-wide billing read for anyone who
+// knew it. The signature binds method, path, body and timestamp with a fresh HMAC,
+// so a scope cannot be asserted without proving you hold the secret AND that this
+// exact request was signed.
+async function getBillingAuthUser(c: any) {
+  const scope = String(c.req.header('X-Verified-School-Scope') || '').trim();
+  const signature = c.req.header('X-Internal-Signature') || '';
+  const timestamp = c.req.header('X-Internal-Timestamp') || '';
+  const providedSecret = c.req.header('X-Internal-Secret') || '';
+
+  if (!scope || !signature || !timestamp || !providedSecret) {
+    return getAuthUser(c);
+  }
+
+  // clone(), not text(): every route below still calls c.req.json(), and a consumed
+  // body cannot be read twice.
+  const rawBody = ['GET', 'HEAD'].includes(c.req.method)
+    ? ''
+    : await c.req.raw.clone().text().catch(() => '');
+
+  const result = await verifyInternalSignature({
+    method: c.req.method,
+    path: new URL(c.req.url).pathname,
+    timestamp: Number(timestamp),
+    body: rawBody,
+    signature,
+    secret: providedSecret,
+  });
+  const expectedSecret = await getInternalSyncSecret(c.env);
+  if (!result.ok || !expectedSecret || providedSecret !== expectedSecret) {
+    return null;
+  }
+
+  // The role arrived over the verified channel, but it is re-derived here rather
+  // than trusted: only a real school role is accepted, and SuperAdmin specifically
+  // is refused. A dedicated worker cannot hold a SuperAdmin token (api/lib/auth.ts),
+  // so nothing legitimate sends one, and this keeps a school from reaching the
+  // platform-wide branches such as GET /api/billing/schools' SuperAdmin listing.
+  const role = normalizeRole(c.req.header('X-Acting-Role'));
+  if (!role || role === SUPER_ADMIN) {
+    return null;
+  }
+
+  return { role, schoolId: scope, email: String(c.req.header('X-Acting-Email') || '') };
+}
+
 // GET /api/billing/subscription - current school subscription
 billingApp.get('/subscription', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
+  const authUser = await getBillingAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   const subRow = await db.prepare('SELECT * FROM school_subscriptions WHERE school_id = ?').bind(schoolId).first();
@@ -127,7 +195,7 @@ billingApp.get('/subscription', async (c) => {
 billingApp.post('/subscribe', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
+  const authUser = await getBillingAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   if (authUser.role !== 'Director' && authUser.role !== 'SuperAdmin') {
     return c.json({ success: false, message: 'केवल निदेशक या Super Admin प्लान खरीद सकते हैं।' }, 403);
@@ -176,7 +244,7 @@ billingApp.post('/subscribe', async (c) => {
 billingApp.post('/razorpay/verify', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
+  const authUser = await getBillingAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const body = await c.req.json().catch(() => ({}));
   const razorpay_order_id = body.razorpay_order_id;
@@ -231,7 +299,7 @@ billingApp.post('/razorpay/verify', async (c) => {
 billingApp.get('/invoices', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
+  const authUser = await getBillingAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   const schoolId = getRequestSchoolId(c, authUser);
   const rows = await db.prepare('SELECT * FROM billing_invoices WHERE school_id = ? ORDER BY invoice_date DESC').bind(schoolId).all();
@@ -242,7 +310,7 @@ billingApp.get('/invoices', async (c) => {
 billingApp.get('/schools', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
+  const authUser = await getBillingAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   if (authUser && authUser.role === 'SuperAdmin') {
     const rows = await db.prepare('SELECT id, school_name, status, plan_id, trial_ends_at FROM school_tenants ORDER BY created_at DESC').all();
@@ -261,7 +329,7 @@ billingApp.get('/schools', async (c) => {
 billingApp.post('/subscribe-recurring', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
+  const authUser = await getBillingAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   if (authUser.role !== 'Director' && authUser.role !== 'SuperAdmin') {
     return c.json({ success: false, message: 'केवल निदेशक या Super Admin सदस्यता ले सकते हैं।' }, 403);
@@ -440,7 +508,7 @@ billingApp.post('/subscribe-recurring', async (c) => {
 billingApp.get('/subscription-status', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
+  const authUser = await getBillingAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   if (authUser.role !== 'Director' && authUser.role !== 'SuperAdmin') {
     return c.json({ success: false, message: 'केवल निदेशक या Super Admin सदस्यता विवरण देख सकते हैं।' }, 403);
@@ -489,7 +557,7 @@ billingApp.get('/subscription-status', async (c) => {
 billingApp.post('/subscription/cancel', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
+  const authUser = await getBillingAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   if (authUser.role !== 'Director' && authUser.role !== 'SuperAdmin') {
     return c.json({ success: false, message: 'केवल निदेशक या Super Admin रद्द कर सकते हैं।' }, 403);
@@ -552,7 +620,7 @@ billingApp.post('/subscription/cancel', async (c) => {
 billingApp.post('/subscription/pause', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
+  const authUser = await getBillingAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   if (authUser.role !== 'Director' && authUser.role !== 'SuperAdmin') {
     return c.json({ success: false, message: 'केवल निदेशक या Super Admin रोक सकते हैं।' }, 403);
@@ -579,7 +647,7 @@ billingApp.post('/subscription/pause', async (c) => {
 billingApp.post('/subscription/resume', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
+  const authUser = await getBillingAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
   if (authUser.role !== 'Director' && authUser.role !== 'SuperAdmin') {
     return c.json({ success: false, message: 'केवल निदेशक या Super Admin फिर से शुरू कर सकते हैं।' }, 403);
