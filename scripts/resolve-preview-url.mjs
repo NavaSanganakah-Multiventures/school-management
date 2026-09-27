@@ -46,7 +46,6 @@
 import fs from 'fs';
 import { execFileSync } from 'child_process';
 
-// eslint-disable-next-line no-control-regex
 const ANSI = /\u001B\[[0-9;?]*[ -/]*[@-~]/g;
 const OTHER_ESCAPES = /\u001B[@-Z\\-_]/g;
 
