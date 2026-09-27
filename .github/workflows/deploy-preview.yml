@@ -83,6 +83,21 @@ jobs:
       - name: Verify routing contract
         run: node scripts/verify-routing.mjs
 
+      # A school-scoped table that no migration copies into a dedicated D1 is
+      # invisible from the deploy: copyTable is only called for names already in
+      # the list, so the omission cannot be observed. Phase 1 and Phase 2 each
+      # added tables and the list was not updated, which is how
+      # parent_student_links, fee_payment_idempotency and payment_ledger were
+      # being dropped on migration. Static, fast, and it cannot regress silently.
+      - name: Verify dedicated-D1 table coverage
+        run: node scripts/audit-dedicated-tables.mjs
+
+      # The 0041 backfill is a DATA migration, and its value is in what it refuses
+      # to link. The fixtures include a phone shared across two schools, so the
+      # cross-tenant refusal is asserted rather than assumed.
+      - name: Verify migration 0041 (parent_student_links backfill)
+        run: node scripts/verify-migration-0041.mjs
+
       # Pure-function tests for the step that resolves the Preview URL. Kept in CI
       # because the alternative is finding out the logic is wrong from a failed
       # deploy, which is how both earlier versions were found.

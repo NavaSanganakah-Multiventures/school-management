@@ -76,6 +76,35 @@ const OPERATIONAL_TABLES = [
   // school_subscriptions is school_id-scoped (kept here); school_tenants is keyed
   // by id (= schoolId) and is handled with school_profile below.
   'school_subscriptions',
+  // ── Added to catch up with migrations 0003 / 0017 / 0038 / 0039 / 0040 ──
+  //
+  // These were all missing. A table that a migration creates but that is absent
+  // from this list is not copied when a school moves to its own database, and
+  // nothing reports it: copyTable is only ever called for names already listed, so
+  // the omission is invisible from the deploy. It shows up as a school that works
+  // and then silently does not, or a feature that quietly returns nothing.
+  //
+  // Phase 1 (0039) and Phase 2 (0040) each added tables here and the list was not
+  // updated, so a school that moved after those migrations lost its family links,
+  // its offline-payment idempotency records and its webhook payment ledger.
+  //
+  // scripts/audit-dedicated-tables.mjs diffs this list against every CREATE TABLE
+  // in db_migrations/ and fails when a school-scoped table is uncovered, so this
+  // cannot silently regress again.
+  //
+  // Ordering: the *_defs tables come before their *_values tables, and
+  // parent_student_links comes after both `students` and `system_users` because it
+  // references both.
+  'school_fcm_topics',
+  'subscription_addons',
+  'billing_invoices',
+  'school_custom_domains',
+  'school_plugins',
+  'student_custom_field_defs',
+  'student_custom_field_values',
+  'parent_student_links',
+  'fee_payment_idempotency',
+  'payment_ledger',
 ];
 
 function runD1(args) {
