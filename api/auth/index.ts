@@ -188,7 +188,26 @@ authApp.post('/login', async (c) => {
 
   await db.prepare('UPDATE system_users SET last_login = ? WHERE id = ?').bind(new Date().toISOString(), user.id).run();
 
-  const schoolId = user.school_id || 'school-01';
+  // No invented school on the session token.
+  //
+  // This was `user.school_id || 'school-01'`, so a user row with a NULL
+  // school_id produced a session that looked like it belonged to a real tenant.
+  // Combined with getAuthUser accepting a school role on the platform worker, that
+  // minted a credential that scoped itself to a school and then ran against the
+  // shared D1.
+  //
+  // A school account with no school_id is a data problem, not something to paper
+  // over. Refuse it here, where the user row is in hand and the message can be
+  // acted on, instead of issuing a token that fails confusingly later.
+  const schoolId = String(user.school_id || '').trim();
+  if (!schoolId) {
+    console.error('[Login] refusing session: user has no school_id', user.id, user.role);
+    return c.json({
+      success: false,
+      message: 'आपके खाते में स्कूल से जुड़ाव नहीं है। कृपया स्कूल के निदेशक से संपर्क करें।',
+    }, 403);
+  }
+
   const SESSION_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
   const token = await signToken(c, {
     sub: user.id,
