@@ -174,6 +174,13 @@ jobs:
           WEB_PUSH_VAPID_PRIVATE_KEY: ${{ secrets.WEB_PUSH_VAPID_PRIVATE_KEY }}
           FIREBASE_WEB_CONFIG_JSON: ${{ secrets.FIREBASE_WEB_CONFIG_JSON }}
           DEDICATED_SECRETS_JSON: ${{ secrets.DEDICATED_SECRETS_JSON }}
+          # Fleet-wide, and deliberately NOT per school. getInternalSyncSecret falls back
+          # to deriving m2m_<hmac(AUTH_SECRET)> when this is absent, and since each
+          # school now has its own AUTH_SECRET, an unset value here would give every
+          # school a different M2M secret that the platform cannot verify -- the
+          # billing proxy would fail fleet-wide. Setting it explicitly is what decouples
+          # machine-to-machine auth from user-token signing.
+          INTERNAL_SYNC_SECRET: ${{ secrets.INTERNAL_SYNC_SECRET }}
           FORCE_SCHOOL_DATA_COPY: ${{ github.event.inputs.force_school_data_copy == 'true' }}
 
       # Requires the PLATFORM_BOOTSTRAP_TOKEN secret (the endpoint fails closed
