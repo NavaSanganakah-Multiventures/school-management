@@ -91,6 +91,46 @@ sql(`DELETE FROM dedicated_migration_ledger WHERE school_id = '${SCHOOL}'`);
 const afterDelete = sql(`SELECT COUNT(*) AS n FROM dedicated_migration_ledger WHERE school_id = '${SCHOOL}'`)[0].n;
 check('clearing the record makes the guard miss again', Number(afterDelete) === 0);
 
+// ---- per-table granularity, which is why the ledger exists -----------------
+// A school-level boolean cannot express "copy the tables it has never had, leave
+// the rest alone", and that is exactly the fleet's situation right now: tables
+// were ADDED to the copy list after these schools migrated. The script reads the
+// ledger as a SET of table names and skips the ones present, so the copy is
+// additive rather than destructive.
+const ALL = ['school_tenants', 'school_profile', 'students', 'fees', 'parent_student_links'];
+
+// A brand-new school: no entries at all, so everything is pending.
+sql(`DELETE FROM dedicated_migration_ledger WHERE school_id = '${SCHOOL}'`);
+{
+  const already = new Set(sql(
+    `SELECT table_name FROM dedicated_migration_ledger WHERE school_id = '${SCHOOL}'`,
+  ).map((r) => r.table_name));
+  const pending = ALL.filter((t) => !already.has(t));
+  check('a school with no entries is pending every table', pending.length === ALL.length,
+    'got ' + JSON.stringify(pending));
+}
+
+// A school that migrated before some tables were added to the copy list: the ones
+// it has must be left alone, the new ones copied.
+sql(insert('students', 42, 0));
+sql(insert('system_users', 3, 0));
+{
+  const already = new Set(sql(
+    `SELECT table_name FROM dedicated_migration_ledger WHERE school_id = '${SCHOOL}'`,
+  ).map((r) => r.table_name));
+  const pending = ALL.filter((t) => !already.has(t));
+
+  check('tables it already has are excluded from the pending set',
+    pending.indexOf('students') === -1 && pending.indexOf('system_users') === -1,
+    'got ' + JSON.stringify(pending));
+  check('tables it has never had are still included',
+    pending.indexOf('fees') !== -1 && pending.indexOf('parent_student_links') !== -1
+    && pending.indexOf('school_tenants') !== -1,
+    'got ' + JSON.stringify(pending));
+  check('a partially-migrated school still has work to do', pending.length > 0,
+    'got ' + JSON.stringify(pending));
+}
+
 sql(`DELETE FROM dedicated_migration_ledger WHERE school_id = '${SCHOOL}'`);
 
 console.log('');
