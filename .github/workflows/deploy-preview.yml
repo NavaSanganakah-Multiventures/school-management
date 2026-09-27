@@ -98,7 +98,6 @@ jobs:
       - name: Verify migration 0041 (parent_student_links backfill)
         run: node scripts/verify-migration-0041.mjs
 
-<<<<<<< HEAD
       # The ledger that decides whether a school still needs its shared-D1 rows
       # copied. Its columns are asserted individually because the deploy writes to
       # them at run time, and a renamed column would otherwise surface as a failed
@@ -106,8 +105,6 @@ jobs:
       - name: Verify migration 0042 (dedicated migration ledger)
         run: node scripts/verify-migration-0042.mjs
 
-=======
->>>>>>> origin/main
       # Pure-function tests for the step that resolves the Preview URL. Kept in CI
       # because the alternative is finding out the logic is wrong from a failed
       # deploy, which is how both earlier versions were found.
