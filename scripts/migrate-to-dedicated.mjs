@@ -6,9 +6,12 @@
  * reverse of scripts/downgrade-school.mjs and is used when a school that was running
  * on the shared worker is moved to its own dedicated worker.
  *
- * The copy is idempotent + guarded: it only runs when the dedicated D1 has no
- * operational rows for the school yet (so re-deploys never clobber live data),
- * and it is wired into scripts/deploy-dedicated.mjs right before the worker goes live.
+ * The copy is guarded by the migration ledger from migration 0042: it runs once,
+ * when the school has no ledger entry in its dedicated D1, and never again on its
+ * own. That guard is the point — see schoolHasMigrationRecord() for why the
+ * previous guard could clobber live data.
+ *
+ * It is wired into scripts/deploy-dedicated.mjs right before the worker goes live.
  *
  * Usage:
  *   node scripts/migrate-to-dedicated.mjs <slug>
@@ -142,19 +145,78 @@ function quoteIdent(name) {
   return '"' + String(name).replace(/"/g, '""') + '"';
 }
 
-/** Returns true when the dedicated D1 already holds operational rows for this school. */
-function dedicatedHasData(slug, schoolId) {
+const LEDGER_TABLE = 'dedicated_migration_ledger';
+
+/**
+ * True when this school has already been migrated into its own database, per the
+ * ledger written by migration 0042.
+ *
+ * WHY NOT A ROW COUNT
+ *
+ * This used to be `SELECT COUNT(*) FROM system_users WHERE school_id = ?`, a
+ * proxy for a question about the school as a whole. It failed in both directions:
+ *
+ *   - Data but no user accounts -> read as "not migrated", so EVERY deploy re-ran
+ *     the copy. The copy is INSERT OR REPLACE from the shared D1, which is stale
+ *     by construction, so a deploy silently overwrote the school's newer
+ *     dedicated rows with older shared ones. A proxy that can lose data is worse
+ *     than no proxy.
+ *   - One user and a hundred students -> read as "migrated", so a copy that died
+ *     half way through was never retried and nobody found out.
+ *
+ * The ledger records what actually happened. It is absent before a school's first
+ * migration and present after, which is exactly the question.
+ *
+ * If the table is missing (migrations not applied yet) this returns false, so the
+ * copy runs. Re-copying is recoverable; skipping a migration that never happened
+ * is not.
+ */
+function schoolHasMigrationRecord(slug, schoolId) {
   try {
     const out = runDedicated(
       slug,
-      ['--json', `--command=${'SELECT COUNT(*) AS n FROM system_users WHERE school_id = ' + escapeSql(schoolId)}`],
+      ['--json', `--command=${'SELECT COUNT(*) AS n FROM ' + quoteIdent(LEDGER_TABLE) + ' WHERE school_id = ' + escapeSql(schoolId)}`],
     );
     const parsed = JSON.parse(out);
     const n = Number((parsed[0] && parsed[0].results && parsed[0].results[0] && parsed[0].results[0].n) || 0);
     return n > 0;
   } catch (e) {
-    // Table missing (migrations not applied yet) — treat as no data (safe).
-    return false;
+    const msg = String((e && e.message) || e);
+    if (/no such table|no such column/i.test(msg)) {
+      // 0042 not applied yet. Migrate, and the ledger starts recording from now.
+      return false;
+    }
+    throw new Error(`Could not read ${LEDGER_TABLE} for ${slug}: ${msg}`);
+  }
+}
+
+/** Records that `table` was copied for this school, replacing any earlier entry. */
+function recordMigration(slug, schoolId, table, rowsCopied, forced) {
+  const id = 'dml-' + String(schoolId) + '-' + table;
+  const sql =
+    'INSERT OR REPLACE INTO ' + quoteIdent(LEDGER_TABLE)
+    + ' (id, school_id, table_name, rows_copied, forced, completed_at) VALUES ('
+    + escapeSql(id) + ', '
+    + escapeSql(schoolId) + ', '
+    + escapeSql(table) + ', '
+    + Number(rowsCopied) + ', '
+    + (forced ? 1 : 0) + ', '
+    + escapeSql(new Date().toISOString()) + ');';
+  runDedicated(slug, [`--command=${sql}`]);
+}
+
+/** Drops this school's ledger entries, so the next run re-copies from scratch. */
+function clearMigrationRecord(slug, schoolId) {
+  try {
+    runDedicated(
+      slug,
+      [`--command=${'DELETE FROM ' + quoteIdent(LEDGER_TABLE) + ' WHERE school_id = ' + escapeSql(schoolId)}`],
+    );
+    return true;
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    if (/no such table|no such column/i.test(msg)) return false;
+    throw new Error(`Could not clear ${LEDGER_TABLE} for ${slug}: ${msg}`);
   }
 }
 
@@ -219,19 +281,26 @@ async function migrateSchoolData(slug, schoolId, options = {}) {
     throw new Error(`Missing config wrangler-${slug}.toml — run scripts/generate-school-configs.mjs first.`);
   }
 
-  // Force re-copy: used for one-off repairs when a school's dedicated D1 is
-  // missing rows that landed in the shared/main DB (INSERT OR REPLACE is
-  // idempotent, so re-running is safe). Triggered via --force CLI flag or the
-  // FORCE_SCHOOL_DATA_COPY env var passed through deploy.yml.
+  // Whether this school still needs copying is answered by the ledger (0042), not
+  // by a row count. See schoolHasMigrationRecord() for why the count was wrong in
+  // both directions — the worst of them being that it could re-run an
+  // INSERT OR REPLACE from the stale shared D1 on every deploy and quietly undo
+  // the school's newer data.
   const force = !!(options && options.force);
-  if (!force && dedicatedHasData(slug, schoolId)) {
-    console.log(`School "${slug}" already has operational data in its dedicated D1 — skipping copy.`);
+  if (!force && schoolHasMigrationRecord(slug, schoolId)) {
+    console.log(`School "${slug}" is already recorded as migrated in its dedicated D1 — skipping copy.`);
     return { copied: false, message: 'already-migrated' };
   }
 
   console.log(`\n======================================================`);
   console.log(`Migrating ${slug} (${schoolId}) from shared D1 -> dedicated D1`);
   console.log(`======================================================\n`);
+
+  // A forced re-copy must not be skipped by a ledger entry from a previous run, or
+  // `--force` would silently do nothing on a school that has been migrated once.
+  if (force && clearMigrationRecord(slug, schoolId)) {
+    console.log('  Cleared the previous migration record (forced re-copy).');
+  }
 
   let total = 0;
 
@@ -243,7 +312,9 @@ async function migrateSchoolData(slug, schoolId, options = {}) {
   // the deploy. Copying these first makes every later INSERT valid.
   for (const table of ['school_tenants', 'school_profile']) {
     console.log(`Copying table: ${table}...`);
-    total += copyTable(slug, schoolId, table, `id = ${escapeSql(schoolId)}`);
+    const n = copyTable(slug, schoolId, table, `id = ${escapeSql(schoolId)}`);
+    total += n;
+    recordMigration(slug, schoolId, table, n, force);
   }
 
   // Then the school-scoped operational tables (parents already in place;
@@ -254,8 +325,13 @@ async function migrateSchoolData(slug, schoolId, options = {}) {
     // table"/"no such column") and returns 0 for it. Any error thrown here is a
     // real wrangler/auth/data failure and MUST abort the deploy so a worker is
     // never published with a silently-empty database.
-    total += copyTable(slug, schoolId, table, `school_id = ${escapeSql(schoolId)}`);
+    const n = copyTable(slug, schoolId, table, `school_id = ${escapeSql(schoolId)}`);
+    total += n;
+    recordMigration(slug, schoolId, table, n, force);
   }
+
+  const tablesRecorded = 2 + OPERATIONAL_TABLES.length;
+  console.log(`  Ledger: recorded ${tablesRecorded} table(s) for ${schoolId} in its dedicated D1.`);
 
   console.log(`\n✅ Migration complete for "${slug}". Total records copied: ${total}`);
   return { copied: true, total };
