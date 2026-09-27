@@ -1,7 +1,17 @@
 // Real authentication helpers: password hashing (PBKDF2), signed sessions (HMAC).
 // No demo data. All secrets come from env (AUTH_SECRET set via GitHub/Cloudflare Secrets).
 
-export type PlatformRole = 'SuperAdmin' | 'Director' | 'Principal' | 'Staff';
+import { SUPER_ADMIN, normalizeRole, type Role } from './roles';
+
+// Re-exported so the many `import type { PlatformRole } from '../lib/auth'`
+// call sites keep compiling. The alias now resolves to the full role set from
+// roles.ts rather than the four-role union that used to live here.
+//
+// That union was the root cause of the authorization audit: the database has
+// allowed 'Parents' and 'Students' since migration 0034, so a check written
+// against `role === 'Staff'` silently let a Parent or a Student through. See the
+// header of api/lib/roles.ts.
+export type PlatformRole = Role;
 
 export interface AuthPayload {
   sub: string;
@@ -104,30 +114,56 @@ export async function getAuthUser(c: any) {
   const user = await verifyToken(c, auth.slice(7));
   if (!user) return null;
 
-  // Dedicated worker specific isolation:
-  // SuperAdmin has NO role on dedicated workers (data plane).
-  // Only school-scoped roles (Director, Principal, Teacher, Staff, Student) are permitted.
-  if (c.env && (c.env.SCHOOL_ID || c.env.IS_DEDICATED_WORKER === 'true')) {
-    if (user.role === 'SuperAdmin') {
-      return null;
-    }
-    if (c.env.SCHOOL_ID && user.schoolId !== c.env.SCHOOL_ID) {
-      return null;
-    }
+  const isDedicatedTier = !!(c.env && (c.env.SCHOOL_ID || c.env.IS_DEDICATED_WORKER === 'true'));
+  const isSuperAdmin = normalizeRole(user.role) === SUPER_ADMIN;
+
+  // THE TWO TIERS ARE MUTUALLY EXCLUSIVE.
+  //
+  // This check existed only in the dedicated direction: a SuperAdmin token was
+  // refused on a school worker, because that worker is scoped to one school. The
+  // converse was NOT enforced, and that was the hole.
+  //
+  // Every school now runs on its own dedicated worker, including free trials --
+  // there is no shared data plane. So a school role token presented to the
+  // platform worker has nothing legitimate to do there, and honouring it meant:
+  //
+  //   - the request was scoped by getRequestSchoolId() to that school, and
+  //   - it then ran against the platform worker's SHARED D1.
+  //
+  // That shared copy is stale by construction: scripts/migrate-to-dedicated.mjs
+  // moves a school's rows OUT of shared and into its own database, and nothing
+  // writes them back. So a school's Director reading through the platform worker
+  // saw missing data, and any write landed in the wrong database entirely. That
+  // is the "dedicated does not work / the database is not being used properly"
+  // symptom, and it was reachable with nothing more than the session token the
+  // school app already holds.
+  //
+  // A token is a credential, not a capability grant, so being signed is not
+  // sufficient. The tier the token is presented to is part of the check.
+  if (isDedicatedTier) {
+    // A dedicated worker is one school's data plane. No platform roles, and only
+    // that one school.
+    if (isSuperAdmin) return null;
+    if (c.env.SCHOOL_ID && user.schoolId !== c.env.SCHOOL_ID) return null;
+  } else {
+    // The platform worker is control plane only: website, billing, provisioning
+    // and /api/admin. A school role has no business being honoured here.
+    if (!isSuperAdmin) return null;
   }
 
   return user;
 }
 
 export function getRequestSchoolId(c: any, authUser: any): string {
-  // If we are on a dedicated worker, enforce its SCHOOL_ID
+  // A dedicated worker is pinned to its own school, full stop.
   if (c.env && c.env.SCHOOL_ID) {
     return c.env.SCHOOL_ID;
   }
 
-  // On shared worker, X-School-Id is trusted ONLY for SuperAdmin
+  // On the platform worker, X-School-Id is honoured only for SuperAdmin, who is
+  // the one role allowed on this tier at all (see getAuthUser).
   const headerSchool = c.req.header('X-School-Id');
-  if (headerSchool && authUser && authUser.role === 'SuperAdmin') {
+  if (headerSchool && authUser && normalizeRole(authUser.role) === SUPER_ADMIN) {
     return headerSchool;
   }
 
@@ -139,6 +175,18 @@ export function getRequestSchoolId(c: any, authUser: any): string {
     return c.get('schoolId');
   }
 
-  // Safe fallback for unauthenticated/dev/test callers expecting a string
-  return (c.env && c.env.DEFAULT_SCHOOL_ID) || 'school-01';
+  // NO invented school.
+  //
+  // This used to return `DEFAULT_SCHOOL_ID || 'school-01'`, which handed every
+  // unauthenticated or misrouted caller a real, valid school id. Combined with the
+  // tier hole above, that made the shared D1 reachable as a named tenant. There is
+  // no shared school any more, so there is nothing to fall back to: a caller with
+  // no school is a caller with no tenant, and the route's own guard should decide
+  // whether that is a 401 or a 404.
+  //
+  // Returning '' rather than a throw keeps the signature stable for the ~40 call
+  // sites; a falsy id makes `WHERE school_id = ''` match nothing, which fails
+  // closed, and Phase 1's requireSession rejects an unauthenticated caller before
+  // this value is used for anything that matters.
+  return '';
 }

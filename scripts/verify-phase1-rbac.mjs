@@ -215,6 +215,108 @@ for (const rel of routeFiles) {
     /catch\s*\(\s*_\s*\)\s*\{[^}]*return new Set<string>\(\)/s.test(rbac));
 }
 
+// ── 10. Tier exclusivity: a school role is only valid on a dedicated worker ──
+//
+// The audit covered WHICH SCHOOL a caller may touch. It did not cover WHICH TIER
+// the credential is presented to, and that was the larger hole.
+//
+// getAuthUser refused a SuperAdmin token on a dedicated worker, but accepted a
+// school role on the platform worker. Every school now runs dedicated, so a school
+// token has nothing legitimate to do there -- and honouring it scoped the request
+// to that school and ran it against the platform worker's shared D1. That copy is
+// stale by construction: scripts/migrate-to-dedicated.mjs moves rows OUT of shared
+// and nothing writes back. A Director reading that way saw missing data, and a
+// write landed in the wrong database. Reachable with the session token the school
+// app already holds.
+//
+// These are static checks, so they are blunt, but they fail loudly if the gate is
+// weakened back to one direction -- which is exactly how it was.
+{
+  // Comments are stripped before anything is matched.
+  //
+  // This is the third time in this repo a check has tripped over its own
+  // explanatory comment. The comments here quote the exact expressions they
+  // describe -- `DEFAULT_SCHOOL_ID || 'school-01'`, `user.school_id || 'school-01'`
+  // -- so a naive regex "does the bad code still exist?" test matches the prose
+  // saying it was removed, and reports a failure for code that is gone. A guard
+  // that cries wolf on its own documentation is a guard people disable.
+  //
+  // `.` also does not match `\r`, and these files are CRLF, so an anchored
+  // `.*$` pattern silently fails to match at all on a line ending in a carriage
+  // return. Splitting on /\r?\n/ fixes that class of bug too.
+  const readCode = (rel) => fs
+    .readFileSync(path.join(REPO, rel), 'utf-8')
+    .split(/\r?\n/)
+    .map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1').replace(/(^|\s)\/\*.*$/, '$1'))
+    .join('\n');
+
+  // Extracts one exported function body, brace-balanced, so a nested `}` inside
+  // an if-block does not truncate the match.
+  const fnBody = (src, name) => {
+    const start = src.indexOf('export ' + (src.includes('async function ' + name)
+      ? 'async function ' + name
+      : 'function ' + name));
+    if (start === -1) return '';
+    const open = src.indexOf('{', src.indexOf(name, start));
+    if (open === -1) return '';
+    let depth = 0;
+    for (let i = open; i < src.length; i++) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}') {
+        depth--;
+        if (depth === 0) return src.slice(open, i + 1);
+      }
+    }
+    return src.slice(open);
+  };
+
+  const authLib = readCode('api/lib/auth.ts');
+  const getAuthUser = fnBody(authLib, 'getAuthUser');
+  const getRequestSchoolId = fnBody(authLib, 'getRequestSchoolId');
+
+  check('getAuthUser was found by the extractor (guard is not vacuous)',
+    getAuthUser.length > 50,
+    'if this fails the checks below are passing on an empty string');
+
+  check('getAuthUser refuses a school role on the platform worker',
+    /if\s*\(\s*!isSuperAdmin\s*\)\s*return null/.test(getAuthUser),
+    'a school role token must not be honoured on the control-plane tier');
+
+  check('getAuthUser refuses a SuperAdmin token on a dedicated worker',
+    /if\s*\(\s*isSuperAdmin\s*\)\s*return null/.test(getAuthUser));
+
+  check('getAuthUser compares roles through roles.ts, not string literals',
+    /normalizeRole\s*\(/.test(getAuthUser),
+    'a raw `user.role === "Staff"`-style check is what let Parents and Students '
+      + 'through originally; see the header of api/lib/roles.ts');
+
+  check('getAuthUser pins a dedicated worker to its own SCHOOL_ID',
+    /c\.env\.SCHOOL_ID\s*&&\s*user\.schoolId\s*!==\s*c\.env\.SCHOOL_ID/.test(getAuthUser));
+
+  check('getRequestSchoolId was found by the extractor (guard is not vacuous)',
+    getRequestSchoolId.length > 30);
+
+  check('getRequestSchoolId no longer invents a default tenant',
+    !/DEFAULT_SCHOOL_ID\s*\|\|\s*'school-01'/.test(authLib),
+    'returning a real school id to an unauthenticated caller routes its queries '
+      + 'at a real database');
+
+  check('PlatformRole resolves to the full role set from roles.ts',
+    /export type PlatformRole\s*=\s*Role/.test(authLib),
+    'the old four-role union omitted Parents/Students, which is the audit root cause');
+
+  // No invented tenant anywhere in the request path.
+  const authRoute = readCode('api/auth/index.ts');
+  check('login does not mint a session with a fabricated school_id',
+    !/user\.school_id\s*\|\|\s*'school-01'/.test(authRoute),
+    'a session scoped to a placeholder tenant reads the wrong database');
+
+  const resolver = readCode('api/lib/tenant-resolver.ts');
+  check('resolveTenant has no default school-01 fallback',
+    !/DEFAULT_SCHOOL_ID\s*\|\|\s*'school-01'/.test(resolver),
+    'the platform tier must report itself, not a placeholder school');
+}
+
 // ── Report ──────────────────────────────────────────────────────────────
 for (const r of results) {
   console.log((r.ok ? '  PASS  ' : '  FAIL  ') + r.name);

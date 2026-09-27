@@ -474,8 +474,17 @@ export const generateSchoolTopics = (schoolId: string): SchoolFcmTopic[] => [
   { id: 'top-' + schoolId + '-fees-due', schoolId, topicKey: 'school_' + schoolId + '_fees_due', displayName: 'शुल्क अनुस्मारक', targetRole: 'Parents', subscriberCount: 0, description: 'फीस देय तिथि अलर्ट' },
 ];
 
-// Empty fallback stores (no demo data). Real routes use D1.
-export const schoolProfile: SchoolProfile = { id: 'school-01', schoolName: '', affiliationNumber: '', boardName: 'CBSE', schoolCode: '', email: '', phone: '', alternatePhone: '', address: '', city: '', state: '', pincode: '', academicSession: '2026-2027', directorName: '', principalName: '', updatedAt: '' };
+// Empty in-memory placeholders. Real routes use D1; nothing reads these.
+//
+// REMOVED, and worth recording why: four of these stores were seeded with a
+// concrete tenant id, `school-01` -- the placeholder tenant the platform worker
+// used to fall back to when it could not resolve a school. They were never
+// imported by anything, so they were dead, but they were the most misleading kind
+// of dead: a reader looking for "how does a non-dedicated school work?" would find
+// `schoolId: 'school-01'` sitting in a store and conclude it still did.
+//
+// There is no shared school any more. Every school, including a free trial, runs
+// on its own dedicated worker with its own database.
 export const systemUsers: SystemUser[] = [];
 export const principalHistory: PrincipalHistoryRecord[] = [];
 export const studentScholars: StudentScholar[] = [];
@@ -489,13 +498,11 @@ export const attendanceStore: AttendanceRecord[] = [];
 export const examRecords: ExamRecord[] = [];
 export const notificationHistory: any[] = [];
 export const schoolTenants: SchoolTenant[] = [];
-export let currentSchoolId = 'school-01';
-export const setCurrentSchoolId = (id: string) => { currentSchoolId = id; };
-export const schoolSubscriptionStore: SchoolSubscription = { id: '', schoolId: 'school-01', planId: 'trial', planName: '7-दिन फ्री ट्रायल', billingCycle: 'monthly', pricePerCycle: 0, discountPercent: 0, status: 'Trial', autoPayEnabled: false, paymentMethod: '', mandateId: '', mandateBank: '', nextBillingDate: '', periodStart: '', periodEnd: '', updatedAt: '' };
 export const subscriptionAddonsStore: SubscriptionAddon[] = [];
-export const schoolCustomDomainStore: SchoolCustomDomain = { id: '', schoolId: 'school-01', domainName: '', spfRecordStatus: 'Pending', dkimRecordStatus: 'Pending', mxRecordStatus: 'Pending', dmarcRecordStatus: 'Pending', isActive: false, monthlySendingQuota: 10000, monthlySentCount: 0, configuredMailboxes: [], createdAt: '' };
 export const billingInvoicesStore: BillingInvoice[] = [];
-export const schoolFcmTopicsStore: SchoolFcmTopic[] = generateSchoolTopics('school-01');
+// generateSchoolTopics is still exported and used: api/notifications imports it to
+// build a school's topics from D1. Only the pre-seeded `school-01` instance is
+// gone, with the rest of the placeholder stores above.
 
 // Minimal D1 typing so route handlers get contextual types for rows/results.
 export interface D1Row { [key: string]: any; }

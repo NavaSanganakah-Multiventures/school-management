@@ -155,8 +155,13 @@ export async function resolveTenantFromDB(db: any, host: HostDetails, env?: any)
 /**
  * Main tenant resolution entry point.
  * 1. Honors Dedicated Worker environment bindings (env.SCHOOL_ID, env.SCHOOL_NAME)
- * 2. On Shared Worker, inspects request headers and checks D1 database
- * 3. Falls back safely to default tenant
+ * 2. On the platform worker, resolves from the request host if that host names a
+ *    registered tenant
+ * 3. Otherwise reports the PLATFORM, with an empty schoolId
+ *
+ * There is no shared data plane and no default tenant. Step 3 used to fabricate
+ * `school-01`; see the comment at that return for why that was a correctness bug
+ * rather than a convenience.
  */
 export async function resolveTenant(c: any): Promise<ResolvedTenant> {
   const env = c && c.env;
@@ -182,24 +187,34 @@ export async function resolveTenant(c: any): Promise<ResolvedTenant> {
   const db = getDB(c);
   const hostDetails = extractHostDetails(c);
 
+  // PLATFORM TIER: no school.
+  //
+  // Every school runs on its own dedicated worker, so a school subdomain is
+  // routed to that worker by an explicit [[routes]] entry and never reaches
+  // here. There is consequently nothing on this tier for a Host header to name.
+  //
+  // This used to fall back to `DEFAULT_SCHOOL_ID || 'school-01'`, which invented
+  // a real, valid tenant: /api/config on the public website reported
+  // schoolId "school-01" and schoolName "Pragnya Mitra Public School", and any
+  // school-scoped query ran against the shared D1 as that tenant. With no shared
+  // data plane, an invented tenant is not a degraded experience -- it is a lie
+  // that routes queries at the wrong database.
+  //
+  // So the platform tier reports itself. schoolId is empty, which makes
+  // `WHERE school_id = ''` match nothing, so anything that reaches a query with
+  // this tenant fails closed instead of reading placeholder rows.
   if (db) {
     const matched = await resolveTenantFromDB(db, hostDetails, env);
     if (matched) {
       return matched;
     }
-
-    // Default tenant fallback for shared worker (e.g. school-01)
-    const defaultSchoolId = (env && env.DEFAULT_SCHOOL_ID) || 'school-01';
-    const defaultRow = await resolveTenantFromDB(db, { ...hostDetails, schoolId: defaultSchoolId }, env);
-    if (defaultRow) {
-      return defaultRow;
-    }
   }
 
-  // Absolute fallback
   return {
-    schoolId: (env && env.DEFAULT_SCHOOL_ID) || 'school-01',
-    schoolName: (env && (env.DEFAULT_SCHOOL_NAME || env.SCHOOL_NAME)) || 'Pragnya Mitra School',
+    // Empty on purpose. See above. This is the platform (public website,
+    // billing, provisioning, /api/admin), not a school.
+    schoolId: '',
+    schoolName: (env && env.PLATFORM_DISPLAY_NAME) || 'Pragnya Mitra',
     subdomain: '',
     status: 'Active',
     isDedicated: false,
