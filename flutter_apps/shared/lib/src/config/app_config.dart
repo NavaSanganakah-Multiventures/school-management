@@ -1,9 +1,10 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Multi-tenant app configuration.
 ///
-/// Handles the active base URL (custom school subdomain/domain vs platform
-/// default) and school-domain persistence via secure storage.
+/// Handles the active base URL (custom school subdomain/domain vs the origin the
+/// app is served from) and school-domain persistence via secure storage.
 class AppConfig {
   // Official Central Cloudflare Workers Platform base URL & base domain
   static const String defaultApiBaseUrl = 'https://pragnya.nasven.com';
@@ -19,7 +20,42 @@ class AppConfig {
   static String? _cachedBaseUrl;
   static String? _cachedSchoolDomain;
 
-  /// Retrieve the active base URL (custom if configured, otherwise default).
+  /// Retrieve the active base URL.
+  ///
+  /// ORDER MATTERS, and getting it wrong is what made dedicated logins impossible.
+  ///
+  /// 1. An explicitly configured base URL wins. `setCustomBaseUrl` deletes the
+  ///    stored key when given the platform default, so a stored value is always a
+  ///    deliberate choice (a custom domain, or an API on a different host).
+  /// 2. Otherwise, on web, use the ORIGIN THE APP IS SERVED FROM.
+  /// 3. Otherwise fall back to the platform default, for native builds where
+  ///    there is no meaningful origin.
+  ///
+  /// WHY 2 IS THE CORRECT DEFAULT ON WEB
+  ///
+  /// Every dedicated school worker serves BOTH the Flutter app and the API on the
+  /// same host -- that is the whole point of the per-school `[[routes]]` entry, and
+  /// the reason it exists at all rather than putting the app on the apex. So the
+  /// API the app should talk to is always its own origin.
+  ///
+  /// This function used to skip that and return the hardcoded apex. The app was
+  /// therefore served from `yagyaashram.pragnya.nasven.com` while every request
+  /// went to `pragnya.nasven.com`. The apex has no `IS_DEDICATED_WORKER`, so it
+  /// ran the platform-tier branch of the login handler, which finds the tenant,
+  /// sees it has a dedicated domain, and answers:
+  ///
+  ///     403 USE_DEDICATED_DOMAIN
+  ///     "आपका स्कूल अपने निजी पोर्टल पर चला गया है। कृपया
+  ///      https://yagyaashram.pragnya.nasven.com से लॉगिन करें।"
+  ///
+  /// The app surfaced that message verbatim. It told the user to open the URL they
+  /// were already on, so retrying changed nothing and no Director could ever log
+  /// in. The API was never the problem: `POST
+  /// yagyaashram.pragnya.nasven.com/api/auth/login` returns a valid Director token
+  /// on the first try.
+  ///
+  /// This also fixes the Super Admin app, which is served from
+  /// `admin.pragnya.nasven.com` and needs the platform worker -- its own origin.
   static Future<String> getActiveBaseUrl() async {
     if (_cachedBaseUrl != null && _cachedBaseUrl!.isNotEmpty) {
       return _cachedBaseUrl!;
@@ -31,6 +67,17 @@ class AppConfig {
         return _cachedBaseUrl!;
       }
     } catch (_) {}
+
+    if (kIsWeb) {
+      // Uri.base is the browser's current location, so .origin drops the path,
+      // query and the #/login fragment, leaving scheme://host[:port].
+      final origin = Uri.base.origin;
+      if (origin.isNotEmpty && !origin.startsWith('null')) {
+        _cachedBaseUrl = origin;
+        return origin;
+      }
+    }
+
     _cachedBaseUrl = defaultApiBaseUrl;
     return defaultApiBaseUrl;
   }
