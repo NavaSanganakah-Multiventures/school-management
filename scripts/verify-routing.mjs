@@ -424,6 +424,79 @@ console.log('\nRouting contract verification\n');
   );
 }
 
+// ---- 8. schools.json must be a shape the deploy can trust -----------------
+//
+// schools.json is a DATA file that a registry write, a manual edit, or a
+// compromised provisioning token can influence, and its `slug` becomes a Worker
+// name, a route pattern, a config FILENAME and a secrets filename. There is no
+// schema for it, so nothing rejects a malformed entry before it is used to build
+// those things.
+//
+// Hand-rolled rather than JSON Schema + a validator, because adding a dependency
+// to assert four fields is a worse trade than reading them. The point is the
+// assertion, not the format.
+{
+  const raw = readIfPresent('schools.json');
+  check('schools.json is readable', !!raw, 'file not found');
+  if (raw) {
+    let reg = null;
+    try { reg = JSON.parse(raw); } catch (e) { /* reported below */ }
+    check('schools.json is valid JSON', !!reg, 'parse failed');
+
+    if (reg) {
+      check('schools.json has a sharedWorker.domain',
+        typeof (reg.sharedWorker && reg.sharedWorker.domain) === 'string'
+        && (reg.sharedWorker.domain || '').length > 0);
+      check('schools.json has a schools array', Array.isArray(reg.schools));
+    }
+
+    const schools = (reg && Array.isArray(reg.schools)) ? reg.schools : [];
+    const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+    const badShape = schools.filter((s) => !s || typeof s !== 'object');
+    check('every entry is an object', badShape.length === 0, badShape.length + ' bad');
+
+    const missing = schools.filter((s) => s && (!s.slug || !s.schoolId || !s.domain || !s.mode));
+    check('every entry has slug, schoolId, domain and mode',
+      missing.length === 0,
+      missing.map((s) => s && s.slug).join(', '));
+
+    const badSlug = schools.filter((s) => s && !LABEL.test(String(s.slug || '')));
+    check('every slug is a strict DNS label',
+      badSlug.length === 0,
+      'a slug becomes a Worker name, a route and two filenames: '
+        + badSlug.map((s) => JSON.stringify(s.slug)).join(', '));
+
+    const badMode = schools.filter((s) => s && s.mode !== 'dedicated');
+    check('every entry is mode "dedicated"',
+      badMode.length === 0,
+      'there is no shared mode any more, so any other value is a silent no-op: '
+        + badMode.map((s) => s.slug + '=' + s.mode).join(', '));
+
+    // A duplicate slug would generate the same config filename twice and deploy
+    // the same Worker name twice, so the second school silently loses its route.
+    const bySlug = new Map();
+    for (const s of schools) {
+      if (!s || !s.slug) continue;
+      bySlug.set(s.slug, (bySlug.get(s.slug) || 0) + 1);
+    }
+    const dupes = [...bySlug.entries()].filter(([, n]) => n > 1).map(([k]) => k);
+    check('no duplicate slugs', dupes.length === 0, dupes.join(', '));
+
+    // A slug claimed by two different schoolIds is a cross-tenant routing bug:
+    // both entries generate the same Worker name and route.
+    const bySchool = new Map();
+    for (const s of schools) {
+      if (!s || !s.schoolId) continue;
+      if (!bySchool.has(s.schoolId)) bySchool.set(s.schoolId, []);
+      bySchool.get(s.schoolId).push(s.slug);
+    }
+    const multi = [...bySchool.entries()].filter(([, v]) => v.length > 1)
+      .map(([k, v]) => k + ' -> ' + v.join('+'));
+    check('no schoolId appears under two slugs', multi.length === 0, multi.join(', '));
+  }
+}
+
 console.log('');
 if (failures > 0) {
   console.error('FAILED: ' + failures + ' routing contract check(s) failed\n');

@@ -23,6 +23,11 @@ const HANDLED_ELSEWHERE = new Set([
   'sqlite_sequence',     // D1 internal
   'teachers_mig0040',    // transient rebuild table, dropped by 0040
   'fee_invoices_mig0040',// transient rebuild table, dropped by 0040
+  // Migration 0042's ledger records what the copy did, so it must NOT be copied:
+  // it describes the dedicated database rather than belonging to it, and copying
+  // the record of a copy is circular. It is written by migrate-to-dedicated.mjs
+  // itself.
+  'dedicated_migration_ledger',
 ]);
 
 // Transient rebuild tables: a migration creates `<name>_new`, copies rows across,

