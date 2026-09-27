@@ -21,6 +21,20 @@ const ROOT = process.cwd();
 // patterns silently matched nothing -- so both mistakes were reported as green.
 const MUTATIONS = [
   {
+    name: 'the dedicated deploy step stops forwarding INTERNAL_SYNC_SECRET',
+    file: '.github/workflows/deploy.yml',
+    // Only the one inside the dedicated step -- the platform step also sets it, and
+    // mutating that instead would leave this check passing for the wrong reason.
+    pattern: /(      - name: Deploy Dedicated Workers[\s\S]*?)(\n\s*INTERNAL_SYNC_SECRET: \$\{\{ secrets\.INTERNAL_SYNC_SECRET \}\})/,
+    replace: '$1',
+  },
+  {
+    name: 'the deploy falls back to the platform AUTH_SECRET again',
+    file: 'scripts/deploy-dedicated.mjs',
+    pattern: /AUTH_SECRET: perSchoolAuthSecret,/,
+    replace: 'AUTH_SECRET: perSchoolAuthSecret || process.env.AUTH_SECRET,',
+  },
+  {
     name: 'internal route re-enters over the network instead of in process',
     file: 'api/internal/index.ts',
     pattern: /  if \(rootApp\) \{\n    return rootApp\.fetch\(reentry, c\.env, undefined\);\n  \}/,
