@@ -334,6 +334,71 @@ check(
   'got ' + noSchoolRes.status,
 );
 
+// The deploy must not quietly put a school back on the platform's shared signing key.
+// Asserted as source, and deliberately so: the failure mode is precisely that it
+// would not be observable from a request. A shared key still signs and verifies
+// correctly -- it just verifies in too many places. Nothing above would notice.
+const deploySrc = fs.readFileSync(path.join(ROOT, 'scripts', 'deploy-dedicated.mjs'), 'utf8');
+// Any `||` at all on the AUTH_SECRET line is a fallback to the platform key, whatever
+// the left-hand side is called. The first version of this check named the old
+// variable explicitly, so renaming it to a validated local -- which is what the
+// fail-closed guard produced -- silently disarmed the check. The mutation runner
+// caught that by failing to apply a mutation, which is the only reason it was noticed.
+check(
+  'the deploy never falls back to the platform AUTH_SECRET',
+  !/AUTH_SECRET:[^\n]*\|\|/.test(deploySrc),
+  'found a fallback on the AUTH_SECRET line',
+);
+check(
+  'the AUTH_SECRET written to the worker is the validated per-school value',
+  /AUTH_SECRET:\s*perSchoolAuthSecret\s*,/.test(deploySrc),
+  'AUTH_SECRET is not the per-school value',
+);
+check(
+  'the deploy fails closed when a school has no AUTH_SECRET of its own',
+  /REFUSING TO DEPLOY[\s\S]{0,400}no per-school AUTH_SECRET/.test(deploySrc),
+  'the per-school AUTH_SECRET guard is missing',
+);
+check(
+  'the deploy fails closed when INTERNAL_SYNC_SECRET is absent',
+  /REFUSING TO DEPLOY[\s\S]{0,400}INTERNAL_SYNC_SECRET is not set/.test(deploySrc),
+  'the INTERNAL_SYNC_SECRET guard is missing',
+);
+
+// The two secrets are coupled in code and independent in intent. The decoupling has
+// to be present on both sides, and it was never exercised before because the secret
+// had not been created -- so the fallback path in getInternalSyncSecret is the one
+// this whole arrangement depends on NOT being taken.
+//
+// The step is located by splitting on `- name:` rather than by a character window.
+// The first version of this check used a 400-character look-ahead and reported the
+// secret missing, because a six-line explanatory comment sat between the two keys and
+// pushed the match past the window. The code was right and the check was wrong --
+// which is the same shape of mistake as the extractor regex that matched nothing on
+// CRLF, and it is why this is written structurally.
+const workflowSrc = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'deploy.yml'), 'utf8');
+const steps = workflowSrc.split(/^\s*-\s+name:\s+/m);
+const dedicatedStep = steps.find((s) => s.startsWith('Deploy Dedicated Workers'));
+check('the dedicated deploy step was found in deploy.yml', !!dedicatedStep);
+if (dedicatedStep) {
+  check(
+    'the dedicated deploy step forwards INTERNAL_SYNC_SECRET',
+    /INTERNAL_SYNC_SECRET:\s*\$\{\{\s*secrets\.INTERNAL_SYNC_SECRET\s*\}\}/.test(dedicatedStep),
+    'INTERNAL_SYNC_SECRET is not in the dedicated deploy step env',
+  );
+  check(
+    'the dedicated deploy step forwards DEDICATED_SECRETS_JSON',
+    /DEDICATED_SECRETS_JSON:\s*\$\{\{\s*secrets\.DEDICATED_SECRETS_JSON\s*\}\}/.test(dedicatedStep),
+    'DEDICATED_SECRETS_JSON is not in the dedicated deploy step env',
+  );
+}
+const cryptoSrc = fs.readFileSync(path.join(ROOT, 'api', 'lib', 'tenant-crypto.ts'), 'utf8');
+check(
+  'getInternalSyncSecret still prefers an explicit secret over the AUTH_SECRET derivation',
+  /INTERNAL_SYNC_SECRET[\s\S]{0,200}return env\.INTERNAL_SYNC_SECRET\.trim\(\)/.test(cryptoSrc),
+  'the explicit branch is gone -- per-school auth keys would break M2M fleet-wide',
+);
+
 // ---------------------------------------------------------------------------
 // Part B -- the platform's billing routes.
 //

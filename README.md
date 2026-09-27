@@ -28,6 +28,24 @@ Multi-tenant school management platform built on Cloudflare Workers.
 पर जाती थी, जो stale है क्योंकि `migrate-to-dedicated.mjs` data shared से बाहर
 निकालता है, वापस नहीं लिखता।
 
+### Signing key per school
+
+`SCHOOL_ID` pin ek **logical** boundary hai. Signing key **cryptographic** boundary
+hai. Ab har dedicated worker ka apna `AUTH_SECRET` hai, to kisi ek school ki key
+ka leak baaki chhe schools ka leak nahi hai. Platform worker ki key se koi school
+ka token verify hi nahi hota.
+
+Ye `SCHOOL_ID` pin ki jagah nahi leta — dono alag-alag kaam karte hain. Pin identity
+check karta hai, key authenticity check karti hai.
+
+⚠️ **Coupling:** `INTERNAL_SYNC_SECRET` unset ho to `getInternalSyncSecret`
+`m2m_<hmac(AUTH_SECRET)>` derive karta hai. Wo dono tiers par unset tha, aur derived
+values sirf isliye match karti thi kyunki dono ka ek hi `AUTH_SECRET` tha. Per-school
+keys ke baad har school alag M2M secret derive karti — jo platform verify hi nahi kar
+sakta, aur billing proxy saat schools par ek saath toot jaata. Isliye ab
+`INTERNAL_SYNC_SECRET` har worker par **explicitly** set hai. Ek secret badlo to
+dusra check karo.
+
 ### Invented tenant नहीं होता
 
 `getRequestSchoolId` और `resolveTenant` कोई default school नहीं बनाते।
@@ -45,6 +63,44 @@ school पर, `admin.pragnya.nasven.com/*` सिर्फ admin console पर
 Wildcard इसलिए हटाया गया क्योंकि platform worker के पास website के assets हैं:
 wildcard होने पर कोई भी unclaimed school subdomain **marketing website** दिखाता
 था। अब ऐसा subdomain Cloudflare का error देता है — सही जवाब।
+
+> DNS me `*.pragnya.nasven.com` wildcard **zaroor** hai, route nahi. Isliye koi bhi
+> unclaimed subdomain (jaise `da.`) 522 deta hai — jo sahi jawab hai, orphan nahi.
+> Confirm karne ka tareeka: ek bilkul random subdomain bhi bilkul wahi 522 deta hai.
+> Agar wo 522 na deta, to koi stale resource hota jo clean up karna hota.
+
+### Billing ka authority: sirf platform
+
+Dedicated worker billing/plugins/features khud **nahi** answer karta. Platform ke
+paas hi authoritative subscription records hain, to request wahan jaati hai.
+
+Request school ka **user token** nahi bhejti. Wo pehle bhejti thi, aur jab dono
+tiers mutually exclusive hue, to platform ne use reject kar diya — har dedicated
+school ka har authenticated billing call 401 ho gaya. Ye galti thi, deploy hui thi,
+aur isliye pakdi nahi gayi kyunki **har probe unauthenticated tha**, jahan 401 sahi
+jawab bhi hai aur bug bhi.
+
+Ab flow:
+
+| | |
+|---|---|
+| School ka pata | worker ke apne `SCHOOL_ID` se — caller se nahi |
+| Signing | M2M, `INTERNAL_SYNC_SECRET` se |
+| School id kahan | **signed path** me — `/api/internal/<schoolId>/api/billing/…` |
+| Acting role | sirf wahi jo worker ne khud verify kiya |
+| Plan ka faisla | **platform ka apna DB** — school apna plan naam nahi kar sakti |
+| Re-entry | in-process, kabhi apne hi hostname par `fetch()` nahi |
+
+School id path me isliye hai kyunki `INTERNAL_SYNC_SECRET` fleet-wide hai: wo prove
+karta hai *koi* dedicated worker poocha, *yahi* worker poocha nahi. Header me school
+id koi bhi worker badal sakta tha aur signature phir bhi verify ho jaata।
+
+⚠️ `api/billing/index.ts` me abhi bhi `isDedicated ? 'enterprise'` likha hai। Wo
+dedicated schools ke liye **ab dead** hai, kyunki ab unka billing platform answer karta
+hai aur wahan `isDedicated` false hai। Verify kiya: `yagyaashram` trial ab
+`planId: 'trial'` aur 8 modules report karta hai, `enterprise` + 17 nahi। Line khud
+chhedni nahi gayi — agar koi dedicated worker kabhi khud billing answer kare to ye
+wapas zinda ho jayegi.
 
 `scripts/verify-routing.mjs` यह contract CI में assert करता है।
 
@@ -91,9 +147,23 @@ par chalte hain:
 | `verify-phase2-money.mjs` | payment idempotency, ledger, subscription state |
 | `verify-routing.mjs` | routing contract, preview bindings, wrangler version pin |
 | `verify-migration-0041.mjs` | `parent_student_links` backfill, cross-tenant refusal |
+| `verify-migration-0042.mjs` | per-table dedicated migration ledger |
 | `audit-dedicated-tables.mjs` | हर school-scoped table dedicated D1 तक पहुँचती है या नहीं |
 | `resolve-preview-url.test.mjs` | Preview URL resolution + liveness |
+| `verify-billing-m2m.mjs` | billing authorisation boundary: real `api/` modules, real HMAC, forged scope/path/body/role sab refuse hote hain, poori chain end-to-end, aur deploy fail-closed bhi rahega |
+| `mutation-check-billing-m2m.mjs` | billing code ko jaan-bujhkar 9 tareeke se todta hai; harness na pakde to fail |
 | `smoke-preview.mjs` | deployed worker ke endpoints, real HTTP |
+
+`verify-billing-m2m.mjs` doosre harnesses se alag hai: wo `api/` ko transpile karke
+**asli** modules load karta hai, copy nahi banata. Ye zaroori tha — ek harness jo
+test karne wale code ka haath se likha copy test karta hai, wo har cheez green
+dikha kar fail ho sakta hai.
+
+Ek zaroori baat: **jahan expected answer 401 hai, wahan control case se zyada
+zaroori kuch nahi hota.** Sirf "403 hua" assert karna uss code ko bhi pass kara
+deta hai jo har kuch refuse karta hai. Isiliye tampered-body case ke saath
+unchanged-body wala bhi assert hota hai (400 chahiye, 401 nahi) — yahi prove karta
+hai ki signature verify hua, sirf ye nahi ki kuch refuse hua.
 
 ## Local development
 
@@ -104,9 +174,19 @@ Checks: npm run lint | npm run typecheck | npm run build
 
 ## Secrets (env से, plaintext नहीं)
 
-- AUTH_SECRET — HMAC session signing (>= 32 chars, required)
-- PLATFORM_ADMIN_EMAIL / PLATFORM_ADMIN_PASSWORD — first SuperAdmin bootstrap
-- CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID — provisioning + deploy
+- AUTH_SECRET – HMAC session signing (>= 32 chars, required). **Per tier.** The
+  platform signs Super Admin sessions; each dedicated worker signs only its own
+  school's sessions, so a leak of one key is not a fleet-wide leak.
+- DEDICATED_SECRETS_JSON – per-school overrides for `deploy-dedicated.mjs`, keyed by
+  slug. **Each entry must carry its own `AUTH_SECRET`**; the deploy is fail-closed
+  without it rather than falling back to the platform key.
+- INTERNAL_SYNC_SECRET – fleet-wide machine-to-machine signing between a dedicated
+  worker and the platform. Set explicitly on every worker. If it is absent,
+  `getInternalSyncSecret` derives `m2m_<hmac(AUTH_SECRET)>`, and because each school
+  now has its own `AUTH_SECRET` every school would derive a different value the
+  platform could not verify — the billing proxy would fail fleet-wide.
+- PLATFORM_ADMIN_EMAIL / PLATFORM_ADMIN_PASSWORD – first SuperAdmin bootstrap
+- CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID – provisioning + deploy
 - RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET — payments
 - FCM_SERVICE_ACCOUNT_JSON / WEB_PUSH_VAPID_PRIVATE_KEY / FIREBASE_WEB_CONFIG_JSON — push
 - GEMINI_API_KEY — optional platform AI fallback
@@ -153,6 +233,32 @@ SuperAdmin कंसोल में स्कूल की row पर "प्�
 GITHUB_TOKEN worker secret के लिए repo में PROVISIONING_GITHUB_TOKEN नाम का PAT secret चाहिए
 (fine-grained PAT, Contents: Read and write, इसी repo पर)। Built-in GITHUB_TOKEN जॉब खत्म होते ही
 expire हो जाता है, इसलिए long-lived PAT आवश्यक है।
+
+### नई school को signing key देना
+
+**नई school add karna abhi manual step hai.** `deploy-dedicated.mjs` fail-closed hai —
+per-school `AUTH_SECRET` ke bina wo deploy refuse kar deta hai, platform key par
+ chup-chaap girne ke bajaye. Naye school ke liye:
+
+```bash
+node scripts/rotate-per-school-auth-secret.mjs            # dry run
+PAYLOAD_PATH=/secure/path/dedicated_secrets.json \
+  node scripts/rotate-per-school-auth-secret.mjs          # actually set
+gh secret set DEDICATED_SECRETS_JSON < /secure/path/dedicated_secrets.json
+```
+
+`rotate-per-school-auth-secret.mjs` har worker par key set karta hai, aur
+`per-school-auth-secret-fingerprints.json` me sirf SHA-256 fingerprints likhta hai —
+key nahi. Usse pata chal jaata hai ki kisi school ki key badli ya nahi, aur usse key
+recover karna possible nahi.
+
+⚠️ Rotation se us school ke **saare users logout** ho jaate hain (purane tokens
+invalid). Passwords nahi badalte: `hashPassword` PBKDF2 hai, password pe keyed, secret
+pe nahi. Agar kabhi invisible rotation chahiye, to server-side session storage chahiye
+(Phase 7).
+
+Repo me sirf fingerprints commit hote hain. `DEDICATED_SECRETS_JSON` aur
+`INTERNAL_SYNC_SECRET` GitHub Actions secrets me rehte hain.
 
 ## Data: shared → dedicated copy
 
