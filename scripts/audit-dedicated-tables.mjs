@@ -49,6 +49,28 @@ const PLATFORM_LEVEL = new Set([
   'razorpay_plans_cache',
 ]);
 
+// Worker-local ephemeral state: counters that are correct only for the worker that
+// wrote them, and that must never travel between databases.
+//
+// Kept separate from PLATFORM_LEVEL because the reason is different. These are not
+// "one shared set for every school" -- they are per-worker, so a dedicated worker's
+// rows are already isolated simply by living in its own D1, and the platform has
+// its own. Nothing needs to share them and nothing should copy them.
+//
+//   login_rate_limits - login throttling counters (migration 0043). Copying these
+//     into every school would carry one school's lockout state into another, which
+//     is both meaningless and a way to lock accounts out with intent. They are also
+//     short-lived by design: a closed window is inert and the write path prunes
+//     expired rows.
+//
+// The list exists so this is reported as understood rather than as "needs review",
+// which is noise that trains people to ignore the output. A new table still has to
+// be classified here deliberately, with a reason, or this audit stops being a
+// check and becomes a suggestion.
+const WORKER_LOCAL_EPHEMERAL = new Set([
+  'login_rate_limits',
+]);
+
 function stripSqlComments(sql) {
   return sql.replace(/--[^\n]*/g, ' ');
 }
@@ -91,17 +113,24 @@ const copied = collectCopyList();
 
 let missing = 0;
 let notSchoolScoped = 0;
+let workerLocal = 0;
 
 console.log('\nDedicated-D1 table coverage\n');
 console.log('  tables created by migrations : ' + schema.size);
 console.log('  tables in the copy list      : ' + copied.size + '\n');
 
 const rows = [];
+const workerRows = [];
 for (const [name, info] of schema) {
   if (HANDLED_ELSEWHERE.has(name)) continue;
   if (copied.has(name)) continue;
   if (TRANSIENT_SUFFIXES.some((s) => name.endsWith(s))) continue;
   if (PLATFORM_LEVEL.has(name)) continue;
+  if (WORKER_LOCAL_EPHEMERAL.has(name)) {
+    workerRows.push({ name, file: info.file });
+    workerLocal++;
+    continue;
+  }
   if (info.hasSchoolId) {
     rows.push({ name, file: info.file, verdict: 'MISSING, school-scoped' });
     missing++;
@@ -116,6 +145,16 @@ if (rows.length === 0) {
 } else {
   for (const r of rows) {
     console.log('  ' + r.verdict.padEnd(26) + r.name.padEnd(30) + r.file);
+  }
+  console.log('');
+}
+
+// Reported rather than hidden, so the exclusion is visible in CI output every run
+// and cannot quietly grow into a dumping ground.
+if (workerLocal) {
+  console.log('  intentionally worker-local (not copied):');
+  for (const r of workerRows) {
+    console.log('    ' + r.name.padEnd(30) + r.file);
   }
   console.log('');
 }
