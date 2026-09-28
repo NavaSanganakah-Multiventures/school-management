@@ -24,6 +24,7 @@
 import { getAuthUser, getRequestSchoolId } from './auth';
 import { getDB } from '../db';
 import { isClassTeacher, getAssignedClassNames } from './permissions';
+import { getProxyAwareAuthUser } from './proxied-auth';
 import {
   isFamily,
   isManagement,
@@ -107,6 +108,59 @@ export function requireSession(opts: { roles?: readonly Role[]; allowUnauthentic
 /** Convenience: allowlist for school management roles. */
 export const requireManagement = () =>
   requireSession({ roles: ['Director', 'Principal'] as Role[] });
+
+// ---------------------------------------------------------------------------
+// The proxied surfaces: /api/billing, /api/plugins, /api/features.
+//
+// These three are the only routes a dedicated worker forwards to the platform, so
+// they are the only ones that can legitimately arrive WITHOUT a user token --
+// carrying a verified M2M envelope instead. requireSession() calls getAuthUser(),
+// which requires an Authorization bearer, so on those routes it refused every
+// dedicated school with 401 and the feature did not work at all on a school
+// portal. This guard accepts either shape and still denies by default.
+//
+// It is otherwise identical to requireSession(): explicit role allowlist, an
+// unknown role is denied, and the tenant comes from getRequestSchoolId().
+// ---------------------------------------------------------------------------
+
+export function requireProxiedSession(opts: { roles?: readonly Role[] } = {}) {
+  return async function guard(c: any): Promise<GuardResult> {
+    const authUser = await getProxyAwareAuthUser(c);
+    const db = getDB(c);
+
+    if (!authUser) {
+      return { ok: false, response: deny(c, 'लॉगिन आवश्यक है।', 401) };
+    }
+
+    const schoolId = getRequestSchoolId(c, authUser);
+
+    const role = normalizeRole(authUser.role);
+    if (!role) {
+      return { ok: false, response: deny(c, 'भूमिका (role) अमान्य है। कृपया दोबारा लॉगिन करें।') };
+    }
+
+    if (opts.roles && opts.roles.length > 0 && !opts.roles.includes(role)) {
+      return { ok: false, response: deny(c, 'आपको इस कार्य की अनुमति नहीं है।') };
+    }
+
+    return {
+      ok: true,
+      user: {
+        id: String((authUser as any).sub || ''),
+        email: String(authUser.email || ''),
+        role,
+        schoolId,
+        raw: authUser,
+      },
+      schoolId,
+      db,
+    };
+  };
+}
+
+/** Convenience: allowlist for school management roles on a proxied surface. */
+export const requireProxiedManagement = () =>
+  requireProxiedSession({ roles: ['Director', 'Principal'] as Role[] });
 
 /** Convenience: management + teaching roles. */
 export const requireStaffOrAbove = () =>

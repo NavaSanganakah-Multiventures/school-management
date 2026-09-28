@@ -536,11 +536,63 @@ check('all 10 authenticated routes use getBillingAuthUser()', helperCalls === 10
 
 // The scope header must never be honoured without a verified signature, which is why
 // the helper delegates to getAuthUser() when any part of the M2M shape is missing.
+//
+// That logic moved out of this file into api/lib/proxied-auth.ts, because /api/plugins
+// and /api/features are proxied the same way and needed the identical rule -- and a
+// private copy in one file is exactly how api/plugins/index.ts ended up with a
+// private `authCheck` that skipped tier exclusivity in the first place.
+//
+// This is written structurally on purpose. An earlier version grepped for the
+// literal line `if (!scope || !signature || ...) { return getAuthUser(c); }` and
+// kept failing every time the guard was merely refactored, which is the "a check
+// that greps for spelling breaks when the variable is renamed" trap. It now looks
+// for the two structural facts: the envelope test exists, and the incomplete
+// envelope path returns getAuthUser().
+const proxiedAuthSrc = fs.readFileSync(path.join(ROOT, 'api', 'lib', 'proxied-auth.ts'), 'utf8');
+check(
+  'the shared helper tests the M2M envelope before trusting it',
+  /function\s+hasInternalEnvelope\s*\(/.test(proxiedAuthSrc) && /hasInternalEnvelope\(c\)/.test(proxiedAuthSrc),
+  'no hasInternalEnvelope() in api/lib/proxied-auth.ts',
+);
 check(
   'the helper falls back to the token path when the M2M shape is incomplete',
-  /if \(!scope \|\| !signature \|\| !timestamp \|\| !providedSecret\) \{\s*return getAuthUser\(c\);/.test(billingSrc),
-  'fallback not found',
+  /if\s*\(!hasInternalEnvelope\(c\)\)\s*\{[\s\S]{0,600}?getAuthUser\(c\)/.test(proxiedAuthSrc),
+  'fallback to getAuthUser() not found in api/lib/proxied-auth.ts',
 );
+
+// One implementation, three surfaces. A second private copy is how this class of
+// defect starts, so the invariant is asserted rather than left to review.
+//
+// This deliberately checks the BEHAVIOUR (a surface reaches the proxy-aware
+// check, and never the bare getAuthUser) instead of the import path. The three
+// surfaces reach it two different ways -- billing imports the helper, plugins and
+// features use the requireProxiedSession guard that wraps it -- so asserting an
+// import line would be asserting spelling, and would fail the moment either side
+// is refactored. That is the "a check that greps for a variable name breaks when
+// the variable is renamed" trap this harness was already bitten by once.
+for (const surface of ['billing', 'plugins', 'features']) {
+  const src = fs.readFileSync(path.join(ROOT, 'api', surface, 'index.ts'), 'utf8');
+  const code = src
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('*') && !line.trim().startsWith('/*') && !line.trim().startsWith('//'))
+    .join('\n');
+
+  check(
+    'api/' + surface + ' reaches the proxy-aware auth check',
+    /getProxyAwareAuthUser|getBillingAuthUser|requireProxiedSession|requireProxiedManagement/.test(code),
+    'api/' + surface + '/index.ts uses neither the helper nor the proxied guard',
+  );
+  check(
+    'api/' + surface + ' does not call the bare getAuthUser() on a proxied route',
+    !/await getAuthUser\(c\)/.test(code),
+    'bare getAuthUser(c) found in api/' + surface + '/index.ts',
+  );
+  check(
+    'api/' + surface + ' does not call verifyToken() directly',
+    !/verifyToken\s*\(/.test(code),
+    'verifyToken( found in api/' + surface + '/index.ts',
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Part D -- the whole chain, in one process.

@@ -1,9 +1,7 @@
 import { Hono } from 'hono';
 import { getDB, SUBSCRIPTION_PLANS, loadSubscriptionPlans, loadSubscriptionPlanById, BillingCycle } from '../db';
-import { getAuthUser, getRequestSchoolId } from '../lib/auth';
-import { verifyInternalSignature } from '../lib/internal-request-auth';
-import { getInternalSyncSecret } from '../lib/tenant-crypto';
-import { normalizeRole, SUPER_ADMIN } from '../lib/roles';
+import { getRequestSchoolId } from '../lib/auth';
+import { getProxyAwareAuthUser } from '../lib/proxied-auth';
 import { provisionDedicatedWorker } from '../lib/provisioning';
 import { createRazorpayOrder, verifyRazorpaySignature, createRazorpayPlan, createRazorpaySubscription, createRazorpayCustomer, fetchRazorpaySubscription, cancelRazorpaySubscription, pauseRazorpaySubscription, resumeRazorpaySubscription, getRazorpayKeyId, getRazorpayKeySecret } from '../lib/razorpay';
 import { checkSingleSchoolTrialStatus } from '../lib/trial-expiration';
@@ -64,69 +62,16 @@ billingApp.get('/razorpay/config', async (c) => {
 });
 
 // Auth for every billing route, which covers both ways a request can legitimately
-// arrive here.
+// arrive here: as a user token (the platform's own SuperAdmin console) and as a
+// verified M2M envelope (a dedicated worker forwarding its school, with the school
+// in the SIGNED PATH).
 //
-// A dedicated worker cannot answer billing itself -- the platform holds the only
-// authoritative subscription records -- so it forwards the request there signed as
-// itself, with the school named in the SIGNED PATH instead of in a user token. The
-// platform's tier rules then correctly refuse that school token, which is why these
-// routes used to answer 401 for every dedicated school. So the forwarded request is
-// authenticated here by re-verifying the M2M signature, and the result is the same
-// shape getAuthUser() returns, so the routes below need no special-casing.
-//
-// WHY THE SIGNATURE IS RE-VERIFIED HERE, NOT JUST THE SECRET
-//
-// An earlier draft accepted any request that merely carried a non-empty
-// `X-Internal-Secret`, on the theory that only the internal route sets the scope
-// header. That is not a defence: a public caller can set BOTH headers to any values,
-// including `X-Internal-Secret: anything` and `X-Verified-School-Scope: <someone
-// else's school>`, and would have been handed that school's subscription. Comparing
-// the secret would not have been enough either, because the secret is fleet-wide and
-// static, so leaking it would have been a fleet-wide billing read for anyone who
-// knew it. The signature binds method, path, body and timestamp with a fresh HMAC,
-// so a scope cannot be asserted without proving you hold the secret AND that this
-// exact request was signed.
-async function getBillingAuthUser(c: any) {
-  const scope = String(c.req.header('X-Verified-School-Scope') || '').trim();
-  const signature = c.req.header('X-Internal-Signature') || '';
-  const timestamp = c.req.header('X-Internal-Timestamp') || '';
-  const providedSecret = c.req.header('X-Internal-Secret') || '';
-
-  if (!scope || !signature || !timestamp || !providedSecret) {
-    return getAuthUser(c);
-  }
-
-  // clone(), not text(): every route below still calls c.req.json(), and a consumed
-  // body cannot be read twice.
-  const rawBody = ['GET', 'HEAD'].includes(c.req.method)
-    ? ''
-    : await c.req.raw.clone().text().catch(() => '');
-
-  const result = await verifyInternalSignature({
-    method: c.req.method,
-    path: new URL(c.req.url).pathname,
-    timestamp: Number(timestamp),
-    body: rawBody,
-    signature,
-    secret: providedSecret,
-  });
-  const expectedSecret = await getInternalSyncSecret(c.env);
-  if (!result.ok || !expectedSecret || providedSecret !== expectedSecret) {
-    return null;
-  }
-
-  // The role arrived over the verified channel, but it is re-derived here rather
-  // than trusted: only a real school role is accepted, and SuperAdmin specifically
-  // is refused. A dedicated worker cannot hold a SuperAdmin token (api/lib/auth.ts),
-  // so nothing legitimate sends one, and this keeps a school from reaching the
-  // platform-wide branches such as GET /api/billing/schools' SuperAdmin listing.
-  const role = normalizeRole(c.req.header('X-Acting-Role'));
-  if (!role || role === SUPER_ADMIN) {
-    return null;
-  }
-
-  return { role, schoolId: scope, email: String(c.req.header('X-Acting-Email') || '') };
-}
+// This used to be a private copy of that check living in this file. It now lives
+// in api/lib/proxied-auth.ts, because /api/plugins and /api/features are proxied
+// the same way and need the identical rule. Keeping ONE copy is the whole point:
+// api/plugins/index.ts used to carry its own private `authCheck`, and that single
+// divergence is what let a school token be honoured on the wrong tier.
+const getBillingAuthUser = getProxyAwareAuthUser;
 
 // GET /api/billing/subscription - current school subscription
 billingApp.get('/subscription', async (c) => {

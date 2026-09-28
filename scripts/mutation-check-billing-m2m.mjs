@@ -46,14 +46,14 @@ const MUTATIONS = [
     pattern: /\n  for \(const \[k, v\][\s\S]*?headers\.set\(k, v\);\n  \}\n/,
   },
   {
-    name: 'billing stops refusing a claimed SuperAdmin role',
-    file: 'api/billing/index.ts',
-    pattern: /if \(!role \|\| role === SUPER_ADMIN\) \{/,
-    replace: 'if (!role) {',
-  },
-  {
-    name: 'billing stops re-checking that the request body was signed',
-    file: 'api/billing/index.ts',
+    // These two moved out of api/billing into api/lib/proxied-auth when the check was
+    // shared with /api/plugins and /api/features. Their patterns are repointed there
+    // rather than left stale, because a mutation that reports NOT APPLIED has
+    // silently proved nothing -- which is the failure mode this whole file exists to
+    // prevent. Duplicates of the SuperAdmin mutation are not added, because the
+    // repointed ones below already cover it.
+    name: 'the proxied-surface check stops re-checking that the request body was signed',
+    file: 'api/lib/proxied-auth.ts',
     pattern: /(body: )rawBody,(\n\s*signature,)/,
     replace: "$1'',$2",
   },
@@ -77,10 +77,10 @@ const MUTATIONS = [
     replace: "\n      const schoolId = 'school-invented';",
   },
   {
-    name: 'billing stops comparing the presented internal secret',
-    file: 'api/billing/index.ts',
-    pattern: /if \(!result\.ok \|\| !expectedSecret \|\| providedSecret !== expectedSecret\) \{/,
-    replace: 'if (!result.ok) {',
+    name: 'the proxied-surface check stops comparing the presented internal secret',
+    file: 'api/lib/proxied-auth.ts',
+    pattern: /if \(!\(await constantTimeEqual\(providedSecret, expectedSecret\)\)\) return null;/,
+    replace: 'if (!result.ok) return null;',
     // This one is expected to survive, and it is worth being explicit about why rather
     // than quietly deleting the mutation: the secret comparison is defence in depth.
     // Dropping it does not open a hole, because verifyInternalSignature HMACs with the
@@ -88,6 +88,28 @@ const MUTATIONS = [
     // pins the secret to the configured one.
     expectedToSurvive:
       'the signature is the real gate, since it is computed with the presented secret, so a wrong secret already fails verification',
+  },
+  {
+    // The check this mutation exercises moved out of api/billing into
+    // api/lib/proxied-auth, so the pattern has to follow it. A mutation whose pattern
+    // no longer matches reports NOT APPLIED and silently proves nothing -- which is
+    // exactly what happened the first time this check was run after the move.
+    name: 'the proxied-surface check stops re-verifying the M2M signature',
+    file: 'api/lib/proxied-auth.ts',
+    pattern: /if \(!result\.ok \|\| !expectedSecret\) return null;/,
+    replace: 'if (!expectedSecret) return null;',
+  },
+  {
+    name: 'the proxied-surface check stops refusing SuperAdmin on the M2M path',
+    file: 'api/lib/proxied-auth.ts',
+    pattern: /if \(!role \|\| role === SUPER_ADMIN\) return null;/,
+    replace: 'if (!role) return null;',
+  },
+  {
+    name: 'the proxied-surface check trusts X-Acting-Role without verifying anything',
+    file: 'api/lib/proxied-auth.ts',
+    pattern: /const role = normalizeRole\(c\.req\.header\('X-Acting-Role'\)\);[\s\S]*?if \(!role \|\| role === SUPER_ADMIN\) return null;/,
+    replace: "const role = 'Director';",
   },
 ];
 
