@@ -38,6 +38,123 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: test -f api/index.ts
+
+      # ------------------------------------------------------------------
+      # Verification harnesses.
+      #
+      # WHY THESE ARE HERE AND NOT ONLY IN deploy-preview.yml
+      #
+      # They used to run on branch previews and nowhere else, which meant a merge
+      # to main went straight to provisioning and deployment with none of them
+      # executed. Worse, two of the highest-value ones were not referenced by ANY
+      # workflow: verify-phase1-rbac (RBAC, family scoping, tier exclusivity) and
+      # verify-phase2-money (payment idempotency, ledger, subscription state).
+      # Both had been written, both were advertised in the README, and neither had
+      # ever run. A merge could invert the tier check, or break payment
+      # idempotency, and the deploy would have been green.
+      #
+      # They live in the `build` job rather than the `deploy` job because `build`
+      # is the only job that runs on pull_request as well as on main. Putting them
+      # in `deploy` would guard production while letting every PR through untested,
+      # and a broken authorization change is cheapest to catch at the PR.
+      #
+      # Ordering: the cheap static checks first so an obvious break fails in
+      # seconds, then the transpiling harnesses, then the mutation check last
+      # because it re-runs the billing harness several times and is the slowest.
+      # ------------------------------------------------------------------
+
+      # Sign-in and routing are static properties of the source and the wrangler
+      # configs, so these need no database, no Worker and no network.
+      - name: Verify Phase 0 (internal M2M signing)
+        run: node scripts/verify-phase0-signing.mjs
+
+      # Deny-by-default RBAC, family scoping, and the two tiers being mutually
+      # exclusive. This is the PII-breach and financial-fraud boundary.
+      - name: Verify Phase 1 (RBAC, family scoping, tier exclusivity)
+        run: node scripts/verify-phase1-rbac.mjs
+
+      # Payment idempotency, the payment ledger, and subscription state. This is
+      # the money-correctness boundary.
+      - name: Verify Phase 2 (money integrity)
+        run: node scripts/verify-phase2-money.mjs
+
+      # The routing contract: apex-only routes, preview bindings, the wrangler
+      # version pin. A wildcard route looks like a harmless safety net and only
+      # breaks schools mid-provisioning in production.
+      - name: Verify routing contract
+        run: node scripts/verify-routing.mjs
+
+      # A school-scoped table that no migration copies into a dedicated D1 is
+      # invisible from the deploy, because copyTable is only called for names
+      # already in the list. Phase 1 and Phase 2 each added tables without
+      # updating the list, which is how parent_student_links, fee_payment_idempotency
+      # and payment_ledger were being dropped on migration.
+      - name: Verify dedicated-D1 table coverage
+        run: node scripts/audit-dedicated-tables.mjs
+
+      # The billing authorisation boundary, exercised against the real api/
+      # modules: a dedicated worker forwards to the platform signed as itself, and
+      # the platform refuses any scope that is not signed. Transpiles the real tree
+      # in process, so it needs no database, no Worker and no network.
+      #
+      # A source-scan cannot answer the only question that matters here -- does a
+      # forged request actually get refused -- and two cheaper harnesses in this
+      # repo passed while the code was wrong.
+      - name: Verify billing M2M authorisation
+        run: node scripts/verify-billing-m2m.mjs
+
+      # The /api/plugins and /api/features authorisation boundary, same shape:
+      # real modules, real session tokens, real M2M signatures, no network. This
+      # is the harness that proved a school Director's token naming ANOTHER school
+      # returned 200 from /subscribe and wrote to that school's rows.
+      - name: Verify plugin/feature proxied authorisation
+        run: node scripts/verify-plugins-authz.mjs
+
+      # Login hardening: the rate limiter, the single generic refusal, and the
+      # timing equalisation. Real routes, real PBKDF2, real D1.
+      #
+      # The timing part is the reason this is an integration harness rather than a
+      # source-scan: an unknown account used to reply ~25x faster than a known one,
+      # which enumerates users even when the message is identical. Measured, not
+      # assumed.
+      - name: Verify login hardening (rate limit, generic refusal, timing)
+        run: node scripts/verify-login-hardening.mjs
+
+      # Data migrations, asserted against fixtures that include a phone shared
+      # across two schools so the cross-tenant refusal is proved rather than
+      # assumed.
+      - name: Verify migration 0041 (parent_student_links backfill)
+        run: node scripts/verify-migration-0041.mjs
+
+      # The ledger that decides whether a school still needs its shared-D1 rows
+      # copied. Columns are asserted individually because the deploy writes to
+      # them at run time and a renamed column would surface as a failed production
+      # deploy.
+      - name: Verify migration 0042 (dedicated migration ledger)
+        run: node scripts/verify-migration-0042.mjs
+
+      # Applies every db_migrations/*.sql to a real SQLite database -- the engine
+      # D1 runs on -- and then applies them all a second time.
+      #
+      # This exists because migration 0043 was written without being executed, and
+      # nothing else would have caught it: audit-dedicated-tables.mjs only greps
+      # files for CREATE TABLE, and the login harness supplies its own fake D1 that
+      # never parses a migration. A syntactically broken migration would have been
+      # found by a failed production deploy instead.
+      - name: Verify every migration actually applies
+        run: node scripts/verify-migrations-apply.mjs
+
+      # Breaks the billing authorisation code on purpose and fails unless the
+      # harness above notices each break. Last, because it re-runs the billing
+      # harness once per mutation and is the slowest check here.
+      #
+      # A green harness is only worth having if it can be shown to go red. Writing
+      # this file found three bugs in the harness itself, all the same kind: a
+      # check that passed for the wrong reason, and two checks that had silently
+      # stopped matching the code after it moved.
+      - name: Mutation-check the billing harness
+        run: node scripts/mutation-check-billing-m2m.mjs
+
       # pragnya.nasven.com serves the Next.js public website (static export).
       - name: Build Website (Next.js static export)
         run: npm run build

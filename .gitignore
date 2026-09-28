@@ -83,3 +83,9 @@ firebase-adminsdk*.json
 # to CommonJS so the harness can require it. tsconfig.apitest.json IS committed; this
 # directory is not.
 .tmp-apitest/
+
+# Same idea for scripts/verify-plugins-authz.mjs and scripts/verify-login-hardening.mjs.
+# A separate directory so the harnesses can run concurrently without clobbering
+# each other's output.
+.tmp-apitest-plugins/
+.tmp-apitest-login/
