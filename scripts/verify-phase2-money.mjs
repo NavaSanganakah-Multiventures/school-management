@@ -64,6 +64,51 @@ function wranglerSql(sql) {
   return rows;
 }
 
+function wrangler(args) {
+  return execSync('npx wrangler ' + args, {
+    cwd: REPO,
+    encoding: 'utf-8',
+    maxBuffer: 32 * 1024 * 1024,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+}
+
+// WHY THIS APPLIES ITS OWN MIGRATIONS
+//
+// The header of this file documents a two-step usage:
+//
+//     npx wrangler d1 migrations apply DB --local
+//     node scripts/verify-phase2-money.mjs
+//
+// and until now only the second line ever ran anywhere. This harness was not
+// referenced by any workflow, so the missing first line went unnoticed; on a
+// developer machine it is invisible, because the local D1 under .wrangler/ has
+// had the migrations applied by some earlier command and keeps them.
+//
+// The first time it ran on a fresh CI runner it failed immediately with
+// "no such table: teachers" from the fixture DELETEs, which reads like a broken
+// fixture rather than a missing prerequisite. That is how a harness that was
+// never exercised announces itself.
+//
+// So it provisions its own fixture, the same way verify-migration-0041.mjs
+// already does. Checking first rather than applying unconditionally keeps a
+// repeat run cheap, because `wrangler d1 migrations apply` has a startup cost
+// even when there is nothing to do.
+function ensureSchema() {
+  let ready = false;
+  try {
+    const rows = wranglerSql(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('teachers','fee_invoices','payment_ledger','system_users')",
+    );
+    ready = rows.length >= 4;
+  } catch (_) {
+    ready = false;
+  }
+  if (ready) return;
+  console.log('  applying local D1 migrations (schema is missing)...');
+  wrangler('d1 migrations apply DB --local');
+}
+
 function wranglerSqlFails(sql) {
   try {
     wranglerSql(sql);
@@ -86,6 +131,8 @@ function codeOf(relPath) {
 }
 
 console.log('\nPhase 2 money-integrity verification\n');
+
+ensureSchema();
 
 // ---------------------------------------------------------------------------
 // Fixtures: two schools holding identical per-school codes.

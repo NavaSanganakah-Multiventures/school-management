@@ -38,10 +38,40 @@ function sql(query) {
 
 console.log('\nMigration 0042 — dedicated migration ledger\n');
 
+// WHY THIS APPLIES ITS OWN MIGRATIONS
+//
+// This used to print "run: npx wrangler d1 migrations apply DB --local" and exit
+// 1 when the table was absent. That is a correct instruction and a useless
+// harness: a check you have to prepare by hand is a check nobody runs, and this
+// file was one of the ones no workflow referenced.
+//
+// On a developer machine the local D1 under .wrangler/ already has the
+// migrations, so the branch is never taken and the fragility stays invisible.
+// The first time it ran on a fresh CI runner it took exactly that branch and
+// failed. It now provisions its own fixture, the way verify-migration-0041.mjs
+// already does, and the check below is a real assertion rather than a
+// prerequisite notice.
+{
+  const missing = (() => {
+    try {
+      return sql("SELECT name FROM sqlite_master WHERE type='table' AND name='dedicated_migration_ledger'").length === 0;
+    } catch (_) {
+      return true;
+    }
+  })();
+  if (missing) {
+    console.log('  applying local D1 migrations (schema is missing)...');
+    execSync('npx wrangler d1 migrations apply DB --local', {
+      cwd: REPO, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  }
+}
+
 const tables = sql("SELECT name FROM sqlite_master WHERE type='table' AND name='dedicated_migration_ledger'");
-check('the ledger table exists', tables.length === 1, 'run: npx wrangler d1 migrations apply DB --local');
+check('the ledger table exists', tables.length === 1, 'migrations were applied but the table is absent');
 if (tables.length === 0) {
-  console.error('\nFAILED: apply migrations first\n');
+  console.error('\nFAILED: migration 0042 did not create its table\n');
   process.exit(1);
 }
 

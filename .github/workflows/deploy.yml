@@ -73,8 +73,20 @@ jobs:
       - name: Verify Phase 1 (RBAC, family scoping, tier exclusivity)
         run: node scripts/verify-phase1-rbac.mjs
 
-      # Payment idempotency, the payment ledger, and subscription state. This is
-      # the money-correctness boundary.
+      # Money correctness: payment idempotency, the payment ledger, subscription
+      # state. This is the money-integrity boundary.
+      #
+      # It runs against a REAL local D1, so the schema has to exist first. The
+      # harness now applies its own migrations, but the step is kept explicit
+      # because it costs nothing when the schema is already there, and because a
+      # dependency you can see in the workflow is a dependency nobody has to
+      # reverse-engineer from a failure message. This is not theoretical: the
+      # first time this harness ran on a fresh runner it died on "no such table:
+      # teachers" from its own fixture, which reads like a broken fixture rather
+      # than a missing prerequisite.
+      - name: Prepare local D1 for the database-backed harnesses
+        run: npx wrangler d1 migrations apply DB --local
+
       - name: Verify Phase 2 (money integrity)
         run: node scripts/verify-phase2-money.mjs
 
