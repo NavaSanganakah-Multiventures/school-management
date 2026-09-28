@@ -1,13 +1,33 @@
 import { Hono } from 'hono';
 import { getDB, makeUniqueUsername } from '../db';
-import { hashPassword, verifyPassword, signToken, getAuthUser } from '../lib/auth';
+import { hashPassword, verifyPassword, signToken, getAuthUser, burnPasswordVerification } from '../lib/auth';
 import { issueResetToken, consumeResetToken } from '../lib/reset-tokens';
 import { sendPasswordResetEmail, sendWelcomeEmail, getRequestOrigin } from '../lib/email';
 import { syncTenantFromPlatform } from '../lib/tenant-sync';
 import { provisionDedicatedWorker } from '../lib/provisioning';
 import { isAuthorizedPlatformEmail, getAuthorizedPlatformEmail } from '../admin';
+import { checkLoginRateLimit, recordLoginFailure, clearLoginFailures } from '../lib/login-rate-limit';
 
 const authApp = new Hono<{ Bindings: any }>();
+
+/**
+ * The caller's source address, for rate limiting.
+ *
+ * CF-Connecting-IP is set by Cloudflare on the edge and cannot be set by a client
+ * that is not already going through Cloudflare, so it is used in preference to
+ * CF-Ray/X-Forwarded-For. The fallbacks only matter when the Worker is reached in
+ * a way that bypasses the edge, and an absent value becomes the single key
+ * "ip:" which the per-identifier limit still covers.
+ */
+function getClientIp(c: any): string {
+  const headers = c.req.header.bind(c.req);
+  return String(
+    headers('CF-Connecting-IP') ||
+    headers('X-Forwarded-For')?.split(',')[0] ||
+    headers('X-Real-IP') ||
+    '',
+  ).trim();
+}
 
 // POST /api/auth/login - role is auto-detected from the real user record.
 // There is deliberately no role parameter and no demo/quick login fallback.
@@ -26,6 +46,22 @@ authApp.post('/login', async (c) => {
   }
 
   const isDedicated = !!(c.env && (c.env.IS_DEDICATED_WORKER === 'true' || c.env.SCHOOL_ID));
+
+  // Consulted BEFORE anything expensive, because the cost being protected is the
+  // PBKDF2 derivation further down. Checking afterwards would mean a locked-out
+  // caller had already been made to pay.
+  //
+  // Two keys, deliberately: one per account and one per source, so a broad spray
+  // from one address is stopped by the IP limit without a shared school NAT
+  // locking out one person's account.
+  const limit = await checkLoginRateLimit(db, identifier, getClientIp(c));
+  if (!limit.allowed) {
+    return c.json(
+      { success: false, message: 'बहुत अधिक लॉगिन प्रयास। कृपया कुछ देर बाद कोशिश करें।' },
+      429,
+      limit.retryAfterSeconds ? { 'Retry-After': String(limit.retryAfterSeconds) } : undefined,
+    );
+  }
 
   // 1) Platform Super Admin
   // Strict Isolation: Super Admin is strictly for the central control plane (pragnya.nasven.com).
@@ -50,7 +86,11 @@ authApp.post('/login', async (c) => {
       }
 
       const ok = await verifyPassword(password, admin.password_hash || '');
-      if (!ok) return c.json({ success: false, message: 'अमान्य पासवर्ड।' }, 401);
+      if (!ok) {
+        recordLoginFailure(db, identifier, getClientIp(c));
+        return c.json({ success: false, message: 'अमान्य पासवर्ड।' }, 401);
+      }
+      await clearLoginFailures(db, identifier, getClientIp(c));
       await db.prepare('UPDATE platform_admins SET updated_at = ? WHERE id = ?').bind(new Date().toISOString(), admin.id).run();
       const SESSION_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
       const token = await signToken(c, {
@@ -149,11 +189,42 @@ authApp.post('/login', async (c) => {
   }
 
   // ── Dedicated worker: school login path ────────────────────────────────
+  //
+  // ONE REFUSAL FOR ALL THREE FAILURE MODES, AND ONE AMOUNT OF WORK
+  //
+  // This used to answer three distinguishable 401s:
+  //
+  //   no such user        -> "इस स्कूल पोर्टल पर यह उपयोगकर्ता नहीं मिला"
+  //   user, no password   -> code PASSWORD_NOT_SET, and it SENT AN EMAIL
+  //   wrong password      -> "अमान्य पासवर्ड"
+  //
+  // Three bodies is a user-enumeration oracle: an unauthenticated caller could
+  // tell which staff addresses exist, and the middle branch also let anyone who
+  // knew a staff address cause an outbound email to be sent to that person --
+  // a spam relay aimed at a school's own staff, rate-limited but still usable.
+  //
+  // The timing leaked it too, and that is why the no-user path now calls
+  // burnPasswordVerification() rather than just returning: it used to reply in
+  // about a millisecond while a real attempt took 100,000 SHA-256 rounds, so
+  // equal messages were not enough on their own.
+  //
+  // The invite email is still sent on the PASSWORD_NOT_SET path. What is lost is
+  // only the in-app hint, and the user learns the same thing from the email
+  // itself. This is what every major provider does, and it is the only way the
+  // three cases stop being distinguishable.
+  //
+  // Note the client never read the `code` field: grepping the Flutter apps for
+  // PASSWORD_NOT_SET and PORTAL_READY_SOON returns nothing, so no screen
+  // depended on the distinction and nothing in the UI needed changing.
+  const genericLoginFailure = {
+    success: false,
+    message: 'ईमेल/यूज़रनेम या पासवर्ड गलत है।',
+  };
+
   if (!user) {
-    return c.json({
-      success: false,
-      message: 'इस स्कूल पोर्टल पर यह उपयोगकर्ता नहीं मिला। कृपया अपने स्कूल एडमिन/डायरेक्टर से संपर्क करें।',
-    }, 401);
+    await burnPasswordVerification(password);
+    recordLoginFailure(db, identifier, getClientIp(c));
+    return c.json(genericLoginFailure, 401);
   }
   if (!user.password_hash) {
     const invite = await issueResetToken(db, user.id, 'system', 'invite');
@@ -161,10 +232,20 @@ authApp.post('/login', async (c) => {
       const resetLink = getRequestOrigin(c, c.env) + '/?reset=' + invite.token;
       await sendPasswordResetEmail(c.env, { to: user.email, name: user.full_name, resetLink, invite: true });
     }
-    return c.json({ success: false, code: 'PASSWORD_NOT_SET', message: 'इस खाते का पासवर्ड अभी सेट नहीं है। हमने आपके ईमेल पर पासवर्ड सेट करने का लिंक भेज दिया है। कृपया इनबॉक्स/स्पैम देखें।' }, 401);
+    await burnPasswordVerification(password);
+    recordLoginFailure(db, identifier, getClientIp(c));
+    return c.json(genericLoginFailure, 401);
   }
   const ok = await verifyPassword(password, user.password_hash);
-  if (!ok) return c.json({ success: false, message: 'अमान्य पासवर्ड।' }, 401);
+  if (!ok) {
+    recordLoginFailure(db, identifier, getClientIp(c));
+    return c.json(genericLoginFailure, 401);
+  }
+
+  // Authenticated. Clear the counters so a user who fumbled their password and
+  // then got it right is not left one attempt from a lockout, and so a shared
+  // school NAT is not penalised for one person's typos.
+  await clearLoginFailures(db, identifier, getClientIp(c));
 
   // 3) School approval gate: block login until Super Admin approves the school.
   if (user.school_id) {

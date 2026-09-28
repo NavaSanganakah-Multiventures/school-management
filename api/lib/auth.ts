@@ -62,6 +62,46 @@ export async function verifyPassword(password: any, stored: any) {
   }
 }
 
+// A fixed, deliberately unusable hash material used only to spend the same CPU as
+// a real verification. The iteration count, hash and output length all match
+// hashPassword, so the cost is the cost of a genuine attempt.
+const DUMMY_SALT = new Uint8Array(16).fill(7);
+const DUMMY_ITERATIONS = 100000;
+
+/**
+ * Spends the cost of a real password verification, and always returns false.
+ *
+ * WHY THIS EXISTS
+ *
+ * Collapsing login's three distinct 401 bodies into one generic message is not
+ * enough on its own. The original code returned immediately when no user row was
+ * found, and only ran PBKDF2 when one was. A caller can measure that: the reply
+ * for a non-existent account came back in about a millisecond, and the reply for
+ * a real one took as long as 100,000 SHA-256 rounds. The body said nothing, the
+ * clock said everything, and the account list stayed enumerable.
+ *
+ * So the no-user and no-password-set paths now derive against this dummy before
+ * returning the same generic refusal the wrong-password path returns. Same
+ * message, same status, same amount of work.
+ *
+ * It derives against fixed material, so it can never succeed, and it never
+ * compares anything -- the return value is a constant.
+ */
+export async function burnPasswordVerification(password: any): Promise<false> {
+  try {
+    const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
+    await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', salt: DUMMY_SALT, iterations: DUMMY_ITERATIONS, hash: 'SHA-256' },
+      key,
+      256,
+    );
+  } catch (e) {
+    // Must never throw: the caller treats the result as "not authenticated", and an
+    // exception here would turn an authentication failure into a 500.
+  }
+  return false;
+}
+
 function getSecret(c: any) {
   const env = c && c.env;
   const secret = env && env.AUTH_SECRET;
