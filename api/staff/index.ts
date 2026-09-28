@@ -9,10 +9,9 @@ import { isManagement } from '../lib/roles';
 
 export const staffApp = new Hono<{ Bindings: any }>();
 
-const requireAnyUser = requireSession();
-const requireManager = requireSession({
-  roles: ['Director', 'Principal', 'SuperAdmin'] as Role[],
-});
+// requireManager was declared here and never called: the route rolled its own
+// role check inline instead. Removed rather than left as dead code that reads
+// like an active guard.
 
 function mapStaff(r: any): any {
   if (!r) return null;
@@ -54,12 +53,27 @@ function mapStaffForRole(r: any, role: string) {
 
 // GET /api/staff
 //
-// SECURITY FIX: this route called getAuthUser() but never checked the result, so
-// anyone could read the staff list — including salaries, phone numbers, emails
-// and login usernames — with no authentication at all. It now requires a valid
-// session, and salary/login metadata is stripped for non-management roles.
+// SECURITY FIX, ROUND 2. The first fix required a valid session and stripped
+// salary/login metadata for non-management roles. It left family roles with the
+// rest of the employee record: name, phone, email, employee code, designation,
+// department, subject, qualification and joining date for every member of staff.
+//
+// A Parent has no need for a staff directory. Refusing the two family roles
+// closes it without touching the teaching flow, which is the constraint that
+// matters here: classes_screen.dart:66 fetches /api/staff to populate a class-
+// teacher picker, and /classes is a userRoute any logged-in role can navigate
+// to. A Staff member reaching that screen still needs names and phone numbers to
+// pick from, so teaching roles are kept and continue to get salary and username
+// stripped by mapStaffForRole below.
+//
+// Why the route guard and not the UI: /classes is reachable by a Parent, and the
+// repo's own rule is that hidden UI is never the control.
+const requireStaffOrManagement = requireSession({
+  roles: ['Director', 'Principal', 'Staff', 'Teacher', 'SuperAdmin'] as Role[],
+});
+
 staffApp.get('/', async (c) => {
-  const guard = await requireAnyUser(c);
+  const guard = await requireStaffOrManagement(c);
   if (!guard.ok) return guard.response;
   const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);

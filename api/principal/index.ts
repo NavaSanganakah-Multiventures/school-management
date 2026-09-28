@@ -1,10 +1,26 @@
 import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId, hashPassword } from '../lib/auth';
+import { requireSession, type Role } from '../lib/rbac';
+import { SUPER_ADMIN, isManagement } from '../lib/roles';
 
 export const principalApp = new Hono<{ Bindings: any }>();
 
-function mapUser(r: any) {
+// GET /api/principal is management-only.
+//
+// It called getAuthUser() and nothing else, then returned mapUser(pRow) from a
+// bare `SELECT *` on system_users. mapUser included `salary`, so a Parent or
+// Student token received the Principal's compensation, phone, email and
+// qualification. The query itself was correctly school-scoped; the problem is
+// that no role was required to see a Principal's personnel record.
+//
+// Refused rather than redacted: the app points no family-role screen at this
+// route, and `/classes`, `/analytics` and `/students` are userRoute entries any
+// logged-in role can navigate to, so the route guard is the only control here.
+const requireManagement = () =>
+  requireSession({ roles: ['Director', 'Principal', SUPER_ADMIN] as Role[] });
+
+function mapUser(r: any, role: any) {
   if (!r) return null;
   return {
     id: r.id,
@@ -16,7 +32,12 @@ function mapUser(r: any) {
     designation: r.designation,
     department: r.department,
     qualification: r.qualification,
-    salary: r.salary,
+    // Compensation is never sent to a role with no operational need for it. The
+    // route is management-only today, so this is defence in depth rather than the
+    // control itself -- but the route guard and the field guard should not be the
+    // same thing, because only one of them survives a future caller adding a
+    // second entry point to this mapper.
+    salary: isManagement(role) ? r.salary : null,
     status: r.status,
     schoolId: r.school_id,
     lastLogin: r.last_login,
@@ -43,17 +64,17 @@ function mapHistory(r: any) {
 
 // GET /api/principal
 principalApp.get('/', async (c) => {
-  const db = getDB(c);
+  const guard = await requireManagement()(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
+  if (!schoolId) return c.json({ success: false, message: 'स्कूल संदर्भ (tenant) ज़रूरी है।' }, 401);
   const pRow = await db.prepare('SELECT * FROM system_users WHERE role = ? AND school_id = ? AND status = ?').bind('Principal', schoolId, 'Active').first();
   const hRows = await db.prepare('SELECT * FROM principal_history WHERE school_id = ? ORDER BY created_at DESC').bind(schoolId).all();
   const prof = await db.prepare('SELECT school_name, principal_name FROM school_profile WHERE id = ?').bind(schoolId).first();
   return c.json({
     success: true,
-    currentPrincipal: mapUser(pRow),
+    currentPrincipal: mapUser(pRow, user.role),
     history: (hRows.results || []).map(mapHistory),
     schoolProfile: { principalName: prof ? prof.principal_name : '', schoolName: prof ? prof.school_name : '' },
   });
@@ -107,7 +128,7 @@ principalApp.post('/change', async (c) => {
   return c.json({
     success: true,
     message: 'प्रधानाचार्य सफलतापूर्वक बदल दिए गए हैं। नए प्रधानाचार्य: ' + fullName,
-    currentPrincipal: mapUser(pRow),
+    currentPrincipal: mapUser(pRow, authUser.role),
     history: (hRows.results || []).map(mapHistory),
   });
 });

@@ -178,7 +178,25 @@ for (const rel of routeFiles) {
   check('report card checks family ownership', /report-card[\s\S]{0,400}canActOnStudent/.test(exams));
 
   const staff = fs.readFileSync(path.join(REPO, 'api/staff/index.ts'), 'utf-8');
-  check('staff list requires a session', /staffApp\.get\('\/',[\s\S]{0,200}requireAnyUser/.test(staff));
+  // Written structurally, and this is the third time this file has been caught
+  // grepping for a variable's name rather than for structure: this one matched
+  // the literal `requireAnyUser`, so renaming the guard broke the check while the
+  // route stayed correctly guarded. It asserted a name, not a property.
+  //
+  // The property is: the staff list route's first act is to call a guard built on
+  // requireSession. scripts/verify-role-gates.mjs proves that by sending real
+  // requests as every role, which is the check that actually matters; this one
+  // only has to notice that the guard is still there.
+  check(
+    'staff list requires a session',
+    /staffApp\.get\('\/',[\s\S]{0,220}await\s+\w+\(c\)/.test(staff) && /requireSession/.test(staff),
+    'the staff list route must open with a requireSession-derived guard',
+  );
+  check(
+    'the staff list guard names the roles it admits',
+    /requireSession\(\s*\{[\s\S]{0,200}?roles:\s*\[/.test(staff),
+    'a role-less guard would admit Parent and Student',
+  );
   check('staff salary is redacted for non-management', /mapStaffForRole/.test(staff));
 
   const notices = fs.readFileSync(path.join(REPO, 'api/notices/index.ts'), 'utf-8');

@@ -3,6 +3,7 @@ import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { logActivity, resolveActorName } from '../lib/activity-logger';
 import { canActOnStudent, getFamilyStudentScope, requireSession, type Role } from '../lib/rbac';
+import { SUPER_ADMIN } from '../lib/roles';
 
 const examsApp = new Hono<{ Bindings: any }>();
 
@@ -564,12 +565,31 @@ examsApp.put('/school-preferences', async (c) => {
 });
 
 // GET /api/exams/analytics/:examId - Get result analytics for an exam
+//
+// This called getAuthUser() and nothing else, so a Parent or Student token
+// received the school-wide result analysis: the topper's name and id, per-class
+// breakdowns, subject pass rates, and the count of students above 90. The rest
+// of this module is careful about exactly that -- see the family scoping at
+// :107-134 and the comment at rbac.ts:118-122 -- and this route was the one
+// place that handed the same data to a role that has no business seeing it.
+//
+// Refused rather than scoped to a child: an exam's class-wise pass rate and its
+// topper are school-level aggregates with no meaningful per-child equivalent, and
+// the app routes both callers (analytics_dashboard_screen, exams_screen) from
+// `/analytics` and `/exams`, which are userRoute entries any logged-in role can
+// navigate to.
+//
+// KNOWN AND NOT FIXED HERE: a teaching role with no assigned classes still sees
+// the whole-school analysis. Scoping those to assigned classes is a separate
+// change and is called out rather than half-done.
 examsApp.get('/analytics/:examId', async (c) => {
-  const db = getDB(c);
+  const guard = await requireSession({
+    roles: ['Director', 'Principal', 'Staff', 'Teacher', SUPER_ADMIN] as Role[],
+  })(c);
+  if (!guard.ok) return guard.response;
+  const { db, schoolId } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
-  const authUser = await getAuthUser(c);
-  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
-  const schoolId = getRequestSchoolId(c, authUser);
+  if (!schoolId) return c.json({ success: false, message: 'स्कूल संदर्भ (tenant) ज़रूरी है।' }, 401);
   const examId = c.req.param('examId');
   const dateRange = c.req.query('dateRange') || 'monthly';
 

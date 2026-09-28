@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "clean": "next clean",
-    "test": "node scripts/verify-plugins-authz.mjs && node scripts/verify-login-hardening.mjs && node scripts/verify-billing-m2m.mjs && node scripts/verify-phase0-signing.mjs && node scripts/verify-phase1-rbac.mjs && node scripts/verify-phase2-money.mjs && node scripts/verify-routing.mjs && node scripts/audit-dedicated-tables.mjs && node scripts/verify-migration-0041.mjs && node scripts/verify-migration-0042.mjs && node scripts/verify-migrations-apply.mjs && node scripts/mutation-check-billing-m2m.mjs",
+    "test": "node scripts/verify-role-gates.mjs && node scripts/verify-plugins-authz.mjs && node scripts/verify-login-hardening.mjs && node scripts/verify-billing-m2m.mjs && node scripts/verify-phase0-signing.mjs && node scripts/verify-phase1-rbac.mjs && node scripts/verify-phase2-money.mjs && node scripts/verify-routing.mjs && node scripts/audit-dedicated-tables.mjs && node scripts/verify-migration-0041.mjs && node scripts/verify-migration-0042.mjs && node scripts/verify-migrations-apply.mjs && node scripts/mutation-check-billing-m2m.mjs",
     "test:fast": "node scripts/verify-phase0-signing.mjs && node scripts/verify-phase1-rbac.mjs && node scripts/verify-phase2-money.mjs && node scripts/verify-routing.mjs",
     "test:mutation": "node scripts/mutation-check-billing-m2m.mjs"
   },

@@ -132,6 +132,21 @@ jobs:
       - name: Verify login hardening (rate limit, generic refusal, timing)
         run: node scripts/verify-login-hardening.mjs
 
+      # Role gates on four routes that had none, or had the wrong one:
+      # dashboard-stats (school-wide fees), principal (a Principal's salary),
+      # exam analytics (topper and class pass rates), and the staff directory.
+      #
+      # Reachable, not theoretical: /analytics, /classes and /students are
+      # userRoute entries in the Flutter app that any logged-in role can navigate
+      # to, so a Parent could open the analytics screen and be served the whole
+      # school's results.
+      #
+      # verify-phase1-rbac.mjs scans these files and reported them as guarded,
+      # because each had a getAuthUser() call. It could not see that no role check
+      # followed. This one sends real requests as every role.
+      - name: Verify role gates (family roles refused, teaching redacted)
+        run: node scripts/verify-role-gates.mjs
+
       # Data migrations, asserted against fixtures that include a phone shared
       # across two schools so the cross-tenant refusal is proved rather than
       # assumed.
