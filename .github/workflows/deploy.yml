@@ -170,6 +170,20 @@ jobs:
       - name: Verify Flutter dialog guard (Cancel must not run the action)
         run: node scripts/verify-flutter-dialogs.mjs
 
+      # Guards the Flutter steps below. A test file that no workflow runs is
+      # invisible to every other check in this file: it cannot fail, so it never
+      # reports anything, and nothing distinguishes "42 tests passed" from "42
+      # tests were never executed". This is the same defect as the two orphaned
+      # harnesses this job already runs -- written, advertised, never run -- which
+      # is why it is a separate step rather than something folded into the
+      # dialog check.
+      #
+      # It is also the forward-looking one: a new Flutter package with tests and
+      # no CI step is caught here on the pull request that adds it, not years
+      # later.
+      - name: Verify Flutter tests and packages are actually run by CI
+        run: node scripts/verify-flutter-ci.mjs
+
       # Data migrations, asserted against fixtures that include a phone shared
       # across two schools so the cross-tenant refusal is proved rather than
       # assumed.
@@ -204,6 +218,77 @@ jobs:
       # stopped matching the code after it moved.
       - name: Mutation-check the billing harness
         run: node scripts/mutation-check-billing-m2m.mjs
+
+      # ------------------------------------------------------------------
+      # Flutter analyze + test.
+      #
+      # WHY THIS IS HERE AND NOT ONLY IN release-android.yml
+      #
+      # flutter_apps/school_management_app has carried test/pdf_service_test.dart
+      # (8 PDF tests: fee receipt, report card, bonafide, notice, leave letter,
+      # attendance single-page AND multi-page pagination, fee bill) and
+      # test/widget_test.dart (3 login-screen tests) with NO workflow running
+      # them. `flutter analyze` on that package ran only in release-android.yml,
+      # which fires on a version tag.
+      #
+      # So a pull request could break a test, or introduce a warning, or break
+      # PDF pagination, and nothing would notice until an Android release. The
+      # tests had never executed even once -- the same failure mode as the two
+      # orphaned harnesses this job already runs: written, advertised, never run.
+      #
+      # It lives in `build`, which runs on pull_request as well as main, for the
+      # same reason the harnesses do.
+      #
+      # The 8-test PDF suite is the one worth having. Pagination is the kind of
+      # thing that breaks silently: a threshold edit makes a 60-student sheet
+      # render as one unreadable page, no exception is thrown, and the PDF still
+      # opens fine in a viewer.
+      # ------------------------------------------------------------------
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      # flutter_apps/shared is imported by BOTH apps and was analyzed by neither.
+      # It holds ApiClient (the global 401 auto-logout and the X-School-Domain
+      # header), AppConfig (the base-URL resolution), UserModel and the shared
+      # widgets -- so a regression here reaches two apps at once and is checked
+      # by neither app's CI.
+      #
+      # Strict: no --no-fatal-infos, unlike the school app below. The package is
+      # six files and analyzes clean, and the reason it analyzed clean before was
+      # that flutter_lints was declared as a dev_dependency and never actually
+      # included -- there was no analysis_options.yaml, so it ran on Dart's
+      # defaults and reported "No issues found!" for two widget files. That file
+      # is added in the same commit; see flutter_apps/shared/analysis_options.yaml.
+      - name: Analyze the shared package
+        run: |
+          cd flutter_apps/shared
+          flutter pub get
+          flutter analyze --fatal-infos
+
+      # The school app has 113 pre-existing info-level lints
+      # (use_build_context_synchronously, deprecated_member_use, curly_braces in
+      # older screens), which is why release-android.yml passes
+      # --no-fatal-infos. Warnings and errors stay fatal -- and they stay fatal
+      # here, so a new warning on a pull request still fails before merge instead
+      # of waiting for the next Android tag.
+      - name: Analyze the school management app
+        run: |
+          cd flutter_apps/school_management_app
+          flutter pub get
+          flutter analyze --no-fatal-infos
+
+      - name: Test the school management app
+        run: |
+          cd flutter_apps/school_management_app
+          flutter test
+
+      - name: Test the shared package
+        run: |
+          cd flutter_apps/shared
+          flutter test
 
       # pragnya.nasven.com serves the Next.js public website (static export).
       - name: Build Website (Next.js static export)

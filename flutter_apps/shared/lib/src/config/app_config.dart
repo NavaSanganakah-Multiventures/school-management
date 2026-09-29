@@ -1,4 +1,8 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+// visibleForTesting is imported for debugResetCache. It was missing the first
+// time that method was added and `dart analyze` was what said so: `show kIsWeb`
+// is a closed list, so using a second symbol from the same library does not bring
+// it into scope.
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Multi-tenant app configuration.
@@ -148,5 +152,30 @@ class AppConfig {
     _cachedSchoolDomain = null;
     await _storage.delete(key: _keyCustomBaseUrl);
     await _storage.delete(key: _keySchoolDomain);
+  }
+
+  /// Clears the in-memory caches WITHOUT writing anything to storage.
+  ///
+  /// WHY THIS IS NEEDED AND WHY [resetToDefault] IS NOT ENOUGH
+  ///
+  /// `_cachedBaseUrl` and `_cachedSchoolDomain` are process-lifetime statics, and
+  /// `getActiveBaseUrl` returns the cache without consulting storage when it is
+  /// set. [resetToDefault] therefore cannot put the object back into a "nothing
+  /// cached, ask storage" state -- it seeds the cache with the platform default,
+  /// which is a different state and produces a different answer.
+  ///
+  /// Without this, every test after the first would read the first test's value
+  /// and pass or fail for reasons that have nothing to do with the code. That is
+  /// the same class of defect as the cached school profile in the school app: a
+  /// static cache with no defined invalidation, which is also how one process
+  /// serving two tenants shows the first tenant's data to the second.
+  ///
+  /// Test-only by intent: nothing in the app should need to clear the cache
+  /// without also clearing storage, because that would leave the next
+  /// `getActiveBaseUrl` reading a value the user had already discarded.
+  @visibleForTesting
+  static void debugResetCache() {
+    _cachedBaseUrl = null;
+    _cachedSchoolDomain = null;
   }
 }
