@@ -23,8 +23,6 @@
 // calls exactly the expected one call. The positives are the tests that would
 // fail if the fix had been done by simply deleting the action.
 
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 // Package-qualified, matching test/widget_test.dart. Relative imports of lib/ from
@@ -146,31 +144,77 @@ const SchoolModel _school = SchoolModel(
       provisioningError: '',
     );
 
-/// Opens a dialog on the next frame and returns once it has closed AND the action
-/// it guards has run.
+/// Opens a dialog and returns with it still open, ready to be tapped.
 ///
-/// The dialogs are async and read a live BuildContext, so the future has to be
-/// driven while the tree is mounted. Without the post-frame kick the dialog is
-/// built before there is a context, and without awaiting [done] the test would
-/// assert on a tree that has not settled.
-Future<void> _drive(
+/// WHY THIS DOES NOT AWAIT THE DIALOG
+///
+/// A first draft awaited the dialog's future before returning. That deadlocks:
+/// the dialog's future only completes when the dialog closes, and the dialog only
+/// closes when the test taps a button -- which the test cannot do because this
+/// helper has not returned. Both dialog tests hung until the harness's ten-minute
+/// timeout, which is a slow way to learn that `done.future` is the wrong thing to
+/// wait on here.
+///
+/// So this opens the dialog, settles, and returns. The caller taps, settles, and
+/// then asserts; `_settle` at the end covers the async gap between the tap and
+/// the service call the tap triggers.
+Future<void> _openDialog(
   WidgetTester tester,
   Future<void> Function(BuildContext) open,
 ) async {
-  final done = Completer<void>();
   await tester.pumpWidget(MaterialApp(
     home: Scaffold(
       body: Builder(builder: (context) {
+        // Not awaited: the dialog stays open, which is the point.
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          open(context).whenComplete(done.complete);
+          open(context).catchError((Object e) => debugPrint('dialog error: $e'));
         });
         return const SizedBox.shrink();
       }),
     ),
   ));
+  // pumpAndSettle, not pump: the dialog animates in, and a single pump can leave
+  // it mid-transition, where a button is not yet hit-testable.
   await tester.pumpAndSettle();
-  await done.future;
-  await tester.pumpAndSettle();
+}
+
+/// Pumps frames until [predicate] holds, or gives up after a bound.
+///
+/// WHY NOT A FIXED NUMBER OF PUMPS
+///
+/// Confirming a dialog runs _busy, which shows a progress dialog, awaits the
+/// service call, pops, and then shows a SnackBar. That is several frames of work
+/// whose exact count depends on how many microtasks the call took. A fixed pump
+/// count is a race: too few and the assertion runs before the call lands, and the
+/// "confirm must call the service" control fails for a reason that has nothing to
+/// do with the code under test.
+///
+/// pumpAndSettle is no better here: the SnackBar animates for seconds afterwards,
+/// so it would wait out a timer that is not part of what is being asserted.
+///
+/// So this pumps until the thing being asserted is observably true, with a bound
+/// so a genuine failure still terminates.
+Future<void> _pumpUntil(
+  WidgetTester tester,
+  bool Function() predicate, {
+  int maxFrames = 60,
+  String description = 'condition',
+}) async {
+  for (var i = 0; i < maxFrames; i++) {
+    if (predicate()) return;
+    await tester.pump(const Duration(milliseconds: 20));
+  }
+  if (!predicate()) {
+    fail('$description did not become true within $maxFrames frames');
+  }
+}
+
+/// Settles just enough for a "nothing happened" assertion: the guard runs, and if
+/// it were wrong the call would already be visible.
+Future<void> _settle(WidgetTester tester) async {
+  for (var i = 0; i < 8; i++) {
+    await tester.pump(const Duration(milliseconds: 20));
+  }
 }
 
 /// Matches a button by its label. The dialogs use TextButton for Cancel and
@@ -204,6 +248,14 @@ void main() {
 
     testWidgets('confirming reports true', (tester) async {
       bool? result;
+      // A larger surface: the default 800x600 test window puts the dialog's action
+      // row near the bottom, and a tap there hit-tests against nothing. That is a
+      // test-harness geometry problem, not an app bug, and it produced a
+      // WidgetController.getCenter failure rather than a readable assertion.
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: Builder(builder: (context) {
@@ -262,20 +314,24 @@ void main() {
       const school = _school;
 
       // --- cancel ---
-      await _drive(tester, (context) =>
-          showProvisionDialog(context, school, service, () {}));
+      await _openDialog(tester,
+          (context) => showProvisionDialog(context, school, service, () {}));
+      // Assert the dialog really opened before concluding anything from an empty
+      // call list. A dialog that failed to open looks exactly like a correct
+      // cancel, and that is the failure mode this control exists to catch.
       expect(_btn('प्रोविज़न शुरू करें'), findsOneWidget,
           reason: 'the confirm button must exist for this test to mean anything');
       await tester.tap(_btn('रद्द करें'));
-      await tester.pumpAndSettle();
+      await _settle(tester);
       expect(service.calls, isEmpty,
           reason: 'cancelling must not trigger a CI deploy workflow');
 
       // --- confirm: the control case ---
-      await _drive(tester, (context) =>
-          showProvisionDialog(context, school, service, () {}));
+      await _openDialog(tester,
+          (context) => showProvisionDialog(context, school, service, () {}));
       await tester.tap(_btn('प्रोविज़न शुरू करें'));
-      await tester.pumpAndSettle();
+      await _pumpUntil(tester, () => service.calls.contains('provisionSchool'),
+          description: 'provisionSchool to be called after confirming');
       expect(service.calls, contains('provisionSchool'),
           reason: 'confirming must actually provision, or the fix was a deletion');
     });
@@ -286,25 +342,46 @@ void main() {
       const school = _school;
 
       // --- cancel ---
-      await _drive(tester, (context) =>
-          showNotifyDialog(context, school, service, () {}));
-      // Assert the dialog really opened before concluding anything from an empty
-      // call list. Without this, a dialog that failed to open at all would look
-      // exactly like a correct cancel.
+      await _openDialog(tester,
+          (context) => showNotifyDialog(context, school, service, () {}));
       expect(_btn('भेजें'), findsOneWidget,
           reason: 'the send button must exist for this test to mean anything');
       await tester.tap(_btn('रद्द करें'));
-      await tester.pumpAndSettle();
+      await _settle(tester);
       expect(service.calls, isEmpty,
           reason: 'cancelling must not push-notify a whole school');
 
       // --- confirm: the control case ---
-      await _drive(tester, (context) =>
-          showNotifyDialog(context, school, service, () {}));
-      await tester.tap(_btn('भेजें'));
+      await _openDialog(tester,
+          (context) => showNotifyDialog(context, school, service, () {}));
+
+      // The send button validates its own fields and CLOSES the dialog on empty
+      // input, so confirming with a blank form proves nothing about the guard --
+      // the dialog is gone either way. This is worth knowing: it means the
+      // validation, not the result binding, is what stops that path. Both are
+      // asserted separately.
+      await tester.enterText(find.widgetWithText(TextField, 'शीर्षक *'), 'सूचना');
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).at(1), 'विषय');
       await tester.pumpAndSettle();
+
+      await tester.tap(_btn('भेजें'));
+      await _pumpUntil(tester, () => service.calls.contains('notifySchool'),
+          description: 'notifySchool to be called after confirming');
       expect(service.calls, contains('notifySchool'),
           reason: 'confirming must actually notify, or the fix was a deletion');
+    });
+
+    testWidgets('notify: a blank form is refused without notifying', (tester) async {
+      final service = _RecordingService();
+      const school = _school;
+
+      await _openDialog(tester,
+          (context) => showNotifyDialog(context, school, service, () {}));
+      await tester.tap(_btn('भेजें'));
+      await _settle(tester);
+      expect(service.calls, isEmpty,
+          reason: 'an empty notification must not be sent');
     });
   });
 }
