@@ -147,6 +147,17 @@ jobs:
       - name: Verify role gates (family roles refused, teaching redacted)
         run: node scripts/verify-role-gates.mjs
 
+      # A deactivated account stops working -- both from logging in again and from
+      # continuing with a token it already holds. SESSION_EXPIRY_SECONDS is 7 days,
+      # so before this control a teacher removed from a school kept full access for
+      # up to a week and could not be logged out from the server at all.
+      #
+      # It also covers the post-sync re-query in the login route, which is the one
+      # that decides the answer on a dedicated worker and which had lost its status
+      # predicate. Both mutations were confirmed to turn this red.
+      - name: Verify session status (deactivated accounts lose access immediately)
+        run: node scripts/verify-session-status.mjs
+
       # Data migrations, asserted against fixtures that include a phone shared
       # across two schools so the cross-tenant refusal is proved rather than
       # assumed.

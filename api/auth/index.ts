@@ -67,7 +67,11 @@ authApp.post('/login', async (c) => {
   // Strict Isolation: Super Admin is strictly for the central control plane (pragnya.nasven.com).
   // Super Admin login is completely forbidden on dedicated workers.
   if (!isDedicated) {
-    const admin = await db.prepare('SELECT * FROM platform_admins WHERE LOWER(email) = ?').bind(identifier).first();
+    // platform_admins carries its own status column, and suspending a Super Admin
+    // has to mean the same thing here as deactivating a school user does. The
+    // predicate is in the lookup so a suspended admin gets the ordinary wrong-
+    // credentials answer rather than one that reveals the account exists.
+    const admin = await db.prepare("SELECT * FROM platform_admins WHERE LOWER(email) = ? AND status = 'Active'").bind(identifier).first();
     if (admin) {
       let platformEmail = getAuthorizedPlatformEmail(c.env);
       if (!platformEmail && c.env && c.env.CONFIG_KV) {
@@ -120,7 +124,22 @@ authApp.post('/login', async (c) => {
   }
 
   // 2) School user (Director / Principal / Staff)
-  let user = await db.prepare('SELECT * FROM system_users WHERE LOWER(email) = ? OR LOWER(username) = ?').bind(identifier, identifier).first();
+  //
+  // status = 'Active' is part of the lookup, not a check afterwards, and that is
+  // deliberate on two counts.
+  //
+  // It makes deactivation actually mean something. The lookup used to carry no
+  // status predicate, so an account set to 'Inactive' -- which is exactly what
+  // DELETE /api/staff/:id does, and what its own success message claims
+  // ("लॉगिन निष्क्रिय कर दिया गया") -- could simply log in again and collect a
+  // fresh 7-day token. The control was decorative.
+  //
+  // And it keeps the refusal indistinguishable: an inactive account now takes the
+  // same branch as an account that does not exist, so it returns the same generic
+  // 401 a wrong password returns. Testing the status after the fetch would make
+  // the two tellable apart, which is the user-enumeration problem this route was
+  // hardened against.
+  let user = await db.prepare("SELECT * FROM system_users WHERE (LOWER(email) = ? OR LOWER(username) = ?) AND status = 'Active'").bind(identifier, identifier).first();
 
   // On dedicated workers, always refresh tenant data from the central platform so
   // system_users, school_profile and school_tenants stay in sync with the main DB
@@ -131,7 +150,22 @@ authApp.post('/login', async (c) => {
     try {
       await syncTenantFromPlatform(c, c.env.SCHOOL_ID);
       if (!user) {
-        user = await db.prepare('SELECT * FROM system_users WHERE LOWER(email) = ? OR LOWER(username) = ?').bind(identifier, identifier).first();
+        // The status predicate is repeated here, and it has to be.
+        //
+        // This second lookup is the one that actually decides the answer on a
+        // dedicated worker, and it is also the one that can resurrect a
+        // deactivated account. syncTenantFromPlatform runs
+        // `INSERT OR REPLACE INTO system_users` (api/lib/tenant-sync.ts:133), so
+        // after a sync the local row reflects the PLATFORM's status -- and the
+        // first lookup, which filtered on status, is not what is being consulted
+        // here.
+        //
+        // So without this predicate, a school user deactivated on the platform
+        // would be refused by the first query and then accepted by this one, and
+        // the deactivation control would work only until the next sync. Caught by
+        // scripts/verify-session-status.mjs rather than by reading the diff,
+        // because both queries look correct in isolation.
+        user = await db.prepare("SELECT * FROM system_users WHERE (LOWER(email) = ? OR LOWER(username) = ?) AND status = 'Active'").bind(identifier, identifier).first();
       }
     } catch (syncErr) {
       console.warn('Auto-sync during login encountered an error:', syncErr);

@@ -102,6 +102,86 @@ export async function burnPasswordVerification(password: any): Promise<false> {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// Is this session still allowed to exist?
+//
+// A valid signature proves the token was issued by us. It says nothing about
+// whether it should still be honoured, which is the gap this closes.
+//
+// SESSION_EXPIRY_SECONDS is 7 days (api/auth/index.ts). Before this, nothing on
+// the request path consulted the account: `getAuthUser` verified the HMAC and the
+// expiry and returned. So the one control the product actually has for offboarding
+// -- DELETE /api/staff/:id, which sets system_users.status = 'Inactive' and tells
+// the caller "लॉगिन निष्क्रिय कर दिया गया" -- did nothing to an already-issued
+// token. A teacher removed from a school kept full read and write access to that
+// school's students, fees and marks for up to a week, and could not be logged out
+// from the server side at all, because POST /api/auth/logout is a no-op.
+//
+// WHY IT LIVES HERE
+//
+// In getAuthUser, not in requireSession. getAuthUser is the single point every
+// route already passes through, including the ~40 call sites that call it
+// directly instead of using a guard. Putting it in requireSession would leave
+// every one of those unguarded, which is the shape of bug this repo has already
+// been bitten by twice today.
+//
+// WHAT IT DOES NOT COVER, DELIBERATELY
+//
+// The M2M path. getProxyAwareAuthUser calls getAuthUser only when the request
+// carries no internal envelope, and a proxied request authenticates as the WORKER
+// rather than as a person, taking its role from a verified header. There is no
+// user account to be deactivated on that path, and it already re-verifies a
+// signature on every call.
+//
+// FAILURE BEHAVIOUR: DENY, IN EVERY CASE
+//
+// No DB binding, no `sub` in the token, no matching row, a non-Active status, or
+// a query that throws -- all of them refuse. This is the opposite of what a first
+// draft did, and the draft is worth recording.
+//
+// It read `if (!db || !subjectId) return true`, on the reasoning that a route
+// needing no database has nothing to protect. That is a fail-OPEN branch on a
+// deactivation control, and it was not theoretical: scripts/verify-billing-m2m.mjs
+// mints tokens with `userId` and no `sub`, so the branch swallowed every status
+// check in that harness and it still reported 59/59 green. A security check that
+// silently does nothing is worse than no check, because the coverage it appears to
+// provide is the thing people rely on.
+//
+// Both branches are safe to deny. Every config that serves a request binds DB
+// (wrangler.toml and wrangler.admin.toml both do; wrangler.preview-migrations.toml
+// does not and is only used for `d1 migrations apply`), and both real token issuers
+// set `sub` -- api/auth/index.ts for SuperAdmin and for a school user. So denying
+// costs nothing real, and it means a future token issuer that forgets `sub` fails
+// loudly in review rather than quietly disabling account deactivation.
+// ---------------------------------------------------------------------------
+async function isSessionSubjectActive(c: any, user: any): Promise<boolean> {
+  const db = c && c.env && c.env.DB;
+  const subjectId = String((user && user.sub) || '').trim();
+  if (!db || !subjectId) return false;
+
+  try {
+    // Super Admin lives in platform_admins, everyone else in system_users. Both
+    // carry a status column. Written as two explicit queries rather than one
+    // interpolated table name: the value is not attacker-controlled today, but
+    // an interpolated identifier is the kind of thing that becomes one later.
+    const isSuperAdmin = normalizeRole(user.role) === SUPER_ADMIN;
+    const row = isSuperAdmin
+      ? await db.prepare('SELECT status FROM platform_admins WHERE id = ?').bind(subjectId).first()
+      : await db.prepare('SELECT status FROM system_users WHERE id = ?').bind(subjectId).first();
+
+    // No row means the account was removed outright. A deleted account has no
+    // session, so this denies rather than allows.
+    if (!row) return false;
+    return String(row.status || '') === 'Active';
+  } catch (e: any) {
+    console.error(
+      '[auth] session status check failed, denying the request:',
+      e && e.message ? e.message : e,
+    );
+    return false;
+  }
+}
+
 function getSecret(c: any) {
   const env = c && c.env;
   const secret = env && env.AUTH_SECRET;
@@ -190,6 +270,12 @@ export async function getAuthUser(c: any) {
     // and /api/admin. A school role has no business being honoured here.
     if (!isSuperAdmin) return null;
   }
+
+  // The signature proves the token is ours. This proves the account is still
+  // entitled to use it, which a 7-day token does not carry with it. Without it,
+  // deactivating an account only stops future logins and does nothing about the
+  // session already in the user's pocket.
+  if (!(await isSessionSubjectActive(c, user))) return null;
 
   return user;
 }

@@ -138,15 +138,31 @@ function fakeDb() {
           return s;
         },
         async first() {
-          // The role is a BIND PARAM here, not a literal in the SQL
-          // (`WHERE role = ? AND school_id = ? AND status = ?`), so it cannot be
-          // matched on the query text. A first draft that tested
-          // /Principal/i.test(sql) never matched and every principal assertion
-          // below silently read a null row.
+          // Two different system_users queries arrive here and conflating them is
+          // a trap worth naming:
+          //
+          //   SELECT status FROM system_users WHERE id = ?          (1 bind)
+          //   SELECT * FROM system_users WHERE role = ? AND ...    (3 binds)
+          //
+          // The first is the account-status check getAuthUser runs on EVERY
+          // authenticated request. The second is the principal lookup. A stand-in
+          // that answers only the second refuses every request, which looks
+          // identical to "deactivated" and hides which of the two broke.
           if (/FROM system_users/i.test(sql)) {
+            if (/SELECT status/i.test(sql)) {
+              return { id: bound[0], status: 'Active' };
+            }
+            // The role is a BIND PARAM here, not a literal in the SQL
+            // (`WHERE role = ? AND school_id = ? AND status = ?`), so it cannot be
+            // matched on the query text. A first draft that tested
+            // /Principal/i.test(sql) never matched and every principal assertion
+            // below silently read a null row.
             return String(bound[0] || '') === 'Principal' && String(bound[1] || '') === SCHOOL_ID
               ? PRINCIPAL_ROW
               : null;
+          }
+          if (/FROM platform_admins/i.test(sql)) {
+            return { id: bound[0], status: 'Active' };
           }
           if (/FROM school_profile/i.test(sql)) {
             return { school_name: 'Test School', principal_name: 'Test Principal' };

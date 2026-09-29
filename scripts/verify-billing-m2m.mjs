@@ -126,6 +126,13 @@ function fakeDb() {
           if (/school_tenants/i.test(sql)) {
             return { id: SCHOOL_ID, school_name: 'Test School', plan_id: 'basic' };
           }
+          // The account-status check getAuthUser runs on every authenticated
+          // request. Without this the stand-in models a user with a valid token
+          // and no row in the database, which the real code treats as a deleted
+          // account and refuses.
+          if (/FROM system_users/i.test(sql) || /FROM platform_admins/i.test(sql)) {
+            return { id: bound[0], status: 'Active' };
+          }
           return null;
         },
         async all() {
@@ -181,7 +188,12 @@ const dedicatedEnv = {
 // A real Director token for this worker, signed with the worker's own AUTH_SECRET.
 const directorToken = await authLib.signToken(
   { env: dedicatedEnv },
-  { userId: 'u-director', email: 'director@test.school', role: 'Director', schoolId: SCHOOL_ID },
+  // `sub`, not `userId`: that is what api/auth/index.ts actually puts in a real
+  // session token, and getAuthUser now resolves the account by `sub` to check
+  // that it is still Active. Tokens minted with `userId` and no `sub` were
+  // silently exempt from that check, which is how this harness reported 59/59
+  // green while proving nothing about a deactivation control.
+  { sub: 'u-director', userId: 'u-director', email: 'director@test.school', role: 'Director', schoolId: SCHOOL_ID },
 );
 
 let capturedRequest = null;
@@ -673,7 +685,7 @@ try {
   // hold across the proxy too -- otherwise the role check is decoration.
   const teacherToken = await authLib.signToken(
     { env: dedicatedEnv },
-    { userId: 'u-teacher', email: 'teacher@test.school', role: 'Teacher', schoolId: SCHOOL_ID },
+    { sub: 'u-teacher', userId: 'u-teacher', email: 'teacher@test.school', role: 'Teacher', schoolId: SCHOOL_ID },
   );
   hops = 0;
   const e2eTeacher = await app.request(

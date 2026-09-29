@@ -90,3 +90,4 @@ firebase-adminsdk*.json
 .tmp-apitest-plugins/
 .tmp-apitest-login/
 .tmp-apitest-roles/
+.tmp-apitest-session/

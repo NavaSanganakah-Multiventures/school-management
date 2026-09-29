@@ -178,6 +178,13 @@ function fakeDb(record) {
           if (/FROM school_tenants/i.test(sql)) {
             return { id: SCHOOL_ID, school_name: 'Test School', plan_id: 'basic' };
           }
+          // The account-status check getAuthUser runs on every authenticated
+          // request. Answering it is what keeps this file about authorization:
+          // unanswered, every request 401s and "refused" stops distinguishing
+          // "deactivated account" from "wrong role".
+          if (/FROM system_users/i.test(sql) || /FROM platform_admins/i.test(sql)) {
+            return { id: bound[0], status: 'Active' };
+          }
           return null;
         },
         async all() {
