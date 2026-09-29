@@ -217,10 +217,43 @@ Future<void> _settle(WidgetTester tester) async {
   }
 }
 
-/// Matches a button by its label. The dialogs use TextButton for Cancel and
-/// FilledButton for Confirm, so matching the Text is what tells them apart
-/// without depending on the class.
-Finder _btn(String label) => find.widgetWithText(Text, label);
+/// Finds a button by its label.
+///
+/// `find.text`, not `find.widgetWithText(Text, label)`. The latter looks for a
+/// `Text` that has another `Text` among its DESCENDANTS, which a plain
+/// `Text('रद्द करें')` does not have -- its data is on the Text itself. Every test
+/// here failed with "Found 0 widgets with type Text that are ancestors of..."
+/// before this changed, and the existing test/widget_test.dart in this repo uses
+/// find.text for the same reason.
+Finder _btn(String label) => find.text(label);
+
+/// Asserts a button is on screen, and if it is not, says what IS on screen.
+///
+/// Two earlier CI failures here were both "found 0 widgets", with nothing in the
+/// log saying why. This turns the next one into a diagnosis instead of a guess:
+/// the failure message lists every Text currently rendered.
+Future<void> _expectButton(WidgetTester tester, String label) async {
+  final found = _btn(label);
+  if (found.evaluate().isNotEmpty) return;
+  final visible = tester
+      .widgetList<Text>(find.byType(Text))
+      .map((t) => t.data ?? t.textSpan?.toPlainText() ?? '')
+      .where((s) => s.isNotEmpty)
+      .toList();
+  fail('no button labelled "$label" on screen. Visible text: $visible');
+}
+
+/// A surface large enough that a dialog's action row is not pushed off the bottom.
+///
+/// The default 800x600 test window put the confirm row outside the hit-test area,
+/// which surfaced as a WidgetController.getCenter error rather than a readable
+/// assertion. Not an app bug -- real phones are taller -- but the tests have to
+/// model a phone.
+void _usePhoneSurface(WidgetTester tester) {
+  tester.view.physicalSize = const Size(1200, 2400);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
+}
 
 void main() {
   group('confirmDialog', () {
@@ -252,9 +285,7 @@ void main() {
       // row near the bottom, and a tap there hit-tests against nothing. That is a
       // test-harness geometry problem, not an app bug, and it produced a
       // WidgetController.getCenter failure rather than a readable assertion.
-      tester.view.physicalSize = const Size(1200, 2400);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.reset);
+      _usePhoneSurface(tester);
 
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
@@ -310,6 +341,7 @@ void main() {
 
     testWidgets('provision: cancel does NOT trigger a deploy, confirm does',
         (tester) async {
+      _usePhoneSurface(tester);
       final service = _RecordingService();
       const school = _school;
 
@@ -319,8 +351,8 @@ void main() {
       // Assert the dialog really opened before concluding anything from an empty
       // call list. A dialog that failed to open looks exactly like a correct
       // cancel, and that is the failure mode this control exists to catch.
-      expect(_btn('प्रोविज़न शुरू करें'), findsOneWidget,
-          reason: 'the confirm button must exist for this test to mean anything');
+      await _expectButton(tester, 'प्रोविज़न शुरू करें');
+      await _expectButton(tester, 'रद्द करें');
       await tester.tap(_btn('रद्द करें'));
       await _settle(tester);
       expect(service.calls, isEmpty,
@@ -329,6 +361,7 @@ void main() {
       // --- confirm: the control case ---
       await _openDialog(tester,
           (context) => showProvisionDialog(context, school, service, () {}));
+      await _expectButton(tester, 'प्रोविज़न शुरू करें');
       await tester.tap(_btn('प्रोविज़न शुरू करें'));
       await _pumpUntil(tester, () => service.calls.contains('provisionSchool'),
           description: 'provisionSchool to be called after confirming');
@@ -338,14 +371,14 @@ void main() {
 
     testWidgets('notify: cancel does NOT notify the school, confirm does',
         (tester) async {
+      _usePhoneSurface(tester);
       final service = _RecordingService();
       const school = _school;
 
       // --- cancel ---
       await _openDialog(tester,
           (context) => showNotifyDialog(context, school, service, () {}));
-      expect(_btn('भेजें'), findsOneWidget,
-          reason: 'the send button must exist for this test to mean anything');
+      await _expectButton(tester, 'भेजें');
       await tester.tap(_btn('रद्द करें'));
       await _settle(tester);
       expect(service.calls, isEmpty,
@@ -356,12 +389,13 @@ void main() {
           (context) => showNotifyDialog(context, school, service, () {}));
 
       // The send button validates its own fields and CLOSES the dialog on empty
-      // input, so confirming with a blank form proves nothing about the guard --
-      // the dialog is gone either way. This is worth knowing: it means the
-      // validation, not the result binding, is what stops that path. Both are
-      // asserted separately.
-      await tester.enterText(find.widgetWithText(TextField, 'शीर्षक *'), 'सूचना');
-      await tester.pump();
+      // input, so confirming a blank form proves nothing about the guard -- the
+      // dialog is gone either way. That path was never at risk, and the reason is
+      // the validation rather than the result binding. Both are asserted.
+      // By index rather than by label: the hint lives inside a TextField's
+      // decoration, not a sibling Text, so a label-based finder is fragile. The
+      // dialog has exactly two TextFields, title then body.
+      await tester.enterText(find.byType(TextField).at(0), 'सूचना');
       await tester.enterText(find.byType(TextField).at(1), 'विषय');
       await tester.pumpAndSettle();
 
@@ -373,11 +407,13 @@ void main() {
     });
 
     testWidgets('notify: a blank form is refused without notifying', (tester) async {
+      _usePhoneSurface(tester);
       final service = _RecordingService();
       const school = _school;
 
       await _openDialog(tester,
           (context) => showNotifyDialog(context, school, service, () {}));
+      await _expectButton(tester, 'भेजें');
       await tester.tap(_btn('भेजें'));
       await _settle(tester);
       expect(service.calls, isEmpty,
