@@ -158,6 +158,18 @@ jobs:
       - name: Verify session status (deactivated accounts lose access immediately)
         run: node scripts/verify-session-status.mjs
 
+      # Flutter dialog guard. Seven Super Admin dialogs discarded their result, so
+      # "Cancel" still ran the action: approve a school, overwrite the record,
+      # change the plan, replace the sender config, send a payment link, notify a
+      # whole school, or trigger a CI deploy.
+      #
+      # This is a source-shape check on purpose: it needs no Flutter SDK, so it
+      # runs on every pull request. The widget test that actually taps Cancel lives
+      # in flutter_apps/super_admin_app/test/school_action_dialogs_test.dart and
+      # runs in deploy-admin.yml, which is the only place with a Flutter toolchain.
+      - name: Verify Flutter dialog guard (Cancel must not run the action)
+        run: node scripts/verify-flutter-dialogs.mjs
+
       # Data migrations, asserted against fixtures that include a phone shared
       # across two schools so the cross-tenant refusal is proved rather than
       # assumed.

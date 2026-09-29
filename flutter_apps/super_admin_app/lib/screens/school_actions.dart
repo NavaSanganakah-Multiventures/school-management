@@ -237,7 +237,11 @@ Future<void> showApproveDialog(BuildContext context, SchoolModel school,
   DateTime trialEnds =
       DateTime.now().add(const Duration(days: 7));
 
-  await showDialog<void>(
+  // showDialog<void> discarded its result, so both buttons closed the dialog and
+  // the approve call below ran unconditionally: tapping Cancel approved a pending
+  // school. It now returns a bool, Cancel pops false, and the action is gated on
+  // the result.
+  final confirmed = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setSt) => AlertDialog(
@@ -278,10 +282,11 @@ Future<void> showApproveDialog(BuildContext context, SchoolModel school,
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(), child: const Text('रद्द करें')),
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('रद्द करें')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: const Color(0xFF047857)),
-            onPressed: () => Navigator.of(ctx).pop(),
+            onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('स्वीकृत करें (Approve)'),
           ),
         ],
@@ -289,7 +294,7 @@ Future<void> showApproveDialog(BuildContext context, SchoolModel school,
     ),
   );
 
-  if (!context.mounted) return;
+  if (confirmed != true || !context.mounted) return;
   _busy(context, () async {
     final res = await service.approveSchool(school.id,
         planId: planId, trialEndsAt: _dateOnly(trialEnds));
@@ -322,7 +327,7 @@ Future<void> showEditSchoolDialog(BuildContext context, SchoolModel school,
   String status = school.status;
   String planId = school.planId.isEmpty ? 'trial' : school.planId;
 
-  await showDialog<void>(
+  final confirmed = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setSt) => AlertDialog(
@@ -379,9 +384,10 @@ Future<void> showEditSchoolDialog(BuildContext context, SchoolModel school,
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(), child: const Text('रद्द करें')),
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('रद्द करें')),
           FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(),
+            onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('सेव करें'),
           ),
         ],
@@ -389,7 +395,7 @@ Future<void> showEditSchoolDialog(BuildContext context, SchoolModel school,
     ),
   );
 
-  if (!context.mounted) return;
+  if (confirmed != true || !context.mounted) return;
   _busy(context, () async {
     return service.updateSchool(school.id, {
       'schoolName': name.text,
@@ -422,7 +428,7 @@ Future<void> showChangePlanDialog(BuildContext context, SchoolModel school,
   String planId = school.planId.isEmpty ? 'trial' : school.planId;
   final trialEnds = TextEditingController(text: school.trialEndsAt);
 
-  await showDialog<void>(
+  final confirmed = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setSt) => AlertDialog(
@@ -452,15 +458,15 @@ Future<void> showChangePlanDialog(BuildContext context, SchoolModel school,
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(), child: const Text('रद्द करें')),
+              onPressed: () => Navigator.of(ctx).pop(false), child: const Text('रद्द करें')),
           FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(), child: const Text('सेव करें')),
+              onPressed: () => Navigator.of(ctx).pop(true), child: const Text('सेव करें')),
         ],
       ),
     ),
   );
 
-  if (!context.mounted) return;
+  if (confirmed != true || !context.mounted) return;
   _busy(context, () async {
     return service.changePlan(school.id, planId,
         trialEndsAt: trialEnds.text.trim());
@@ -605,7 +611,7 @@ Future<void> showEmailConfigDialog(BuildContext context, SchoolModel school,
   final replyTo = TextEditingController(text: school.emailReplyTo);
   bool isActive = school.emailConfigActive;
 
-  await showDialog<void>(
+  final confirmed = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setSt) => AlertDialog(
@@ -648,16 +654,16 @@ Future<void> showEmailConfigDialog(BuildContext context, SchoolModel school,
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(), child: const Text('रद्द करें')),
+              onPressed: () => Navigator.of(ctx).pop(false), child: const Text('रद्द करें')),
           FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(),
+              onPressed: () => Navigator.of(ctx).pop(true),
               child: const Text('सेव करें')),
         ],
       ),
     ),
   );
 
-  if (!context.mounted) return;
+  if (confirmed != true || !context.mounted) return;
   _busy(context, () async {
     return service.saveEmailConfig(
       schoolId: school.id,
@@ -694,7 +700,7 @@ Future<void> showPaymentLinkDialog(BuildContext context, SchoolModel school,
   String planId = nonTrial.first.id;
   String cycle = 'annual';
 
-  await showDialog<void>(
+  final confirmed = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setSt) => AlertDialog(
@@ -729,9 +735,9 @@ Future<void> showPaymentLinkDialog(BuildContext context, SchoolModel school,
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(), child: const Text('रद्द करें')),
+              onPressed: () => Navigator.of(ctx).pop(false), child: const Text('रद्द करें')),
           FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(),
+            onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('भेजें (email + FCM)'),
           ),
         ],
@@ -739,7 +745,7 @@ Future<void> showPaymentLinkDialog(BuildContext context, SchoolModel school,
     ),
   );
 
-  if (!context.mounted) return;
+  if (confirmed != true || !context.mounted) return;
   _busy(context, () async {
     return service.sendPaymentLink(
         schoolId: school.id, planId: planId, billingCycle: cycle);
@@ -766,7 +772,7 @@ Future<void> showNotifyDialog(BuildContext context, SchoolModel school,
   String targetRole = 'Director';
   String priority = 'high';
 
-  await showDialog<void>(
+  final confirmed = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setSt) => AlertDialog(
@@ -808,14 +814,14 @@ Future<void> showNotifyDialog(BuildContext context, SchoolModel school,
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(), child: const Text('रद्द करें')),
+              onPressed: () => Navigator.of(ctx).pop(false), child: const Text('रद्द करें')),
           FilledButton(
             onPressed: () {
               if (title.text.trim().isEmpty || body.text.trim().isEmpty) {
                 showSnack(ctx, 'शीर्षक और संदेश आवश्यक हैं।', ok: false);
                 return;
               }
-              Navigator.of(ctx).pop();
+              Navigator.of(ctx).pop(true);
             },
             child: const Text('भेजें'),
           ),
@@ -824,7 +830,7 @@ Future<void> showNotifyDialog(BuildContext context, SchoolModel school,
     ),
   );
 
-  if (!context.mounted) return;
+  if (confirmed != true || !context.mounted) return;
   _busy(context, () async {
     return service.notifySchool(
       schoolId: school.id,
@@ -852,7 +858,7 @@ Future<void> showProvisionDialog(BuildContext context, SchoolModel school,
   final domain =
       TextEditingController(text: school.dedicatedDomain);
 
-  await showDialog<void>(
+  final confirmed = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
       title: const Text('डेडीकेटेड वर्कर प्रोविज़न'),
@@ -875,15 +881,15 @@ Future<void> showProvisionDialog(BuildContext context, SchoolModel school,
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(ctx).pop(), child: const Text('रद्द करें')),
+            onPressed: () => Navigator.of(ctx).pop(false), child: const Text('रद्द करें')),
         FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(),
+            onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('प्रोविज़न शुरू करें')),
       ],
     ),
   );
 
-  if (!context.mounted) return;
+  if (confirmed != true || !context.mounted) return;
   _busy(context, () async {
     return service.provisionSchool(school.id,
         slug: slug.text.trim(), domain: domain.text.trim());
