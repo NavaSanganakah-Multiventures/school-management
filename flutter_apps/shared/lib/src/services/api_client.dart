@@ -85,7 +85,7 @@ class ApiClient {
       }
 
       final response = await http.get(url, headers: headers);
-      return _processResponse(response, path);
+      return await _processResponse(response, path);
     } catch (e) {
       throw _networkError(e);
     }
@@ -105,7 +105,7 @@ class ApiClient {
         headers: headers,
         body: body != null ? jsonEncode(body) : null,
       );
-      return _processResponse(response, path);
+      return await _processResponse(response, path);
     } catch (e) {
       throw _networkError(e);
     }
@@ -125,7 +125,7 @@ class ApiClient {
         headers: headers,
         body: body != null ? jsonEncode(body) : null,
       );
-      return _processResponse(response, path);
+      return await _processResponse(response, path);
     } catch (e) {
       throw _networkError(e);
     }
@@ -141,13 +141,36 @@ class ApiClient {
       }
 
       final response = await http.delete(url, headers: headers);
-      return _processResponse(response, path);
+      return await _processResponse(response, path);
     } catch (e) {
       throw _networkError(e);
     }
   }
 
   /// Normalises any non-[ApiException] into a user-facing [ApiException].
+  ///
+  /// The `return await` in get/post/put/delete is load-bearing, not a style
+  /// preference, and removing it is a real behaviour change rather than a
+  /// cleanup.
+  ///
+  /// `return _processResponse(response, path);` inside a `try` in an `async`
+  /// function evaluates the expression, gets a Future back, and then LEAVES the
+  /// try block. The `catch` only covers what the try block threw synchronously,
+  /// so anything _processResponse throws once it is itself awaited -- which is
+  /// everything it throws -- propagates to the caller of get/post/put/delete
+  /// instead of through `_networkError`, and the local try/catch becomes dead
+  /// code for exactly the errors it was written to handle.
+  ///
+  /// Concretely: `_shouldAutoLogout` awaits `getToken()`, which can throw a
+  /// PlatformException from secure storage. Un-caught, the user saw a raw
+  /// platform exception instead of the "नेटवर्क त्रुटि" message this class
+  /// exists to give them.
+  ///
+  /// The analyzer lint that catches this is `unawaited_return_in_try_block`,
+  /// which is newer than the Dart SDK on some developer machines, so it is
+  /// reproducible in CI and not on every laptop. That is the whole reason
+  /// flutter analyze runs in .github/workflows/deploy.yml rather than being left
+  /// to local runs. Do not "simplify" these back.
   ApiException _networkError(Object e) {
     if (e is ApiException) return e;
     if (e is http.ClientException) {

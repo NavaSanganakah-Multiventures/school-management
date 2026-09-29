@@ -268,12 +268,18 @@ jobs:
           flutter pub get
           flutter analyze --fatal-infos
 
-      # The school app has 113 pre-existing info-level lints
-      # (use_build_context_synchronously, deprecated_member_use, curly_braces in
-      # older screens), which is why release-android.yml passes
-      # --no-fatal-infos. Warnings and errors stay fatal -- and they stay fatal
-      # here, so a new warning on a pull request still fails before merge instead
-      # of waiting for the next Android tag.
+      # The school app has 131 pre-existing info-level lints and no errors or
+      # warnings: deprecated_member_use (51), use_build_context_synchronously
+      # (45), curly_braces_in_flow_control_structures (27),
+      # prefer_const_constructors (7), prefer_const_literals_to_create_immutables
+      # (1). That is why --no-fatal-infos, matching what release-android.yml
+      # already did. The count is toolchain-dependent -- it is 113 on the older
+      # Flutter that comment was written against -- so the specific numbers are
+      # documentation, not an assertion. What this step asserts is the part that
+      # must not drift: 0 errors, 0 warnings.
+      #
+      # Warnings and errors stay fatal, so a new one on a pull request fails
+      # before merge instead of at the next Android tag.
       - name: Analyze the school management app
         run: |
           cd flutter_apps/school_management_app
