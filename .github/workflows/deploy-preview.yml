@@ -178,6 +178,42 @@ jobs:
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "Preview name: $NAME (from branch '$RAW_BRANCH')"
 
+      # Dependabot cannot deploy a Preview, and should not be made to look like
+      # it tried and failed.
+      #
+      # GitHub withholds repository secrets from Dependabot, treating it like a
+      # fork, so CLOUDFLARE_API_TOKEN resolves to the empty string. The first
+      # step that needs it then fails with wrangler's own message:
+      #
+      #   In a non-interactive environment, it's necessary to set a
+      #   CLOUDFLARE_API_TOKEN environment variable for wrangler to work.
+      #
+      # Which is a red X on a dependency bump that has nothing wrong with it, and
+      # a red X is exactly what people learn to ignore -- which is the failure
+      # mode this repository has already been bitten by twice, in the form of
+      # harnesses that were written and never referenced by any workflow.
+      #
+      # Everything above this point needs no secret and all of it passed on the
+      # Dependabot run this was written from: Phase 0 signing, the routing
+      # contract, dedicated-D1 table coverage, migrations 0041 and 0042, the
+      # preview-URL resolver's own tests, the billing M2M harness, and its
+      # mutation check. A dependency bump is exactly when those are worth
+      # running. So they keep running, and only the five steps that need either
+      # the token or a Preview URL are skipped.
+      - name: Explain why no Preview is deployed for this PR
+        if: github.actor == 'dependabot[bot]'
+        run: |
+          echo "### No Preview deployed" >&2
+          echo >&2
+          echo 'Dependabot PRs cannot deploy a Preview: GitHub withholds' >&2
+          echo 'repository secrets from Dependabot, so the Cloudflare API token' >&2
+          echo 'is unavailable and the deploy cannot authenticate.' >&2
+          echo >&2
+          echo "Every check that needs no secret **did** run, including the"
+          echo "authorization and money-integrity harnesses. Review those." >&2
+          echo >&2
+          echo "To exercise the Worker itself, open a branch PR by hand." >&2
+
       # Migrations go to the shared staging D1 only.
       #
       # `--config wrangler.preview-migrations.toml` rather than `--env preview`:
@@ -189,6 +225,7 @@ jobs:
       # Every branch shares this database, which is Cloudflare's documented
       # default. Re-applying is a no-op, so branches converge rather than race.
       - name: Apply migrations to the PREVIEW D1
+        if: github.actor != 'dependabot[bot]'
         run: npx wrangler d1 migrations apply PREVIEW_DB --remote --config wrangler.preview-migrations.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -223,6 +260,7 @@ jobs:
       # turning into a screen of DNS errors.
       - name: Deploy preview and resolve its URL
         id: first
+        if: github.actor != 'dependabot[bot]'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -242,6 +280,15 @@ jobs:
           # No secrets yet, on purpose. `wrangler preview secret put` creates a NEW
           # deployment per call, so a loop over six secrets meant six deployments
           # and the last one won. All six go up in the second pass instead.
+          #
+          # `preview_urls = true` in wrangler.toml is a REQUEST. Whether a URL is
+          # actually handed back additionally depends on the Worker URL "Preview"
+          # switch in the Cloudflare dashboard, which is an account setting with
+          # no wrangler command behind it. With that switch off, `wrangler
+          # preview` deploys cleanly, returns a complete record, and reports
+          # `"urls": []` -- so the failure is only observable here, and
+          # resolve-preview-url.mjs below is what turns it into a named cause
+          # rather than a DNS error three steps later.
           URL=$(node scripts/resolve-preview-url.mjs preview.out "$SUBDOMAIN" school-management)
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "preview_name=$PREVIEW_NAME" >> "$GITHUB_OUTPUT"
@@ -259,6 +306,7 @@ jobs:
       #
       # SEND_EMAIL is deliberately absent, so api/lib/email.ts no-ops every send.
       - name: Deploy preview (final)
+        if: github.actor != 'dependabot[bot]'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -304,6 +352,7 @@ jobs:
           shred -u preview.secrets.json 2>/dev/null || rm -f preview.secrets.json
 
       - name: Report preview URL
+        if: github.actor != 'dependabot[bot]'
         env:
           PREVIEW_URL: ${{ steps.first.outputs.url }}
           PREVIEW_NAME: ${{ steps.meta.outputs.name }}
@@ -327,6 +376,7 @@ jobs:
       # a deployed Preview can be re-checked from a terminal and the workflow and
       # a local run can never drift apart.
       - name: Smoke test the preview API
+        if: github.actor != 'dependabot[bot]'
         env:
           PREVIEW_URL: ${{ steps.first.outputs.url }}
         run: |
