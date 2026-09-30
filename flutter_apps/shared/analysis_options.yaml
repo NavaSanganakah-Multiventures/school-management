@@ -1,0 +1,40 @@
+# This file configures the analyzer, which statically analyzes Dart code to
+# check for errors, warnings, and lints.
+#
+# It is here because flutter_lints was already declared as a dev_dependency in
+# pubspec.yaml and never actually enabled: without this file the include below is
+# never reached, so the package was analyzed with Dart's defaults and reported
+# "No issues found!" for six files -- two of which are widget files that a Flutter
+# app's own CI is expected to lint.
+#
+# `flutter_apps/shared` holds the code every app depends on: the ApiClient with
+# its global 401 logout, AppConfig with the base-URL resolution, and the role
+# predicates that gate screens. A lint in here is a lint in both apps at once.
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    # Extra rules on top of flutter_lints, for a package that is shared code
+    # rather than app code.
+    #
+    # prefer_const_constructors and prefer_final_locals are already in
+    # flutter_lints. These three are the ones that catch real mistakes in a
+    # package that other code imports.
+    #
+    #   always_declare_return_types -- a lib/ entry point whose return type is
+    #     inferred can change type under a consumer's stricter settings. A public
+    #     API should state it.
+    #   avoid_dynamic_calls -- ApiClient returns Map<String, dynamic> from JSON
+    #     decoding, so a dynamic creeping into shared code is how a null or a
+    #     missing key turns into a runtime crash in an app instead of here.
+    #   unawaited_futures -- the FCM subscription teardown and the session-restore
+    #     futures in this package are exactly where a dropped await hides.
+    always_declare_return_types: true
+    avoid_dynamic_calls: true
+    unawaited_futures: true
+
+# The analyzer is run in CI (deploy.yml) and must stay green. Infos are not fatal
+# anywhere in this repo's Flutter CI, matching the existing practice in
+# release-android.yml: warnings and errors fail, infos are tracked. If a rule above
+# produces an unacceptable amount of noise, it belongs in a follow-up that fixes
+# the findings, not in a silenced rule.
