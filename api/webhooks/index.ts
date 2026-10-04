@@ -331,15 +331,18 @@ webhooksApp.post('/razorpay', async (c) => {
     // earlier attempt AFTER a later `payment.captured` for the same order, and
     // the unguarded UPDATE relabelled a genuinely paid invoice as Failed.
     try {
-      if (razorpay_order_id) {
+      // Scoped by school_id. Every other write in this handler matches on it (:372,
+      // :394, :426) and `billing_invoices` is school-scoped, so these two could
+      // relabel another tenant's invoice as Failed.
+      if (razorpay_order_id && schoolId) {
         await db.prepare(
-          "UPDATE billing_invoices SET payment_status = 'Failed' WHERE razorpay_order_id = ? AND payment_status != 'Paid'"
-        ).bind(razorpay_order_id).run();
+          "UPDATE billing_invoices SET payment_status = 'Failed' WHERE razorpay_order_id = ? AND school_id = ? AND payment_status != 'Paid'"
+        ).bind(razorpay_order_id, schoolId).run();
       }
-      if (razorpay_payment_link_id) {
+      if (razorpay_payment_link_id && schoolId) {
         await db.prepare(
-          "UPDATE billing_invoices SET payment_status = 'Failed' WHERE razorpay_payment_link_id = ? AND payment_status != 'Paid'"
-        ).bind(razorpay_payment_link_id).run();
+          "UPDATE billing_invoices SET payment_status = 'Failed' WHERE razorpay_payment_link_id = ? AND school_id = ? AND payment_status != 'Paid'"
+        ).bind(razorpay_payment_link_id, schoolId).run();
       }
     } catch (e: any) {
       console.error('[webhook/razorpay] payment.failed update failed:', e?.message);

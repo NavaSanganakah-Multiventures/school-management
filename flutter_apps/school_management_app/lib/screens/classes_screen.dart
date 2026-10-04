@@ -109,6 +109,7 @@ class _ClassesScreenState extends State<ClassesScreen> {
         'className': className,
         'teacherUserId': teacherUserId,
       });
+      if (!mounted) return;
       if (data['success'] == true) {
         setState(() {
           _message = data['message']?.toString();
@@ -121,10 +122,10 @@ class _ClassesScreenState extends State<ClassesScreen> {
           }
         });
       } else {
-        _error = data['message']?.toString() ?? 'आवंटन विफल।';
+        setState(() => _error = data['message']?.toString() ?? 'आवंटन विफल।');
       }
     } catch (_) {
-      _error = 'नेटवर्क त्रुटि।';
+      if (mounted) setState(() => _error = 'नेटवर्क त्रुटि।');
     } finally {
       if (mounted) setState(() => _savingMap[className] = false);
     }
@@ -151,6 +152,7 @@ class _ClassesScreenState extends State<ClassesScreen> {
     setState(() => _savingMap[className] = true);
     try {
       final data = await _api.post('/api/classes/remove-teacher', body: {'className': className});
+      if (!mounted) return;
       if (data['success'] == true) {
         setState(() {
           _message = data['message']?.toString();
@@ -162,10 +164,10 @@ class _ClassesScreenState extends State<ClassesScreen> {
           }
         });
       } else {
-        _error = data['message']?.toString() ?? 'हटाने में विफल।';
+        setState(() => _error = data['message']?.toString() ?? 'हटाने में विफल।');
       }
     } catch (_) {
-      _error = 'नेटवर्क त्रुटि।';
+      if (mounted) setState(() => _error = 'नेटवर्क त्रुटि।');
     } finally {
       if (mounted) setState(() => _savingMap[className] = false);
     }

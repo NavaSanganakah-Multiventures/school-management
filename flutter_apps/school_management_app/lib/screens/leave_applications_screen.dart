@@ -160,13 +160,19 @@ class _LeaveApplicationsScreenState extends State<LeaveApplicationsScreen> {
     }
   }
 
-  void _updateStatus(LeaveApplicationModel a, String status) async {
+  // Future<void>, not `void … async`. The old signature hid the async gap from every
+  // caller: an exception escaped as an unhandled async error instead of being handled
+  // here, and the success path used `context` with no guard at all.
+  Future<void> _updateStatus(LeaveApplicationModel a, String status) async {
     try {
       await _svc.updateStatus(a.id, status);
+      if (!mounted) return;
       showSnack(context, 'स्थिति अपडेट हो गई');
-      _load();
+      await _load();
     } on ApiException catch (e) {
       if (mounted) showSnack(context, e.message, isError: true);
+    } catch (_) {
+      if (mounted) showSnack(context, 'स्थिति अपडेट नहीं हो सकी', isError: true);
     }
   }
 
@@ -197,8 +203,10 @@ class _LeaveApplicationsScreenState extends State<LeaveApplicationsScreen> {
           TextButton(onPressed: () => Navigator.pop(c), child: const Text('रद्द करें')),
           FilledButton(
             onPressed: () async {
+              // Captured before the await; this dialog is popped on success.
+              final messenger = ScaffoldMessenger.of(c);
               if (studentId.text.isEmpty || reason.text.isEmpty) {
-                showSnack(context, 'आवश्यक फ़ील्ड भरें', isError: true);
+                showSnackVia(messenger, 'आवश्यक फ़ील्ड भरें', isError: true);
                 return;
               }
               try {
@@ -209,10 +217,10 @@ class _LeaveApplicationsScreenState extends State<LeaveApplicationsScreen> {
                   reason: reason.text.trim(),
                 );
                 if (c.mounted) Navigator.pop(c);
-                showSnack(context, 'आवेदन जमा हो गया');
+                showSnackVia(messenger, 'आवेदन जमा हो गया');
                 _load();
               } on ApiException catch (e) {
-                if (c.mounted) showSnack(context, e.message, isError: true);
+                if (c.mounted) showSnackVia(messenger, e.message, isError: true);
               }
             },
             child: const Text('जमा करें'),

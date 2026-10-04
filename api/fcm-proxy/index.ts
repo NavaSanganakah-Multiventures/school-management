@@ -224,13 +224,32 @@ app.post('/test-notification', async (c) => {
 
     const db = c.env.DB;
 
-    // 1. Find real FCM mobile tokens for this user (scoped to the caller's school)
+    // 1. Find real FCM web tokens for this user.
+    //
+    // No school_id predicate here, because this table has no such column —
+    // db_migrations/0010 declares (user_id, device_token, platform, device_info,
+    // timestamps) and scripts/audit-dedicated-tables.mjs classifies it as explicitly
+    // NOT school-scoped. The old query filtered `AND school_id = ?` anyway, so it
+    // threw "no such column" on every call and the `.catch(() => ({ results: [] }))`
+    // turned that into an empty result. This primary lookup was therefore
+    // permanently dead and silently fell through to the fcm_device_tokens query
+    // below.
+    //
+    // Tenant isolation comes from user_id: it is a system_users primary key, so it
+    // belongs to exactly one school, and the token insert at :103 stores no school
+    // either. The fcm_device_tokens table DOES have school_id and is queried with it.
+    //
+    // The catch now logs instead of silently discarding, because a swallowed error
+    // here is exactly what hid this for so long.
     let tokens: any = db ? await db.prepare(
       "SELECT device_token FROM user_notification_tokens " +
-      "WHERE user_id = ? AND school_id = ? AND platform = 'web' " +
+      "WHERE user_id = ? AND platform = 'web' " +
       "ORDER BY updated_at DESC " +
       "LIMIT 5"
-    ).bind(String(targetUserId), schoolId).all().catch(() => ({ results: [] })) : { results: [] };
+    ).bind(String(targetUserId)).all().catch((e: any) => {
+      console.error('[fcm-proxy] user_notification_tokens lookup failed:', e && e.message);
+      return { results: [] };
+    }) : { results: [] };
 
     if (!tokens.results || tokens.results.length === 0) {
       tokens = db ? await db.prepare(
@@ -238,7 +257,10 @@ app.post('/test-notification', async (c) => {
         "WHERE user_id = ? AND school_id = ? AND is_active = 1 " +
         "ORDER BY last_seen_at DESC " +
         "LIMIT 5"
-      ).bind(String(targetUserId), schoolId).all().catch(() => ({ results: [] })) : { results: [] };
+      ).bind(String(targetUserId), schoolId).all().catch((e: any) => {
+        console.error('[fcm-proxy] fcm_device_tokens lookup failed:', e && e.message);
+        return { results: [] };
+      }) : { results: [] };
     }
 
     const realTokens = (tokens.results || [])

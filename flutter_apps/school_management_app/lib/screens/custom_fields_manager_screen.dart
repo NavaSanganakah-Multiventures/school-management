@@ -200,6 +200,11 @@ class _CustomFieldsManagerScreenState extends State<CustomFieldsManagerScreen> {
                   : () async {
                       if (!(formKey.currentState?.validate() ?? false)) return;
                       setDialogState(() => saving = true);
+                      // Captured before any await. This dialog is popped once the save
+                      // succeeds, so its context is deactivated by the time the snackbar
+                      // is due. A ScaffoldMessengerState is not a BuildContext and
+                      // stays valid.
+                      final messenger = ScaffoldMessenger.of(dialogCtx);
                       try {
                         final options = fieldType == 'dropdown'
                             ? optionsText.split(',').map((o) => o.trim()).where((o) => o.isNotEmpty).toList()
@@ -214,7 +219,7 @@ class _CustomFieldsManagerScreenState extends State<CustomFieldsManagerScreen> {
                             'sortOrder': sortOrder,
                           });
                           if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
-                          showSnack(context, 'अतिरिक्त फ़ील्ड जोड़ दी गई।');
+                          showSnackVia(messenger, 'अतिरिक्त फ़ील्ड जोड़ दी गई।');
                         } else {
                           await _svc.updateCustomField(existing.id, {
                             'label': labelCtrl.text.trim(),
@@ -225,18 +230,18 @@ class _CustomFieldsManagerScreenState extends State<CustomFieldsManagerScreen> {
                             'isActive': isActive,
                           });
                           if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
-                          showSnack(context, 'फ़ील्ड अद्यतित हो गई।');
+                          showSnackVia(messenger, 'फ़ील्ड अद्यतित हो गई।');
                         }
                         await _load();
                       } on ApiException catch (e) {
                         if (dialogCtx.mounted) {
                           setDialogState(() => saving = false);
-                          showSnack(context, e.message, isError: true);
+                          showSnackVia(messenger, e.message, isError: true);
                         }
                       } catch (_) {
                         if (dialogCtx.mounted) {
                           setDialogState(() => saving = false);
-                          showSnack(context, 'सहेजा नहीं जा सका', isError: true);
+                          showSnackVia(messenger, 'सहेजा नहीं जा सका', isError: true);
                         }
                       }
                     },
@@ -267,25 +272,28 @@ class _CustomFieldsManagerScreenState extends State<CustomFieldsManagerScreen> {
       ),
     );
     if (confirmed != true) return;
+    if (!mounted) return;
     try {
       await _svc.deleteCustomField(f.id);
+      if (!mounted) return;
       showSnack(context, 'फ़ील्ड हटा दी गई।');
       await _load();
     } on ApiException catch (e) {
-      showSnack(context, e.message, isError: true);
+      if (mounted) showSnack(context, e.message, isError: true);
     } catch (_) {
-      showSnack(context, 'हटाया नहीं जा सका', isError: true);
+      if (mounted) showSnack(context, 'हटाया नहीं जा सका', isError: true);
     }
   }
 
   Future<void> _toggleActive(CustomFieldModel f, bool active) async {
     try {
       await _svc.updateCustomField(f.id, {'isActive': active});
+      if (!mounted) return;
       await _load();
     } on ApiException catch (e) {
-      showSnack(context, e.message, isError: true);
+      if (mounted) showSnack(context, e.message, isError: true);
     } catch (_) {
-      showSnack(context, 'अद्यतन विफल', isError: true);
+      if (mounted) showSnack(context, 'अद्यतन विफल', isError: true);
     }
   }
 

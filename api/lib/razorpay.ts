@@ -122,6 +122,30 @@ async function razorpayPost(env: any, path: string, body: any): Promise<any> {
   }
 }
 
+// Reads the authoritative amount off a Razorpay order.
+//
+// This exists because the order amount cannot be taken from the client. A partial
+// payment is legitimate here — api/fees/index.ts create-order explicitly allows
+// paying less than the invoice total — so "how much did they actually pay" is a
+// real question, and the caller must not be the one to answer it.
+//
+// Returns amount_paid in PAISE, as Razorpay reports it.
+export async function fetchRazorpayOrderAmountPaidPaise(env: any, orderId: any): Promise<number | null> {
+  const auth = await getRazorpayAuth(env);
+  if (!auth || !orderId) return null;
+  try {
+    const res = await fetch('https://api.razorpay.com/v1/orders/' + encodeURIComponent(String(orderId)), {
+      headers: { Authorization: auth.authHeader },
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data) return null;
+    const paid = Number(data.amount_paid);
+    return Number.isFinite(paid) ? paid : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // Create a Razorpay Plan (recurring pricing template: period + amount + interval)
 export async function createRazorpayPlan(env: any, input: {
   period: 'monthly' | 'yearly' | 'weekly' | 'daily';
@@ -252,13 +276,30 @@ export async function createRazorpayCustomer(env: any, input: {
   return { id: data.id };
 }
 
-export async function verifyRazorpaySignature(orderId: any, paymentId: any, signature: any, secret: any) {
+// Verifies the signature Razorpay returns to the client and sends back to
+// /api/fees/verify and /api/billing/razorpay/verify. This is what authorises money
+// movement, so it must fail CLOSED.
+//
+// An empty secret is refused explicitly. HMAC with an empty key is not a secret:
+// it is a value anyone can compute. Without this guard, a deployment missing
+// RAZORPAY_KEY_SECRET (a preview has no CONFIG_KV binding, so it falls back to '')
+// would accept any signature, and a forged /verify call would mark an invoice Paid
+// with no money having moved. createRazorpayOrder above already refuses an empty
+// key pair; this is the same rule applied to the verification path.
+//
+// Comparison goes through safeEqualHex, not ===. A plain string compare leaks the
+// length and the position of the first differing hex byte of the value that
+// authorises payment.
+export async function verifyRazorpaySignature(orderId: any, paymentId: any, signature: any, secret: any): Promise<boolean> {
+  const key = secret ? String(secret) : '';
+  if (!key) return false;
+  if (!orderId || !paymentId || !signature) return false;
   try {
     const body = orderId + '|' + paymentId;
     const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
-    return hexFromBytes(new Uint8Array(sig)) === signature;
+    const cryptoKey = await crypto.subtle.importKey('raw', encoder.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const sig = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(body));
+    return safeEqualHex(hexFromBytes(new Uint8Array(sig)), String(signature));
   } catch (e) {
     return false;
   }

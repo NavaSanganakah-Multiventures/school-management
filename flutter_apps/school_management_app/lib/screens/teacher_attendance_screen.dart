@@ -29,11 +29,23 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
 
   // Attendance Tab State
   DateTime _selectedDate = DateTime.now();
-  String _selectedClass = 'Class 10';
+
+  // Empty until /api/classes/my-classes answers. It used to start as the hardcoded
+  // 'Class 10', which the "new student" dialog then offered as a DropdownButton value
+  // with an empty item list whenever my-classes returned nothing.
+  String _selectedClass = '';
   List<String> _availableClasses = [];
   List<String> _allClasses = [];
   List<AttendanceRecordModel> _records = [];
   bool _isLoadingAttendance = true;
+
+  // The server's own verdict on whether this user may write attendance here.
+  // _canMark comes from /api/attendance's `canMark` for the selected class;
+  // _canMarkAll from /api/classes/my-classes `canMarkAll` (admin only). Without
+  // honouring them the register showed live-looking buttons that always 403'd.
+  bool _canMark = false;
+  bool _canMarkAll = false;
+
   String _statusFilter = 'All'; // 'All', 'Absent', 'Present', 'Leave', 'Unmarked'
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
@@ -57,10 +69,15 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
   String get _formattedDate => DateFormat('yyyy-MM-dd').format(_selectedDate);
   String get _classLabel => _selectedClass == 'All' ? 'सभी कक्षाओं' : _selectedClass;
 
+  // This screen is the landing screen for every Staff user
+  // (providers/auth_provider.dart dashboardPathForRole), so every unguarded setState
+  // below is reachable by simply leaving the screen during a refresh. Each of these
+  // threw "setState() called after dispose()".
   Future<void> _loadInitialData() async {
-    setState(() => _isLoadingAttendance = true);
+    if (mounted) setState(() => _isLoadingAttendance = true);
     try {
       final res = await _api.get('/api/classes/my-classes');
+      if (!mounted) return;
       if (res['success'] == true) {
         final classes = List<String>.from(res['classes'] ?? []);
         final assigned = List<String>.from(res['assignedClasses'] ?? []);
@@ -70,21 +87,30 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
           _allClasses = allClasses.isNotEmpty
               ? allClasses
               : (classes.isNotEmpty ? classes : <String>[]);
+          // Never keep a class name that the dropdown cannot actually offer. The
+          // "new student" dialog builds a DropdownButtonFormField from _availableClasses
+          // with `value: _selectedClass`, so a stale default such as the hardcoded
+          // 'Class 10' produced Flutter's assertion "There should be exactly one item
+          // with DropdownButton's value: Class 10." when my-classes came back empty.
+          _selectedClass = '';
           if (assigned.isNotEmpty) {
             _selectedClass = assigned.first;
           } else if (classes.isNotEmpty) {
             _selectedClass = classes.first;
           }
+          // Admins may mark any class; for everyone else my-classes decides whether they
+          // are a class teacher at all (api/classes/index.ts:80-84).
+          _canMarkAll = res['canMarkAll'] == true;
         });
       }
       await _loadAttendance();
     } catch (_) {
-      setState(() => _isLoadingAttendance = false);
+      if (mounted) setState(() => _isLoadingAttendance = false);
     }
   }
 
   Future<void> _loadAttendance() async {
-    setState(() => _isLoadingAttendance = true);
+    if (mounted) setState(() => _isLoadingAttendance = true);
     try {
       final res = await _api.get(
         '/api/attendance',
@@ -93,6 +119,13 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
           'class': _selectedClass,
         },
       );
+
+      if (!mounted) return;
+      // api/attendance/index.ts:128 returns canMark, and api/classes/index.ts:84 returns
+      // canMarkAll. Both were ignored, so a Staff user who is not the assigned class
+      // teacher saw fully enabled Present/Absent/Leave and "सभी उपस्थित करें" buttons
+      // that updated the row optimistically and then bounced a 403 snackbar.
+      setState(() => _canMark = res['canMark'] == true);
 
       if (res['success'] == true) {
         final recList = (res['records'] as List? ?? [])
@@ -104,19 +137,19 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoadingAttendance = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('डेटा लोड त्रुटि: $e'), backgroundColor: Colors.red),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('डेटा लोड त्रुटि: $e'), backgroundColor: Colors.red),
+      );
     }
   }
 
   Future<void> _loadNotices() async {
-    setState(() => _isLoadingNotices = true);
+    if (mounted) setState(() => _isLoadingNotices = true);
     try {
       final res = await _api.get('/api/notices', queryParams: {'limit': '20'});
+      if (!mounted) return;
       if (res['success'] == true) {
         setState(() {
           _notices = res['notices'] ?? [];
@@ -124,7 +157,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
         });
       }
     } catch (_) {
-      setState(() => _isLoadingNotices = false);
+      if (mounted) setState(() => _isLoadingNotices = false);
     }
   }
 
@@ -291,7 +324,16 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
     final parentCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
     String gender = 'Male';
-    String dialogClass = _selectedClass == 'All' ? (_availableClasses.isNotEmpty ? _availableClasses.first : 'Class 1') : _selectedClass;
+    // The class list is resolved once, and the initial value is only accepted when it is
+    // genuinely offered below. The old fallback of 'Class 1' was invented rather than
+    // loaded, so it could never match an empty item list.
+    final dialogClassOptions = List<String>.from(
+      _allClasses.isNotEmpty ? _allClasses : _availableClasses,
+    );
+    String dialogClass =
+        _selectedClass != 'All' && dialogClassOptions.contains(_selectedClass)
+            ? _selectedClass
+            : (dialogClassOptions.isNotEmpty ? dialogClassOptions.first : '');
     DateTime? dob;
     bool isSaving = false;
 
@@ -303,6 +345,11 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
     } catch (_) {
       defs = [];
     }
+
+    // `context` is this State's context, so leaving the screen while the custom-field
+    // definitions load deactivates it. Passing it to showDialog after that await threw
+    // "Looking up a deactivated widget's ancestor is unsafe."
+    if (!mounted) return;
 
     await showDialog(
       context: context,
@@ -342,13 +389,18 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                 DropdownButtonFormField<String>(
-                  value: dialogClass,
+                  // Only offer a value that is actually in the item list. An empty
+                  // list (my-classes failed or returned nothing) combined with the old
+                  // hardcoded default triggered Flutter's assertion "There should be
+                  // exactly one item with DropdownButton's value: Class 10." — a red
+                  // screen the first time a Staff user opened this dialog offline.
+                  value: dialogClassOptions.contains(dialogClass) ? dialogClass : null,
                   decoration: const InputDecoration(
                     labelText: 'कक्षा *',
                     isDense: true,
                     border: OutlineInputBorder(),
                   ),
-                  items: (_allClasses.isNotEmpty ? _allClasses : _availableClasses)
+                  items: dialogClassOptions
                       .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                       .toList(),
                   onChanged: (val) {
@@ -796,12 +848,18 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: _markAllPresent,
+                  // Disabled when the server says this user cannot mark attendance here
+                  // (api/classes/index.ts:84 canMarkAll). Previously always enabled, so
+                  // the tap produced a guaranteed 403 from
+                  // api/attendance/index.ts:365-372.
+                  onPressed: _canMarkAll ? _markAllPresent : null,
                   icon: const Icon(Icons.check_circle_outline, size: 16),
                   label: const Text('सभी उपस्थित करें', style: TextStyle(fontSize: 12)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.teal.shade700,
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.grey.shade300,
+                    disabledForegroundColor: Colors.grey.shade600,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
@@ -1219,7 +1277,11 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
 
   Widget _buildStatusButton(String shortLabel, String fullStatus, bool isActive, Color color, String studentId) {
     return InkWell(
-      onTap: () => _updateStudentStatus(studentId, fullStatus),
+      // Read-only when the server said no. These were always tappable, which made a
+      // Staff user who is not the assigned class teacher update the row locally and then
+      // be refused by api/attendance/index.ts:310-313 — a wrong on-screen state followed
+      // by an error toast.
+      onTap: _canMark ? () => _updateStudentStatus(studentId, fullStatus) : null,
       child: Container(
         width: 32,
         height: 32,

@@ -175,10 +175,12 @@ class ExamAnalyticsModel {
   final String examName;
   final int totalStudents;
   final int studentsPassed;
-  final int? passPercentage;
-  final int? averagePercentage;
-  final int? highestPercentage;
-  final int? lowestPercentage;
+  // double, not int: the API sends one decimal place and these figures are read back in
+  // the UI with toStringAsFixed(1). See _pct below.
+  final double? passPercentage;
+  final double? averagePercentage;
+  final double? highestPercentage;
+  final double? lowestPercentage;
   final String? topperStudentId;
   final List<Map<String, dynamic>> subjectWiseAnalysis;
   final List<Map<String, dynamic>> gradeDistribution;
@@ -222,9 +224,18 @@ class ExamAnalyticsModel {
   }
 }
 
-int? _pct(dynamic v) {
+/// Keeps one decimal place.
+///
+/// The API deliberately rounds to one decimal — `+((x/y)*100).toFixed(1)` at
+/// api/exams/index.ts:696-697 and :722-725 — and this function used `.round()` on top of
+/// that, throwing the decimal away. A class average of 74.4% displayed as 74%, and a
+/// student at 95.5% as 96%.
+///
+/// That is not cosmetic on a report: the per-student table in the same screens
+/// interpolates the raw doubles, so the header and the table disagreed by up to half a
+/// point on the same screen, and a borderline pass/fail at 74.5% rounded to a clean 75.
+double? _pct(dynamic v) {
   if (v == null) return null;
-  if (v is int) return v;
-  if (v is double) return v.round();
-  return double.tryParse(v.toString())?.round() ?? int.tryParse(v.toString());
+  if (v is num) return v.toDouble();
+  return double.tryParse(v.toString());
 }

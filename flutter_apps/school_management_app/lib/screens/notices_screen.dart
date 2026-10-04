@@ -158,8 +158,11 @@ class _NoticesScreenState extends State<NoticesScreen> with SingleTickerProvider
     if (confirmed != true) return;
     try {
       await _api.delete('/api/notices/${n.id}');
+      // The setState needed the same guard as the snackbar below it; without it, leaving
+      // the screen while the delete was in flight threw "setState() after dispose()".
+      if (!mounted) return;
       setState(() => _notices.removeWhere((item) => item.id == n.id));
-      if (mounted) showSnack(context, 'नोटिस हटा दिया गया।');
+      showSnack(context, 'नोटिस हटा दिया गया।');
     } catch (_) {
       if (mounted) showSnack(context, 'हटाने में त्रुटि', isError: true);
     }

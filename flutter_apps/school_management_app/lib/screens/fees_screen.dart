@@ -20,6 +20,12 @@ class _FeesScreenState extends State<FeesScreen> {
   String? _error;
   FeeSummaryModel? _summary;
   List<FeeInvoiceModel> _invoices = [];
+
+  // Server-side pagination. _total is the real size of the filtered ledger; _hasMore says
+  // whether the current list is the whole thing.
+  int _total = 0;
+  bool _hasMore = false;
+  bool _loadingMore = false;
   String? _statusFilter;
   String? _busyInvoiceId;
 
@@ -40,6 +46,8 @@ class _FeesScreenState extends State<FeesScreen> {
       final res = await _svc.getInvoices(status: _statusFilter);
       _summary = res.summary;
       _invoices = res.invoices;
+      _total = res.total;
+      _hasMore = res.hasMore;
       if (mounted) setState(() => _loading = false);
     } on ApiException catch (e) {
       if (mounted) setState(() {
@@ -51,6 +59,31 @@ class _FeesScreenState extends State<FeesScreen> {
         _error = 'फीस डेटा लोड नहीं हो सका';
         _loading = false;
       });
+    }
+  }
+
+  // Appends the next page. The list is server-paginated, so without this the screen would
+  // present the first 200 invoices as though that were the school's whole ledger.
+  Future<void> _loadMore() async {
+    if (_loadingMore) return;
+    setState(() => _loadingMore = true);
+    try {
+      final res = await _svc.getInvoices(
+        status: _statusFilter,
+        offset: _invoices.length,
+      );
+      if (!mounted) return;
+      setState(() {
+        _invoices = [..._invoices, ...res.invoices];
+        _total = res.total;
+        _hasMore = res.hasMore;
+      });
+    } on ApiException catch (e) {
+      if (mounted) showSnack(context, e.message, isError: true);
+    } catch (_) {
+      if (mounted) showSnack(context, 'और चालान लोड नहीं हो सके', isError: true);
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
     }
   }
 
@@ -149,12 +182,44 @@ class _FeesScreenState extends State<FeesScreen> {
                   maxWidth: 720,
                   child: ListView.builder(
                     padding: const EdgeInsets.all(12),
-                    itemCount: _invoices.length,
-                    itemBuilder: (c, i) => _invoiceCard(_invoices[i]),
+                    // One extra row for the "load more" footer.
+                    itemCount: _invoices.length + (_hasMore ? 1 : 0),
+                    itemBuilder: (c, i) {
+                      if (i >= _invoices.length) {
+                        return _loadMoreFooter();
+                      }
+                      return _invoiceCard(_invoices[i]);
+                    },
                   ),
                 ),
         ),
       ],
+    );
+  }
+
+  // Says how much of the ledger is on screen. A truncated fee list presented as a complete
+  // one is a financial misstatement, so the count is always visible when it is partial.
+  Widget _loadMoreFooter() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Column(
+        children: [
+          Text(
+            '$_invoices.length में से $_total चालान दिख रहे हैं',
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.tonal(
+            onPressed: _loadingMore ? null : _loadMore,
+            child: _loadingMore
+                ? const SizedBox(
+                    width: 16, height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('और चालान दिखाएं'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -278,8 +343,11 @@ class _FeesScreenState extends State<FeesScreen> {
           TextButton(onPressed: () => Navigator.pop(c), child: const Text('रद्द करें')),
           FilledButton(
             onPressed: () async {
+              // Captured before the awaits below; `c` is popped once the invoice is
+              // created, and showSnack needs a context that is still alive.
+              final messenger = ScaffoldMessenger.of(c);
               if (studentName.text.isEmpty || amount.text.isEmpty) {
-                showSnack(context, 'आवश्यक फ़ील्ड भरें', isError: true);
+                showSnackVia(messenger, 'आवश्यक फ़ील्ड भरें', isError: true);
                 return;
               }
               try {
@@ -291,12 +359,14 @@ class _FeesScreenState extends State<FeesScreen> {
                   if (scholarNumber.text.isNotEmpty) 'scholarNumber': scholarNumber.text.trim(),
                 });
                 if (c.mounted) Navigator.pop(c);
-                showSnack(context, 'बिल बन गई');
+                // Captured before the await below, because the dialog is popped by the
+                // time this snackbar is due and `c` is then unusable.
+                showSnackVia(messenger, 'बिल बन गई');
                 _load();
               } on ApiException catch (e) {
-                if (c.mounted) showSnack(context, e.message, isError: true);
+                if (c.mounted) showSnackVia(messenger, e.message, isError: true);
               } catch (_) {
-                if (c.mounted) showSnack(context, 'विफल', isError: true);
+                if (c.mounted) showSnackVia(messenger, 'विफल', isError: true);
               }
             },
             child: const Text('बनाएं'),
@@ -307,7 +377,13 @@ class _FeesScreenState extends State<FeesScreen> {
   }
 
   void _showPayDialog(FeeInvoiceModel inv) {
-    final amount = TextEditingController(text: inv.due > 0 ? inv.due.toStringAsFixed(0) : '');
+    // toStringAsFixed(0) rounded away from zero, so a due of Rs 100.50 pre-filled
+    // "101" — and api/fees/index.ts:422-424 then rejects it as more than the
+    // remaining amount. Every fractional invoice made the clerk hand-correct the
+    // figure. _format keeps up to two decimals and drops a trailing ".00".
+    final amount = TextEditingController(
+      text: inv.due > 0 ? _format(inv.due) : '',
+    );
     final txn = TextEditingController();
     showDialog(
       context: context,
@@ -327,6 +403,7 @@ class _FeesScreenState extends State<FeesScreen> {
           TextButton(onPressed: () => Navigator.pop(c), child: const Text('रद्द करें')),
           FilledButton(
             onPressed: () async {
+              final messenger = ScaffoldMessenger.of(c);
               try {
                 await _svc.payInvoice(
                   invoiceId: inv.id,
@@ -335,12 +412,12 @@ class _FeesScreenState extends State<FeesScreen> {
                   transactionId: txn.text.trim().isEmpty ? null : txn.text.trim(),
                 );
                 if (c.mounted) Navigator.pop(c);
-                showSnack(context, 'भुगतान दर्ज हो गया');
+                showSnackVia(messenger, 'भुगतान दर्ज हो गया');
                 _load();
               } on ApiException catch (e) {
-                if (c.mounted) showSnack(context, e.message, isError: true);
+                if (c.mounted) showSnackVia(messenger, e.message, isError: true);
               } catch (_) {
-                if (c.mounted) showSnack(context, 'विफल', isError: true);
+                if (c.mounted) showSnackVia(messenger, 'विफल', isError: true);
               }
             },
             child: const Text('दर्ज करें'),
@@ -440,13 +517,15 @@ class _FeeSetupTabState extends State<_FeeSetupTab> {
           FilledButton(
             onPressed: () async {
               if (name.text.trim().isEmpty) return;
+              // Captured before the await; the dialog is popped immediately after.
+              final messenger = ScaffoldMessenger.of(c);
               try {
                 await _svc.createHead(name.text.trim());
                 if (c.mounted) Navigator.pop(c);
-                showSnack(context, 'फीस शीर्ष जोड़ा गया');
+                showSnackVia(messenger, 'फीस शीर्ष जोड़ा गया');
                 _load();
               } on ApiException catch (e) {
-                if (c.mounted) showSnack(context, e.message, isError: true);
+                if (c.mounted) showSnackVia(messenger, e.message, isError: true);
               }
             },
             child: const Text('जोड़ें'),

@@ -202,13 +202,19 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
           FilledButton(
             onPressed: () async {
               if (ctrl.text.trim().isEmpty) return;
+              // The old code guarded `c` (the dialog) but then used the SCREEN's
+              // `context` for the snackbar — the guard was on the wrong variable and
+              // proved nothing about the context actually being used. A
+              // ScaffoldMessengerState captured here sidesteps both, and still works
+              // after the dialog is popped.
+              final messenger = ScaffoldMessenger.of(c);
               try {
                 await _svc.assignTeacher(className: cls.className, teacherUserId: ctrl.text.trim());
                 if (c.mounted) Navigator.pop(c);
-                showSnack(context, 'शिक्षक असाइन हो गया');
+                showSnackVia(messenger, 'शिक्षक असाइन हो गया');
                 _load();
               } on ApiException catch (e) {
-                if (c.mounted) showSnack(context, e.message, isError: true);
+                if (c.mounted) showSnackVia(messenger, e.message, isError: true);
               }
             },
             child: const Text('असाइन करें'),
@@ -258,8 +264,10 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                 showSnack(context, 'आवश्यक फ़ील्ड भरें', isError: true);
                 return;
               }
-              try {
-                await _svc.addStaff({
+              // Captured before the await; this dialog is popped on success.
+                final messenger = ScaffoldMessenger.of(c);
+                try {
+                  await _svc.addStaff({
                   'name': name.text.trim(),
                   'phone': phone.text.trim(),
                   'email': email.text.trim(),
@@ -269,10 +277,10 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                   if (password.text.isNotEmpty) 'password': password.text.trim(),
                 });
                 if (c.mounted) Navigator.pop(c);
-                showSnack(context, 'स्टाफ जोड़ा गया');
+                showSnackVia(messenger, 'स्टाफ जोड़ा गया');
                 _load();
               } on ApiException catch (e) {
-                if (c.mounted) showSnack(context, e.message, isError: true);
+                if (c.mounted) showSnackVia(messenger, e.message, isError: true);
               }
             },
             child: const Text('जोड़ें'),
@@ -295,8 +303,10 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
       ),
     );
     if (ok != true) return;
+    if (!mounted) return;
     try {
       await _svc.deleteStaff(s.id);
+      if (!mounted) return;
       showSnack(context, 'स्टाफ हटा दिया गया');
       _load();
     } on ApiException catch (e) {

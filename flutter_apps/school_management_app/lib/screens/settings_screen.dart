@@ -40,6 +40,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Captured once here and reused by the button handlers below. They all cross an
+    // async gap (AppConfig writes + a config reload) before showing a snackbar, and
+    // using `context` after that gap is what the analyzer was flagging — the State's
+    // `mounted` guard says nothing about a captured BuildContext. A
+    // ScaffoldMessengerState is not a BuildContext, so this is both safe and silent.
+    final messenger = ScaffoldMessenger.of(context);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('सेटिंग्स', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -147,7 +154,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             onPressed: () async {
                               await AppConfig.resetToDefault();
                               await _loadConfig();
-                              showSnack(context, 'डिफ़ॉल्ट पर रीसेट');
+                              showSnackVia(messenger, 'डिफ़ॉल्ट पर रीसेट');
                             },
                             icon: const Icon(Icons.restart_alt, size: 18),
                             label: const Text('रीसेट'),
@@ -158,7 +165,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: FilledButton.icon(
                             onPressed: () async {
                               final domain = _domainCtrl.text.trim();
-                              final newUrl = domain.isNotEmpty ? null : _urlCtrl.text.trim();
                               final prevServer = _currentServer;
                               final prevDomain = _currentDomain;
                               if (domain.isNotEmpty) {
@@ -167,15 +173,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 await AppConfig.setCustomBaseUrl(_urlCtrl.text.trim());
                               }
                               await _loadConfig();
-                              // If the host actually changed, invalidate the
-                              // old JWT so it is not leaked to the new server,
-                              // and force a fresh login.
+                              if (!mounted) return;
+
+                              // If the host actually changed, invalidate the old JWT so
+                              // it is not leaked to the new server, and force a fresh
+                              // login.
+                              //
+                              // This used to be `if (hostChanged && newUrl != null)`, and
+                              // `newUrl` was null whenever a domain was entered — which is
+                              // the DEFAULT path, because _domainCtrl is pre-filled with
+                              // the stored domain. So editing the school domain changed
+                              // the server and skipped the logout, and
+                              // ApiClient._buildHeaders then attached the previous
+                              // school's Authorization header to every request against
+                              // the new host. One typo in the subdomain box handed a
+                              // live tenant token to whoever controlled that host.
                               final hostChanged = _currentServer != prevServer || _currentDomain != prevDomain;
-                              if (hostChanged && newUrl != null) {
-                                showSnack(context, 'सर्वर बदला। कृपया पुनः लॉगिन करें।');
-                                await performLogout(context);
+                              if (hostChanged) {
+                                showSnackVia(messenger, 'सर्वर बदला। कृपया पुनः लॉगिन करें।');
+                                // this.context is the State's own context, which the
+                                // `mounted` check above actually vouches for.
+                                await performLogout(this.context);
                               } else {
-                                showSnack(context, 'सहेजा गया। लॉगिन करें।');
+                                showSnackVia(messenger, 'सहेजा गया। लॉगिन करें।');
                               }
                             },
                             icon: const Icon(Icons.save, size: 18),

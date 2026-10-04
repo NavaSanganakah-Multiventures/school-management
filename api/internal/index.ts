@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { deriveSyncKey, encryptPayload, getInternalSyncSecret } from '../lib/tenant-crypto';
 import { signatureRequired, verifyInternalSignature, buildInternalAuthHeaders } from '../lib/internal-request-auth';
+import { constantTimeEqual } from '../lib/constant-time';
 
 export const internalApp = new Hono<{ Bindings: any }>();
 
@@ -60,7 +61,12 @@ async function authorizeInternalRequest(
     // The signature covers the secret-bearing request, so also require the
     // static header to match. Without this, a valid signature captured for a
     // different secret would still authenticate.
-    if (providedSecret !== expectedSecret) {
+    //
+    // Compared with constantTimeEqual, not `!==`. INTERNAL_SYNC_SECRET is fleet-wide
+    // per README.md:41-47, so a byte-position oracle here is a fleet-wide one.
+    // api/lib/proxied-auth.ts:118 already used the constant-time helper for this same
+    // secret; this file was the one place that did not.
+    if (!(await constantTimeEqual(providedSecret, expectedSecret))) {
       return {
         ok: false,
         response: c.json({ success: false, message: 'अनधिकृत आंतरिक अनुरोध (Unauthorized internal request)' }, 401),

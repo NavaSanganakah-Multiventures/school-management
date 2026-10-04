@@ -38,15 +38,23 @@ const require = createRequire(import.meta.url);
 // "exports" map does not expose ./bin, so the package main is used instead.
 const WRANGLER_BIN = require.resolve('wrangler');
 
-const WORKERS = [
-  'vidyasetu',
-  'a',
-  'yagya-pragnya',
-  'school795082',
-  'school188328',
-  'qa-school-266668',
-  'yagyaashram',
-];
+// Slugs come from schools.json, the single registry of record.
+//
+// This used to be a hand-maintained array. That is a silent-failure generator for exactly
+// the situation the script exists to prevent: a newly registered school is added to
+// schools.json by provisioning, but a list written by hand is not updated with it, so that
+// school's worker never gets an AUTH_SECRET of its own — and deploy-dedicated.mjs is
+// fail-closed on a missing per-school key, so the deploy stops rather than silently
+// sharing the platform key. The registry cannot drift, so neither can the rotation.
+const registry = JSON.parse(fs.readFileSync('schools.json', 'utf-8'));
+const WORKERS = (registry.schools || [])
+  .map((s) => s && s.slug)
+  .filter((slug) => typeof slug === 'string' && slug.length > 0);
+
+if (!WORKERS.length) {
+  console.error('schools.json lists no schools; refusing to rotate nothing.');
+  process.exit(1);
+}
 
 function fingerprint(secret) {
   return createHash('sha256').update(secret).digest('hex').slice(0, 16);

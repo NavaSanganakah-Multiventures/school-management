@@ -4,10 +4,26 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
 
+    <!-- android:allowBackup defaults to TRUE when omitted, which is wrong for this app.
+
+         The app shows and stores student Aadhaar numbers, bank account numbers, salary
+         figures and parent phone numbers. With backups on, that data is copied into the
+         user's Google account and then into any device that restores from it — so a
+         school employee's personal Google account becomes a copy of the school's
+         student PII, and revoking their access to the app does not revoke it.
+
+         Data extraction rules are declared in res/xml/data_extraction_rules.xml
+         (Android 12+) and res/xml/backup_rules.xml (API 30 and below). Both exclude
+         everything, so the JWT in flutter_secure_storage and any cached student data
+         can never be copied off the device. -->
     <application
         android:label="Pragnya Mitra"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:usesCleartextTraffic="false">
         <activity
             android:name=".MainActivity"
             android:exported="true"

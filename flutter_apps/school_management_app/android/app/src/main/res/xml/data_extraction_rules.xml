@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (API 31) backup and device-transfer rules.
+
+  allowBackup is false in AndroidManifest.xml, so nothing is uploaded to the cloud here.
+  This file is the second line of defence: it also governs device-to-device transfer,
+  which a user can start without any backup ever having been taken.
+
+  Everything is excluded rather than included, so a field added to the app later cannot
+  leak by default. The only thing that must never be copied off the device is
+  flutter_secure_storage, which holds the session JWT.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="root" />
+        <exclude domain="device_sharedpref" />
+        <exclude domain="device_database" />
+        <exclude domain="device_file" />
+        <exclude domain="device_root" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="root" />
+        <exclude domain="device_sharedpref" />
+        <exclude domain="device_database" />
+        <exclude domain="device_file" />
+        <exclude domain="device_root" />
+    </device-transfer>
+</data-extraction-rules>

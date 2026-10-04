@@ -108,8 +108,23 @@ trigger: always_on
 यदि कोई स्कूल कोई कस्टम फ़ीचर (जैसे LMS डैशबोर्ड, बस जीपीएस, बायोमेट्रिक अटेंडेंस, लाइब्रेरी आदि) मांगता है, तो उसे प्लगइन के रूप में बनाया जाएगा।
 
 ### ⚠️ स्वर्णिम नियम (Golden Rule):
-> कोर शेल `components/school-crm-shell.tsx` को **कभी भी एडिट नहीं करना है!**
-> प्लगइन्स पूरी तरह वर्डप्रेस (WordPress) की तरह डिकपल्ड (Decoupled) हैं और डायनेमिकली लोड होते हैं।
+> **आज का असली UI Flutter है, React नहीं।**
+>
+> `flutter_apps/school_management_app/` (staff/parent/student) और
+> `flutter_apps/super_admin_app/` (Super Admin) ही वो UI हैं जो स्कूल को दिखता है।
+>
+> React CRM (`components/screens`, `components/modals`, `components/school-crm-shell.tsx`,
+> root `plugins/`) **dead code था और हटा दिया गया है** — `app/page.tsx` सिर्फ
+> `LandingPage` render करता था, इसलिए `SchoolCrmShell` का कोई importer नहीं था और 882 KB
+> का UI किसी user को कभी दिखा ही नहीं।
+>
+> repo root में अब सिर्फ यही React बचा है, और यही **live** है:
+> - `components/website/landing.tsx` — public marketing website
+> - `components/website/register-form.tsx` — 7-दिन trial registration
+> - `components/screens/reset-password-screen.tsx` — `/reset?token=` route
+>
+> नया स्कूल-फ़ेचर बनाना है तो Flutter में बनाइए। backend route `api/` में, entitlement
+> `db_migrations/` के `plugins` row से। React में नए plugin screen जोड़ने की ज़रूरत नहीं।
 
 ---
 
@@ -152,57 +167,28 @@ import pluginXyzApp from './plugin-xyz';
 app.route('/api/plugin-xyz', pluginXyzApp);
 ```
 
-#### चरण 3: फ्रंटेंड कम्पोनेंट्स (Frontend UI Screen & Widget)
-`plugins/plugin-xyz/` फ़ोल्डर बनाएं:
-1. **स्क्रीन कम्पोनेंट (`plugins/plugin-xyz/screen.tsx`):**
-```tsx
-'use client';
-import React from 'react';
+#### चरण 3: फ्रंटेंड स्क्रीन (Flutter — असली UI)
+UI Flutter में बनता है, `flutter_apps/school_management_app/lib/screens/` में:
+1. **स्क्रीन:** `flutter_apps/school_management_app/lib/screens/plugin_xyz_screen.dart`
+2. **सर्विस:** `.../lib/services/plugin_xyz_service.dart` — `ApiClient` से endpoint call
+3. **रूटिंग:** `.../lib/routes/app_router.dart` में screen जोड़ें
+4. **मॉडल (optional):** `.../lib/models/plugin_xyz_model.dart`
 
-export function PluginXyzScreen() {
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold">XYZ Service Dashboard</h1>
-      <p className="text-gray-600">This is loaded dynamically!</p>
-    </div>
-  );
-}
-```
-2. **(वैकल्पिक) फ्लोटिंग विजेट (`plugins/plugin-xyz/widget.tsx`):** अगर कोई फ्लोटिंग बटन या क्विक स्टेटस चाहिए।
+> ❌ `plugins/` (repo root) में React screen/widget **मत** बनाइए — वह registry हटा दी गई है
+> और वहाँ कुछ भी render नहीं होता। entitlement आपके backend `api/plugin-xyz/` से आता है।
 
-#### चरण 4: प्लगइन रजिस्ट्री में जोड़ना (Frontend Registry)
-`plugins/index.ts` खोलें और नए प्लगइन को `PLUGINS_REGISTRY` में जोड़ें:
-```typescript
-import { PluginXyzScreen } from './plugin-xyz/screen';
-import { Sparkles } from 'lucide-react';
-
-export const PLUGINS_REGISTRY: FrontendPlugin[] = [
-  // ... बाकी प्लगइन्स
-  {
-    id: 'plugin-xyz', // यह ID डेटाबेस की id से 100% मैच होनी चाहिए
-    navItems: [
-      {
-        id: 'plugin-xyz-tab',
-        label: 'XYZ Service',
-        icon: Sparkles,
-        allowedRoles: ['Director', 'Principal', 'Teacher'],
-        badge: 'Pro'
-      }
-    ],
-    routes: [
-      {
-        id: 'plugin-xyz-tab',
-        component: PluginXyzScreen
-      }
-    ]
-  }
-];
-```
+#### चरण 4: रोल-आधारित दिखावट
+`school_plugins` में entry होने पर ही Flutter screen दिखे। हर role अपनी screen चुनता है
+(`.../lib/routes/app_router.dart` में `dashboardPathForRole`), इसलिए plugin screen को
+role guard के साथ register करें।
 
 #### चरण 5: सक्रियण एवं उपयोग (Activation & Usage Flow)
 - जब कोई स्कूल डायरेक्टर मार्केटप्लेस से प्लगइन एक्टिवेट/खरीदता है, तो `school_plugins` टेबल में एंट्री होती है।
-- फ्रंटेंड शेल (`school-crm-shell.tsx`) लोड होते ही API से स्कूल के एक्टिव प्लगइन्स फ़ेच करता है।
-- शेल स्वचालित रूप से `PLUGINS_REGISTRY` से मैच करके साइडबार में **NavItem** और स्क्रीन में **Route** इंजेक्ट कर देता है।
+- Flutter app लॉगिन के बाद `/api/plugins` से स्कूल के active plugins फ़ेच करता है।
+- backend `GET /api/plugins/active` visibility rule लागू करता है —
+  `is_active = 1 AND (type = 'global' OR (type = 'private' AND target_school_id = ?))`.
+  **साथ में `POST /api/plugins/subscribe` भी यही rule लागू करता है**, ताकि कोई दूसरे
+  tenant का paid plugin activate न कर सके।
 
 ---
 

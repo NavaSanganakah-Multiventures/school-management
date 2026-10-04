@@ -24,6 +24,9 @@ class _StudentsListScreenState extends State<StudentsListScreen> {
 
   List<StudentModel> _students = [];
   List<String> _assignedClasses = [];
+
+  // Every class the school actually has, from /api/classes/my-classes `allClasses`.
+  List<String> _liveClasses = [];
   bool _isClassTeacher = false;
   bool _loading = true;
   String _selectedClass = 'All';
@@ -43,11 +46,36 @@ class _StudentsListScreenState extends State<StudentsListScreen> {
     'Class 12 (Science)', 'Class 12 (Commerce)',
   ];
 
+  // 'All' plus everything the school actually has, unioned with the defaults.
+  //
+  // The dropdown used to be driven only by the hardcoded _classesList above, while
+  // _selectedClass was fed from /api/classes/my-classes — whose class_name values come
+  // straight from the database (api/classes/index.ts:68 merges real student class names).
+  // A school with a class called "LKG", "Class 4-A" or "5" therefore produced a
+  // _selectedClass with no matching item, and Flutter threw "There should be exactly one
+  // item with DropdownButton's value: …" — a red screen on the students list.
+  List<String> get _classOptions {
+    final rest = <String>{..._classesList.where((c) => c != 'All'), ..._assignedClasses, ..._liveClasses}
+        .where((c) => c.isNotEmpty)
+        .toList()
+      ..sort();
+    return ['All', ...rest];
+  }
+
   @override
   void initState() {
     super.initState();
-    _loadAssignedClasses();
-    _loadStudents();
+    // Sequential, not both fired at once: _loadAssignedClasses decides the class filter
+    // that _loadStudents applies, so running them concurrently meant the students request
+    // went out with 'All' before the assignment was known and was never re-issued. A Staff
+    // class teacher then saw the WHOLE school while the header read "अधिकृत कक्षा
+    // अध्यापक: Class 5" and the dropdown showed Class 5.
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    await _loadAssignedClasses();
+    await _loadStudents();
   }
 
   @override
@@ -59,10 +87,15 @@ class _StudentsListScreenState extends State<StudentsListScreen> {
   Future<void> _loadAssignedClasses() async {
     try {
       final res = await ApiClient().get('/api/classes/my-classes');
+      if (!mounted) return;
       if (res['success'] == true && res['assignedClasses'] is List) {
         final classes = List<String>.from(res['assignedClasses']);
+        final allClasses = res['allClasses'] is List
+            ? List<String>.from(res['allClasses'])
+            : <String>[];
         setState(() {
           _assignedClasses = classes;
+          _liveClasses = allClasses;
           _isClassTeacher = classes.isNotEmpty;
           if (widget.user.role == UserRole.staff && classes.isNotEmpty) {
             _selectedClass = classes.first;
@@ -111,8 +144,12 @@ class _StudentsListScreenState extends State<StudentsListScreen> {
     if (confirmed != true) return;
     try {
       await _svc.deleteStudent(s.id);
+      // Guard the setState too. The `mounted` check below covered the snackbar but not
+      // this line, so confirming a delete and then navigating back while the request was
+      // in flight crashed with "setState() called after dispose()".
+      if (!mounted) return;
       setState(() => _students.removeWhere((st) => st.id == s.id));
-      if (mounted) showSnack(context, '${s.fullName} का रिकॉर्ड हटा दिया गया।');
+      showSnack(context, '${s.fullName} का रिकॉर्ड हटा दिया गया।');
     } on ApiException catch (e) {
       if (mounted) showSnack(context, e.message, isError: true);
     } catch (_) {
@@ -126,9 +163,12 @@ class _StudentsListScreenState extends State<StudentsListScreen> {
     final parentCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
     String gender = 'Male';
-    String dialogClass = _selectedClass == 'All'
-        ? (_classesList.length > 1 ? _classesList[1] : 'Class 1')
-        : _selectedClass;
+    // Only ever a value the dialog's dropdown actually offers, for the same
+    // "exactly one item" reason as _classOptions above.
+    final dialogClassOptions = _classOptions.where((c) => c != 'All').toList();
+    String dialogClass = _selectedClass != 'All' && dialogClassOptions.contains(_selectedClass)
+        ? _selectedClass
+        : (dialogClassOptions.isNotEmpty ? dialogClassOptions.first : '');
     DateTime? dob;
     bool isSaving = false;
 
@@ -140,6 +180,10 @@ class _StudentsListScreenState extends State<StudentsListScreen> {
     } catch (_) {
       defs = [];
     }
+
+    // This State's context is deactivated if the screen is left during the await above,
+    // and showDialog would then throw on the deactivated ancestor.
+    if (!mounted) return;
 
     await showDialog(
       context: context,
@@ -166,14 +210,13 @@ class _StudentsListScreenState extends State<StudentsListScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     DropdownButtonFormField<String>(
-                      initialValue: dialogClass,
+                      initialValue: dialogClassOptions.contains(dialogClass) ? dialogClass : null,
                       decoration: const InputDecoration(
                         labelText: 'कक्षा *',
                         isDense: true,
                         border: OutlineInputBorder(),
                       ),
-                      items: _classesList
-                          .where((c) => c != 'All')
+                      items: dialogClassOptions
                           .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                           .toList(),
                       onChanged: (val) {
@@ -425,7 +468,9 @@ class _StudentsListScreenState extends State<StudentsListScreen> {
           Expanded(
             flex: 2,
             child: DropdownButtonFormField<String>(
-              initialValue: _selectedClass,
+              // Guarded for the same reason: a class name that arrived from the server but
+              // is not in the item list used to assert and red-screen the whole page.
+              initialValue: _classOptions.contains(_selectedClass) ? _selectedClass : 'All',
               isDense: true,
               decoration: InputDecoration(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -433,7 +478,7 @@ class _StudentsListScreenState extends State<StudentsListScreen> {
                 isDense: true,
               ),
               style: const TextStyle(fontSize: 11, color: Colors.black87),
-              items: _classesList
+              items: _classOptions
                   .map((c) => DropdownMenuItem(
                         value: c,
                         child: Text(c == 'All' ? 'सभी कक्षाएं' : c, overflow: TextOverflow.ellipsis),

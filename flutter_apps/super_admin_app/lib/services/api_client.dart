@@ -65,7 +65,10 @@ class SuperAdminApiClient {
     return _process(response);
   }
 
-  dynamic _process(http.Response response) {
+  // Async because the 401 branch has to finish deleting the stored token BEFORE
+  // onAuthFailure navigates to the login screen. See the note on `await clearAuth()`
+  // below for why that ordering matters.
+  Future<dynamic> _process(http.Response response) async {
     dynamic body;
     try {
       body = jsonDecode(response.body);
@@ -77,8 +80,17 @@ class SuperAdminApiClient {
     } else {
       if (response.statusCode == 401) {
         // Session expired — clear token and bounce the user to login.
+        //
+        // `await` is load-bearing here and was missing. clearAuth() is async, so
+        // `try { clearAuth(); } catch (_) {}` could never catch anything, and a
+        // PlatformException surfaced as an unhandled async error instead. Worse, the
+        // delete was still in flight when onAuthFailure navigated to login, so a fast
+        // re-login could store a fresh token and then have the pending delete land
+        // afterwards — erasing the new token and bouncing the user to login again on
+        // next launch. The shared client gets this right at
+        // shared/lib/src/services/api_client.dart:199-204.
         try {
-          clearAuth();
+          await clearAuth();
         } catch (_) {}
         onAuthFailure?.call();
       }

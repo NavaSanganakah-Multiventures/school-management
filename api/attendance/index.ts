@@ -87,7 +87,7 @@ attendanceApp.get('/', async (c) => {
   const { clause, params } = classListWhereClause(queryClasses || []);
   const sql =
     'SELECT s.id AS student_id, s.first_name, s.last_name, s.class_name, s.section, s.roll_number, s.scholar_number, s.parent_name, s.parent_phone, a.id AS att_id, a.status, a.remarks, a.marked_by ' +
-    'FROM students s LEFT JOIN attendance a ON a.student_id = s.id AND a.date = ? ' +
+    'FROM students s LEFT JOIN attendance a ON a.student_id = s.id AND a.date = ? AND a.school_id = s.school_id ' +
     'WHERE s.school_id = ? AND s.status = ?' + clause + ' ORDER BY s.class_name, s.roll_number, s.first_name';
 
   const queryParams = [date, schoolId, 'Active', ...(queryClasses ? params : [])];
@@ -172,7 +172,12 @@ attendanceApp.get('/absentees-summary', async (c) => {
   const { clause, params } = classListWhereClause(queryClasses || []);
   const sql =
     'SELECT s.id AS student_id, s.first_name, s.last_name, s.class_name, s.section, s.roll_number, s.scholar_number, s.parent_name, s.parent_phone, a.id AS att_id, a.status, a.remarks, a.marked_by, a.date ' +
-    'FROM students s INNER JOIN attendance a ON a.student_id = s.id AND a.date = ? ' +
+    // `attendance` is school-scoped (0001, with school_id added in 0004) but the join
+    // matched on student_id and date alone. Compare api/ai/index.ts:333, which carries
+    // school_id on both sides of its join. Without it, a row left behind in a shared D1
+    // from a previous tenant with the same student id would be attributed to this
+    // school's register.
+    'FROM students s INNER JOIN attendance a ON a.student_id = s.id AND a.date = ? AND a.school_id = s.school_id ' +
     'WHERE s.school_id = ? AND s.status = ? AND a.status = ?' + clause + ' ORDER BY s.class_name, s.roll_number, s.first_name';
 
   const queryParams = [date, schoolId, 'Active', 'Absent', ...(queryClasses ? params : [])];
@@ -543,7 +548,10 @@ attendanceApp.post('/notify-absentees', async (c) => {
               tokenFailed++;
               const errStr = r.error || '';
               if (errStr.includes('UNREGISTERED') || errStr.includes('INVALID_ARGUMENT') || errStr.includes('NOT_FOUND')) {
-                await db.prepare('UPDATE fcm_device_tokens SET is_active = 0 WHERE device_token = ?').bind(t).run().catch(() => {});
+                // Tenant-scoped, matching the SELECT at :527. `fcm_device_tokens` is
+                // school-scoped and copied per school, so an unscoped deactivation can
+                // reach another tenant's row.
+                await db.prepare('UPDATE fcm_device_tokens SET is_active = 0 WHERE device_token = ? AND school_id = ?').bind(t, schoolId).run().catch(() => {});
               }
             }
           } catch (e: any) {

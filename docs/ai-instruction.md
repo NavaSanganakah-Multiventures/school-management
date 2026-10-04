@@ -43,109 +43,21 @@
 
 ---
 
-## 3. 🧩 प्लगइन आर्किटेक्चर गाइड (Plugin Architecture & Creation Guide)
+## 3. 🧩 प्लगइन आर्किटेक्चर
 
-यदि कोई स्कूल कोई कस्टम फ़ीचर (जैसे LMS डैशबोर्ड, बस जीपीएस, बायोमेट्रिक अटेंडेंस, लाइब्रेरी आदि) मांगता है, तो उसे प्लगइन के रूप में बनाया जाएगा।
-
-### ⚠️ स्वर्णिम नियम (Golden Rule):
-> कोर शेल `components/school-crm-shell.tsx` को **कभी भी एडिट नहीं करना है!**
-> प्लगइन्स पूरी तरह वर्डप्रेस (WordPress) की तरह डिकपल्ड (Decoupled) हैं और डायनेमिकली लोड होते हैं।
-
----
-
-### 🛠️ नया प्लगइन बनाने के 5 चरण (Step-by-Step Plugin Creation):
-
-#### चरण 1: डेटाबेस माइग्रेशन (Database Registration)
-`db_migrations/` में एक नई माइग्रेशन फ़ाइल बनाएं (जैसे `0024_plugin_xyz.sql`):
-```sql
--- प्लगइन को ग्लोबल कैटलॉग में रजिस्टर करें
-INSERT OR IGNORE INTO plugins (id, name, description, category, price_inr, is_active)
-VALUES (
-  'plugin-xyz',
-  'XYZ Advanced Service',
-  'Description of the add-on feature',
-  'academics',
-  49900,
-  1
-);
-```
-
-#### चरण 2: बैकएंड API रूट्स (Backend Hono App)
-1. `api/plugin-xyz/index.ts` बनाएं:
-```typescript
-import { Hono } from 'hono';
-
-const pluginApp = new Hono<{ Bindings: Env; Variables: { user: any; schoolId: string } }>();
-
-// सभी रूट्स स्वचालित रूप से स्कूल-स्कोप्ड होंगे
-pluginApp.get('/status', async (c) => {
-  const schoolId = c.get('schoolId');
-  return c.json({ success: true, schoolId, message: 'Plugin XYZ active' });
-});
-
-export default pluginApp;
-```
-2. `api/index.ts` में रूट रजिस्टर करें:
-```typescript
-import pluginXyzApp from './plugin-xyz';
-// ...
-app.route('/api/plugin-xyz', pluginXyzApp);
-```
-
-#### चरण 3: फ्रंटेंड कम्पोनेंट्स (Frontend UI Screen & Widget)
-`plugins/plugin-xyz/` फ़ोल्डर बनाएं:
-1. **स्क्रीन कम्पोनेंट (`plugins/plugin-xyz/screen.tsx`):**
-```tsx
-'use client';
-import React from 'react';
-
-export function PluginXyzScreen() {
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold">XYZ Service Dashboard</h1>
-      <p className="text-gray-600">This is loaded dynamically!</p>
-    </div>
-  );
-}
-```
-2. **(वैकल्पिक) फ्लोटिंग विजेट (`plugins/plugin-xyz/widget.tsx`):** अगर कोई फ्लोटिंग बटन या क्विक स्टेटस चाहिए।
-
-#### चरण 4: प्लगइन रजिस्ट्री में जोड़ना (Frontend Registry)
-`plugins/index.ts` खोलें और नए प्लगइन को `PLUGINS_REGISTRY` में जोड़ें:
-```typescript
-import { PluginXyzScreen } from './plugin-xyz/screen';
-import { Sparkles } from 'lucide-react';
-
-export const PLUGINS_REGISTRY: FrontendPlugin[] = [
-  // ... बाकी प्लगइन्स
-  {
-    id: 'plugin-xyz', // यह ID डेटाबेस की id से 100% मैच होनी चाहिए
-    navItems: [
-      {
-        id: 'plugin-xyz-tab',
-        label: 'XYZ Service',
-        icon: Sparkles,
-        allowedRoles: ['Director', 'Principal', 'Teacher'],
-        badge: 'Pro'
-      }
-    ],
-    routes: [
-      {
-        id: 'plugin-xyz-tab',
-        component: PluginXyzScreen
-      }
-    ]
-  }
-];
-```
-
-#### चरण 5: सक्रियण एवं उपयोग (Activation & Usage Flow)
-- जब कोई स्कूल डायरेक्टर मार्केटप्लेस से प्लगइन एक्टिवेट/खरीदता है, तो `school_plugins` टेबल में एंट्री होती है।
-- फ्रंटेंड शेल (`school-crm-shell.tsx`) लोड होते ही API से स्कूल के एक्टिव प्लगइन्स फ़ेच करता है।
-- शेल स्वचालित रूप से `PLUGINS_REGISTRY` से मैच करके साइडबार में **NavItem** और स्क्रीन में **Route** इंजेक्ट कर देता है।
-
----
-
+> **यह पूरा हिस्सा बदल चुका है।** React CRM (`components/school-crm-shell.tsx`,
+> `components/screens/`, `components/modals/`, और repo root का `plugins/` folder)
+> **हटा दिया गया है** — `app/page.tsx` सिर्फ़ `LandingPage` render करता था, इसलिए उनका कोई
+> importer नहीं था और ~882 KB का UI किसी user को कभी दिखा ही नहीं।
+>
+> **असली UI Flutter है**: `flutter_apps/school_management_app` (staff/parent/student) और
+> `flutter_apps/super_admin_app` (Super Admin)।
+>
+> नया प्लगइन बनाने का सही तरीका: `.agents/rules/plugin_architecture.md` पढ़ें। उसमें दो
+> चीज़ें हैं जो यहाँ पुरानी गाइड गलत बताती थी — UI कहाँ बनता है, और entitlement **दो** जगह
+> लागू होता है (`GET /api/plugins` **और** `POST /api/plugins/subscribe`), ताकि कोई Director
+> दूसरे tenant का paid plugin activate न कर सके।
+>
 ## 4. 🚀 डिप्लॉयमेंट एवं रजिस्ट्री (`schools.json`)
 
 जब कोई नया स्कूल register/approve होता है (हर plan — Trial/Starter/Pro/Enterprise):

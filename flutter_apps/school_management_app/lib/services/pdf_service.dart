@@ -407,6 +407,19 @@ class PdfService {
   static SchoolProfileModel? _cachedSchool;
   static DateTime? _cachedAt;
 
+  /// Drops the cached school profile.
+  ///
+  /// This cache is a static field on a singleton that outlives any login. It used to
+  /// have no way to be invalidated, so logout could not clear it: log out of School A,
+  /// log in as School B, generate a bonafide or receipt inside the 5-minute window, and
+  /// the PDF header printed School A's name, address, phone and email on School B's
+  /// official document. AuthService.logout() only knows about the token and the current
+  /// user, so it has to be told about this cache explicitly.
+  static void clearSchoolCache() {
+    _cachedSchool = null;
+    _cachedAt = null;
+  }
+
   /// Fetches the school profile (cached for 5 minutes) for the PDF header;
   /// falls back to a neutral name if the endpoint fails.
   static Future<SchoolProfileModel> schoolProfile() async {

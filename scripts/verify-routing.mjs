@@ -497,6 +497,85 @@ console.log('\nRouting contract verification\n');
   }
 }
 
+// ----------------------------------------------------------------------------
+// The tier-must-not-decide-the-plan contract.
+//
+// api/billing/index.ts used to read `isDedicated ? 'enterprise'` and, on that basis,
+// granted all 17 modules, unlimited students/staff/email and every feature flag. It was
+// dead for dedicated schools — /api/billing is unconditionally proxied to the platform,
+// where `isDedicated` is false — so it read as harmless.
+//
+// It was not harmless, it was unreachable-by-accident. It is a shortcut from "this worker
+// happens to have SCHOOL_ID set" to "this school is on the most expensive tier", and it
+// only stayed safe because of an unrelated routing decision. The plan must come from the
+// platform's own database and from nothing else.
+//
+// README.md claimed for years that this file asserted the contract. It did not: the
+// script contained no reference to billing, isDedicated or enterprise at all, which is
+// precisely why the sibling copies were never noticed. This block is that assertion.
+// ----------------------------------------------------------------------------
+console.log('');
+console.log('the plan is resolved by the platform, never by the tier');
+{
+  // Comments are stripped first, and that is not cosmetic.
+  //
+  // The first version of this check failed the moment the bug was fixed, because the fix
+  // included a comment explaining the bug — and the comment contains the words the regex
+  // looks for. So the check reported a working file as broken. This is the same class of
+  // mistake the repo already documents twice: a check matching its own explanation
+  // instead of the code, and a check that breaks on spelling.
+  //
+  // A comment must not be able to fail a check, and must not be able to satisfy one.
+  const stripComments = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+
+  const TIER_PLAN = /isDedicated[^\n;]*enterprise|enterprise[^\n;]*isDedicated/i;
+  const TIER_GRANT = /\|\|\s*isDedicated\b/;
+
+  const billingSrc = stripComments(fs.readFileSync('api/billing/index.ts', 'utf8'));
+
+  // Structural, not a grep for one spelling: any expression that yields the string
+  // 'enterprise' from a tier flag is refused, however it is written.
+  const tierDerivedPlan = TIER_PLAN.test(billingSrc);
+  check('api/billing/index.ts does not derive a plan from isDedicated',
+    !tierDerivedPlan,
+    tierDerivedPlan ? 'found a tier flag feeding a plan literal' : '');
+
+  // The grant must not be reachable through the tier either — that was the same
+  // shortcut spelled a second time on the following `if`.
+  const tierDerivedGrant = TIER_GRANT.test(billingSrc);
+  check('api/billing/index.ts does not grant entitlements via isDedicated',
+    !tierDerivedGrant,
+    tierDerivedGrant ? 'found `|| isDedicated` in a grant condition' : '');
+
+  // And the whole repo, so the copy cannot reappear somewhere else.
+  const offenders = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (['node_modules', '.git', '.next', 'out', '.wrangler', 'flutter_apps'].includes(entry.name)) continue;
+      const p = dir + '/' + entry.name;
+      if (entry.isDirectory()) { walk(p); continue; }
+      if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+      if (p.indexOf('scripts/') === 0) continue;
+      const src = stripComments(fs.readFileSync(p, 'utf8'));
+      if (TIER_PLAN.test(src) || TIER_GRANT.test(src)) offenders.push(p);
+    }
+  };
+  walk('api');
+  walk('components');
+  walk('lib');
+  check('no source file derives a plan from isDedicated', offenders.length === 0,
+    offenders.join(', '));
+
+  // Prove the comment-stripping is real, so a future reader does not "simplify" it away
+  // and get a check that fails on its own documentation again.
+  const decoy = "const planId = isDedicated ? 'enterprise' : p; // isDedicated enterprise";
+  check('the check ignores comments but not code',
+    !TIER_PLAN.test(stripComments('/* isDedicated enterprise */ const x = 1;'))
+      && TIER_PLAN.test(stripComments(decoy)));
+}
+
 console.log('');
 if (failures > 0) {
   console.error('FAILED: ' + failures + ' routing contract check(s) failed\n');

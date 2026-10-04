@@ -24,17 +24,29 @@ function limits(env: any) {
   };
 }
 
-async function readCount(db: any, day: string, recipient: string): Promise<number> {
-  const row = await db.prepare('SELECT count FROM email_quota WHERE day = ? AND recipient = ?')
-    .bind(day, recipient).first();
-  return row ? Number(row.count) : 0;
-}
-
-async function increment(db: any, day: string, recipient: string) {
-  const upsertSql = 'INSERT INTO email_quota (id, day, recipient, count, updated_at) '
+/**
+ * Reserves one send against `key`, atomically.
+ *
+ * The previous version read the count, compared it in JS, and then incremented — four
+ * separate statements with no transaction and no condition on the write. N concurrent
+ * requests therefore all observed `count < limit` and all proceeded, exceeding the
+ * ceiling by the concurrency factor. This endpoint is reachable unauthenticated through
+ * POST /api/auth/forgot-password, which is exactly the anti-abuse path the module exists
+ * for.
+ *
+ * The guard now lives in the statement: `WHERE count < ?` on DO UPDATE means the
+ * database refuses to increment past the limit, and `meta.changes === 0` is the answer.
+ * One statement, one round trip, no window.
+ */
+async function reserve(db: any, day: string, recipient: string, limit: number): Promise<boolean> {
+  const sql = 'INSERT INTO email_quota (id, day, recipient, count, updated_at) '
     + 'VALUES (?, ?, ?, 1, ?) '
-    + 'ON CONFLICT(day, recipient) DO UPDATE SET count = count + 1, updated_at = excluded.updated_at';
-  await db.prepare(upsertSql).bind(crypto.randomUUID(), day, recipient, new Date().toISOString()).run();
+    + 'ON CONFLICT(day, recipient) DO UPDATE SET count = count + 1, updated_at = excluded.updated_at '
+    + 'WHERE count < ?';
+  const res: any = await db.prepare(sql)
+    .bind(crypto.randomUUID(), day, recipient, new Date().toISOString(), limit)
+    .run();
+  return Number(res?.meta?.changes ?? 0) > 0;
 }
 
 export async function checkAndReserveEmailQuota(env: any, recipient: string): Promise<EmailQuotaResult> {
@@ -49,26 +61,30 @@ export async function checkAndReserveEmailQuota(env: any, recipient: string): Pr
   const to = String(recipient || '').trim().toLowerCase();
 
   try {
-    const globalCount = await readCount(db, day, GLOBAL_KEY);
-    if (globalCount >= lim.global) {
-      return { allowed: false, reason: 'दैनिक ईमेल भेजने की वैश्विक सीमा पार हो गई है। कृपया बाद में पुनः प्रयास करें।' };
-    }
-
+    // Per-recipient is reserved BEFORE the global pool, and that order is deliberate.
+    //
+    // The two reservations cannot be one transaction, so exactly one slot is consumed
+    // whenever the second check denies. Reserving the recipient first means that burn
+    // lands on a per-address counter (3/day) rather than on the shared global pool, which
+    // is the scarce resource every recipient competes for. Either way the system is
+    // UNDER-allowed after a denial, never over-allowed — which is the direction that has
+    // to hold for a quota.
     if (to) {
-      const recipientCount = await readCount(db, day, to);
-      if (recipientCount >= lim.perRecipient) {
+      const ok = await reserve(db, day, to, lim.perRecipient);
+      if (!ok) {
         return { allowed: false, reason: 'इस ईमेल पते के लिए आज की भेजने की सीमा पार हो गई है। कृपया कल पुनः प्रयास करें।' };
       }
     }
 
-    await increment(db, day, GLOBAL_KEY);
-    if (to) {
-      await increment(db, day, to);
+    const globalOk = await reserve(db, day, GLOBAL_KEY, lim.global);
+    if (!globalOk) {
+      return { allowed: false, reason: 'दैनिक ईमेल भेजने की वैश्विक सीमा पार हो गई है। कृपया बाद में पुनः प्रयास करें।' };
     }
 
     return { allowed: true };
   } catch (e: any) {
     // A quota counter failure should not take down transactional email; log for observability.
+    // Password-reset mail failing closed would lock a user out of their own account.
     console.error('email quota check failed:', e && e.message);
     return { allowed: true };
   }

@@ -137,6 +137,8 @@ class _LmsScreenState extends State<LmsScreen> {
           FilledButton(
             onPressed: () async {
               if (title.text.isEmpty || className.text.isEmpty || subject.text.isEmpty) return;
+              // Captured before the await; the dialog is popped on success.
+              final messenger = ScaffoldMessenger.of(c);
               try {
                 await _svc.createCourse({
                   'title': title.text.trim(),
@@ -145,10 +147,10 @@ class _LmsScreenState extends State<LmsScreen> {
                   if (description.text.isNotEmpty) 'description': description.text.trim(),
                 });
                 if (c.mounted) Navigator.pop(c);
-                showSnack(context, 'कोर्स बन गया');
+                showSnackVia(messenger, 'कोर्स बन गया');
                 _load();
               } on ApiException catch (e) {
-                if (c.mounted) showSnack(context, e.message, isError: true);
+                if (c.mounted) showSnackVia(messenger, e.message, isError: true);
               }
             },
             child: const Text('बनाएं'),
@@ -279,12 +281,14 @@ class _CourseDetailScreenState extends State<_CourseDetailScreen> {
           TextButton(onPressed: () => Navigator.pop(c), child: const Text('रद्द करें')),
           FilledButton(
             onPressed: () async {
+              // Captured before the await; this dialog is popped on success.
+              final messenger = ScaffoldMessenger.of(c);
               try {
                 await _svc.submitAssignment(a.id, submissionText: text.text.trim());
                 if (c.mounted) Navigator.pop(c);
-                showSnack(context, 'जमा हो गया');
+                showSnackVia(messenger, 'जमा हो गया');
               } on ApiException catch (e) {
-                if (c.mounted) showSnack(context, e.message, isError: true);
+                if (c.mounted) showSnackVia(messenger, e.message, isError: true);
               }
             },
             child: const Text('जमा करें'),
@@ -375,13 +379,15 @@ class _SubmissionsScreenState extends State<_SubmissionsScreen> {
           TextButton(onPressed: () => Navigator.pop(c), child: const Text('रद्द करें')),
           FilledButton(
             onPressed: () async {
+              // Captured before the await; this dialog is popped on success.
+              final messenger = ScaffoldMessenger.of(c);
               try {
                 await _svc.gradeSubmission(s.id!, marksObtained: int.tryParse(marks.text.trim()), teacherFeedback: feedback.text.trim().isEmpty ? null : feedback.text.trim());
                 if (c.mounted) Navigator.pop(c);
-                showSnack(context, 'ग्रेड सहेजा गया');
+                showSnackVia(messenger, 'ग्रेड सहेजा गया');
                 _load();
               } on ApiException catch (e) {
-                if (c.mounted) showSnack(context, e.message, isError: true);
+                if (c.mounted) showSnackVia(messenger, e.message, isError: true);
               }
             },
             child: const Text('सहेजें'),
