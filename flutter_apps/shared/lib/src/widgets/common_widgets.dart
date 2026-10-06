@@ -138,6 +138,32 @@ Future<void> showSnack(BuildContext context, String message, {bool isError = fal
   );
 }
 
+/// Same snackbar, but safe to call after an `await` — including from inside a dialog
+/// that has already been popped.
+///
+/// `showSnack` needs a live BuildContext. After an async gap the screen's context may be
+/// deactivated, and after a `Navigator.pop` the dialog's context definitely is, so
+/// calling it then throws. A ScaffoldMessengerState is not a BuildContext and outlives
+/// both, so capturing it BEFORE the await is the correct pattern:
+///
+/// ```dart
+/// final messenger = ScaffoldMessenger.of(dialogCtx);
+/// await save();
+/// showSnackVia(messenger, 'सहेजा गया');
+/// ```
+///
+/// Prefer this over a bare `if (mounted)` inside dialog builders: a guard on the dialog
+/// context says nothing about the screen context that the old code was actually using.
+void showSnackVia(ScaffoldMessengerState messenger, String message, {bool isError = false}) {
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(message),
+      backgroundColor: isError ? Colors.red.shade700 : Colors.green.shade700,
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
+}
+
 class EmptyState extends StatelessWidget {
   final String message;
   final IconData icon;

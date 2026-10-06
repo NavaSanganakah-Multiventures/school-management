@@ -80,16 +80,37 @@ async function readAttempts(db: any, key: string, now: number): Promise<number> 
   return Number(row.attempts || 0);
 }
 
-async function writeAttempts(db: any, key: string, now: number, attempts: number): Promise<void> {
+/**
+ * Increments the counter by exactly one, atomically.
+ *
+ * This used to take an absolute `attempts` value computed by the caller from its own
+ * earlier read, and write it with `attempts = excluded.attempts`. That is a
+ * read-modify-write across two statements, so N concurrent wrong-password requests all
+ * read the same N-1 and all wrote N: the counter advanced by one no matter how many
+ * attempts actually happened. An attacker who parallelised their guesses therefore
+ * defeated both jobs this limiter exists for — the online password-guessing oracle and
+ * the PBKDF2 CPU-exhaustion vector described in the header.
+ *
+ * The increment now happens inside the upsert, so the database applies it. `window_start`
+ * is rolled forward only when the stored window has actually closed, which is the same
+ * rule readAttempts applies, so the two cannot disagree about whether a row is live.
+ */
+async function incrementAttempts(db: any, key: string, now: number): Promise<void> {
   const windowStart = Math.floor(now / WINDOW_MS) * WINDOW_MS;
   await db
     .prepare(
-      `INSERT INTO login_rate_limits (rate_key, window_start, attempts) VALUES (?, ?, ?)
+      `INSERT INTO login_rate_limits (rate_key, window_start, attempts) VALUES (?, ?, 1)
        ON CONFLICT(rate_key) DO UPDATE SET
-         attempts = excluded.attempts,
-         window_start = excluded.window_start`,
+         attempts = CASE
+           WHEN login_rate_limits.window_start + ? <= ? THEN 1
+           ELSE login_rate_limits.attempts + 1
+         END,
+         window_start = CASE
+           WHEN login_rate_limits.window_start + ? <= ? THEN ?
+           ELSE login_rate_limits.window_start
+         END`,
     )
-    .bind(key, windowStart, attempts)
+    .bind(key, windowStart, WINDOW_MS, now, WINDOW_MS, now, windowStart)
     .run();
 }
 
@@ -168,12 +189,10 @@ export async function recordLoginFailure(
   const ipKey = windowKey('ip', normaliseIp(ip));
 
   try {
-    const [byId, byIp] = await Promise.all([
-      readAttempts(db, idKey, now),
-      readAttempts(db, ipKey, now),
-    ]);
-    await writeAttempts(db, idKey, now, byId + 1);
-    await writeAttempts(db, ipKey, now, byIp + 1);
+    // Each key is incremented on its own; no read is needed, so nothing can be lost to
+    // a concurrent writer. Kept sequential because D1 serialises writes anyway.
+    await incrementAttempts(db, idKey, now);
+    await incrementAttempts(db, ipKey, now);
     await pruneExpired(db, now);
   } catch (err: any) {
     console.error('[login-rate-limit] could not record a failure:', err && err.message ? err.message : err);

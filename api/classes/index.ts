@@ -119,7 +119,13 @@ classesApp.post('/assign-teacher', async (c) => {
   ).bind(id, schoolId, className, teacherUserId, teacher.full_name).run();
 
   try {
-    await db.prepare('UPDATE classes SET class_teacher_id = ? WHERE name = ?').bind(teacherUserId, className).run();
+    // Scoped by school_id. `classes` is school-scoped (0001, with school_id added in
+    // 0004) and is in OPERATIONAL_TABLES for the shared-to-dedicated copy, so
+    // matching on `name` alone rewrote the class teacher of EVERY school that has a
+    // class of that name — 'Class 5' is not a unique key. The read paths in this
+    // same file (:27-:30, :41-:42) already carry school_id.
+    await db.prepare('UPDATE classes SET class_teacher_id = ? WHERE name = ? AND school_id = ?')
+      .bind(teacherUserId, className, schoolId).run();
   } catch (e) {}
 
   const actorName = await resolveActorName(db, authUser.sub, authUser.role);
@@ -160,7 +166,9 @@ classesApp.post('/remove-teacher', async (c) => {
 
   await db.prepare('DELETE FROM class_teachers WHERE school_id = ? AND class_name = ?').bind(schoolId, className).run();
   try {
-    await db.prepare('UPDATE classes SET class_teacher_id = NULL WHERE name = ?').bind(className).run();
+    // Same cross-tenant scope bug as the assign path above; see the note there.
+    await db.prepare('UPDATE classes SET class_teacher_id = NULL WHERE name = ? AND school_id = ?')
+      .bind(className, schoolId).run();
   } catch (e) {}
 
   const actorName = await resolveActorName(db, authUser.sub, authUser.role);

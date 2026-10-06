@@ -89,10 +89,24 @@ billingApp.get('/subscription', async (c) => {
   const trialCheck = await checkSingleSchoolTrialStatus(db, c.env, tenant);
   const isExpired = trialCheck.isExpired && !isDedicated;
 
-  const planId = isDedicated ? 'enterprise' : (subscription && subscription.status === 'Trial' ? 'trial' : (subscription ? subscription.planId : (tenant ? tenant.plan_id : 'trial')));
+  // The plan comes from the platform's own database. Never from the caller's word and
+  // never from the tier this code happens to be running on.
+  //
+  // This used to read `isDedicated ? 'enterprise' : (...)`, which granted all 17
+  // modules, unlimited students/staff/email and every feature flag. It was dead for
+  // dedicated schools — /api/billing is unconditionally proxied to the platform, and on
+  // the platform tier `isDedicated` is false — so it looked harmless. It was not: it is
+  // a live shortcut that grants the most expensive tier to anyone whose handler ever runs
+  // on a worker that happens to have SCHOOL_ID set. Removing the condition removes the
+  // possibility, not just the current instance of it.
+  //
+  // The `|| isDedicated` on the grant check below was the same shortcut a second time.
+  const planId = subscription && subscription.status === 'Trial'
+    ? 'trial'
+    : (subscription ? subscription.planId : (tenant ? tenant.plan_id : 'trial'));
   let planDetails = await loadSubscriptionPlanById(db, planId) || SUBSCRIPTION_PLANS[0];
 
-  if (planId === 'enterprise' || isDedicated) {
+  if (planId === 'enterprise') {
     planDetails = Object.assign({}, planDetails, {
       modules: [
         'dashboard', 'students', 'attendance', 'staff', 'notices', 'fees',
@@ -191,6 +205,13 @@ billingApp.post('/razorpay/verify', async (c) => {
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getBillingAuthUser(c);
   if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  // Every sibling route in this file gates on the same two roles (:145, :285, :464,
+  // :513, :576, :603). This one did not, so a Staff/Teacher/Parent token could reach
+  // activateSubscriptionFromPayment, which provisions a worker and writes
+  // school_tenants / school_subscriptions.
+  if (authUser.role !== 'Director' && authUser.role !== 'SuperAdmin') {
+    return c.json({ success: false, message: 'इस कार्रवाई के लिए आप अधिकृत नहीं हैं।' }, 403);
+  }
   const body = await c.req.json().catch(() => ({}));
   const razorpay_order_id = body.razorpay_order_id;
   const razorpay_payment_id = body.razorpay_payment_id;
@@ -201,6 +222,12 @@ billingApp.post('/razorpay/verify', async (c) => {
   }
 
   const secret = await getRazorpayKeySecret(c.env);
+  // Fail closed. An empty secret makes the HMAC computable by anyone, which would
+  // let a forged signature activate a plan and provision a worker. Same rule as
+  // api/fees/verify.
+  if (!secret) {
+    return c.json({ success: false, message: 'पेमेंट सिग्नेचर वेरिफिकेशन असंभव है: RAZORPAY_KEY_SECRET सेट नहीं है।' }, 500);
+  }
   const ok = await verifyRazorpaySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature, secret);
   if (!ok) return c.json({ success: false, message: 'पेमेंट सिग्नेचर वेरिफिकेशन विफल।' }, 400);
 

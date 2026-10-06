@@ -41,6 +41,11 @@ class _ActivityLogSheetState extends State<ActivityLogSheet> {
 
     try {
       final res = await _api.get('/api/activity-logs', queryParams: {'limit': '50'});
+      // A dismissible bottom sheet is disposed by tapping the scrim or dragging it
+      // down, so all three branches can resume after dispose(). Unguarded, that threw
+      // "setState() called after dispose()" on the teacher, principal and director
+      // screens that open this sheet.
+      if (!mounted) return;
       if (res['success'] == true) {
         setState(() {
           _logs = res['logs'] ?? [];
@@ -53,6 +58,7 @@ class _ActivityLogSheetState extends State<ActivityLogSheet> {
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = 'नेटवर्क त्रुटि: $e';
         _isLoading = false;

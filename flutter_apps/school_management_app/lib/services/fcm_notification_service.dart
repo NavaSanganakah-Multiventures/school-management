@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -20,6 +22,53 @@ class FcmNotificationService {
 
   final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
   final ApiClient _api = ApiClient();
+
+  // Topics this device is currently subscribed to, and the listeners it owns.
+  //
+  // `init` is called on EVERY successful login (screens/login_screen.dart), so without
+  // this the service was appending to itself: after N logins the token-refresh and
+  // onMessage listeners were registered N times, so every foreground push was displayed
+  // N times. And because nothing ever called `unsubscribeFromTopic`, signing out of
+  // School A and into School B left the device subscribed to school_A_all and
+  // school_A_parents — so the phone kept receiving the previous school's attendance and
+  // absentee alerts through the new session.
+  final Set<String> _subscribedTopics = <String>{};
+  StreamSubscription<String>? _tokenRefreshSub;
+  StreamSubscription<RemoteMessage>? _messageSub;
+
+  /// Topics for a user, derived the same way in both directions so that
+  /// [unsubscribeAll] can always reverse what [_registerDeviceToken] did.
+  static List<String> topicsFor(UserModel user) {
+    final roleTopic = user.role == UserRole.parents
+        ? 'school_${user.schoolId}_parents'
+        : (user.role == UserRole.students
+            ? 'school_${user.schoolId}_students'
+            : 'school_${user.schoolId}_teachers');
+    return ['school_${user.schoolId}_all', roleTopic];
+  }
+
+  /// Leaves every topic this device joined, and detaches the listeners.
+  ///
+  /// Must be called on logout, otherwise the next tenant's session still receives this
+  /// school's broadcasts.
+  Future<void> unsubscribeAll() async {
+    final fcm = _fcm;
+    if (fcm != null && _subscribedTopics.isNotEmpty) {
+      for (final t in _subscribedTopics) {
+        try {
+          await fcm.unsubscribeFromTopic(t);
+        } catch (_) {
+          // Best effort: a topic that cannot be left must not block logout.
+        }
+      }
+    }
+    _subscribedTopics.clear();
+
+    await _tokenRefreshSub?.cancel();
+    _tokenRefreshSub = null;
+    await _messageSub?.cancel();
+    _messageSub = null;
+  }
 
   Future<void> init(UserModel user) async {
     try {
@@ -46,13 +95,16 @@ class FcmNotificationService {
           await _registerDeviceToken(token, user);
         }
 
-        // Listen for token refresh
-        fcm.onTokenRefresh.listen((newToken) {
+        // Listeners are replace, not append. init() runs once per login, and the
+        // previous subscription is cancelled first so a relogin does not double every
+        // notification.
+        await _tokenRefreshSub?.cancel();
+        _tokenRefreshSub = fcm.onTokenRefresh.listen((newToken) {
           _registerDeviceToken(newToken, user);
         });
 
-        // 4. Foreground notification handling
-        FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        await _messageSub?.cancel();
+        _messageSub = FirebaseMessaging.onMessage.listen((RemoteMessage message) {
           _showForegroundNotification(message);
         });
       }
@@ -64,18 +116,13 @@ class FcmNotificationService {
   Future<void> _registerDeviceToken(String token, UserModel user) async {
     try {
       final fcm = _fcm;
-      final roleTopic = user.role == UserRole.parents
-          ? 'school_${user.schoolId}_parents'
-          : (user.role == UserRole.students
-              ? 'school_${user.schoolId}_students'
-              : 'school_${user.schoolId}_teachers');
-
-      final topics = ['school_${user.schoolId}_all', roleTopic];
+      final topics = topicsFor(user);
 
       // Subscribe FCM topic on device
       if (fcm != null) {
         for (final t in topics) {
           await fcm.subscribeToTopic(t);
+          _subscribedTopics.add(t);
         }
       }
 

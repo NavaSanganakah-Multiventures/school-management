@@ -29,11 +29,12 @@ class _AiScreenState extends State<AiScreen> {
     setState(() => _loading = true);
     try {
       final res = await _svc.chat(_promptCtrl.text.trim());
+      if (!mounted) return;
       setState(() => _response = res);
     } on ApiException catch (e) {
-      showSnack(context, e.message, isError: true);
+      if (mounted) showSnack(context, e.message, isError: true);
     } catch (_) {
-      showSnack(context, 'AI उत्तर नहीं दे सका', isError: true);
+      if (mounted) showSnack(context, 'AI उत्तर नहीं दे सका', isError: true);
     }
     if (mounted) setState(() => _loading = false);
   }

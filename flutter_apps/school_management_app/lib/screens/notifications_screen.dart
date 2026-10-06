@@ -140,17 +140,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           TextButton(onPressed: () => Navigator.pop(c), child: const Text('रद्द करें')),
           FilledButton(
             onPressed: () async {
+              // Captured before the awaits below; this dialog is popped on success.
+              final messenger = ScaffoldMessenger.of(c);
               if (title.text.isEmpty || body.text.isEmpty) {
-                showSnack(context, 'शीर्षक व संदेश भरें', isError: true);
+                showSnackVia(messenger, 'शीर्षक व संदेश भरें', isError: true);
                 return;
               }
               try {
                 await _svc.broadcast(title: title.text.trim(), body: body.text.trim(), targetRole: targetRole);
                 if (c.mounted) Navigator.pop(c);
-                showSnack(context, 'प्रसारण भेजा गया');
+                showSnackVia(messenger, 'प्रसारण भेजा गया');
                 _load();
               } on ApiException catch (e) {
-                if (c.mounted) showSnack(context, e.message, isError: true);
+                if (c.mounted) showSnackVia(messenger, e.message, isError: true);
               }
             },
             child: const Text('भेजें'),

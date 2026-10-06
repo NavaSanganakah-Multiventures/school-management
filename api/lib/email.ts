@@ -3,6 +3,37 @@
 
 import { checkAndReserveEmailQuota, checkAndReserveSchoolEmailQuota } from './email-quota';
 
+// Escapes text before it is interpolated into an HTML email body.
+//
+// Every caller value here is user- or school-supplied, and none of it was escaped:
+// `name` comes from system_users.full_name, and `title`/`input.message` come from
+// POST /api/notices, which any staff member can write. A notice titled
+// `<img src=x onerror=…>` was delivered verbatim into every parent's inbox, and
+// `buttonUrl` was interpolated into an href attribute, which is an attribute-injection
+// vector rather than merely markup injection.
+//
+// This is not cosmetic. These are the messages a school sends to parents, so the
+// blast radius is the whole parent body of that school, and it runs through the
+// school's own verified sender domain.
+//
+// `&` must be replaced first or it double-escapes the entities produced by the others.
+export function escapeHtml(value: unknown): string {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// A URL may only be used as an href if it is http(s). Escaping alone still permits
+// `javascript:` and `data:` URLs, which execute in a mail client that renders HTML.
+export function safeHttpUrl(value: unknown): string {
+  const raw = String(value == null ? '' : value).trim();
+  if (!/^https?:\/\//i.test(raw)) return '';
+  return escapeHtml(raw);
+}
+
 export function getRequestOrigin(c: any, env?: any): string {
   if (env && env.APP_BASE_URL) return env.APP_BASE_URL;
   try {
@@ -46,14 +77,14 @@ export async function sendPasswordResetEmail(env: any, input: PasswordResetEmail
   const html = [
     '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1e293b;line-height:1.6">',
     '<h1 style="font-size:20px;color:#4f46e5;margin:0 0 16px;">Pragnya Mitra</h1>',
-    '<p style="font-size:14px;margin:0 0 12px;">नमस्ते ' + name + ',</p>',
+    '<p style="font-size:14px;margin:0 0 12px;">नमस्ते ' + escapeHtml(name) + ',</p>',
     '<p style="font-size:14px;margin:0 0 24px;">' + intro + '</p>',
     '<p style="text-align:center;margin:0 0 24px;">',
-    '<a href="' + input.resetLink + '" style="background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:bold;font-size:14px;display:inline-block;">पासवर्ड सेट करें</a>',
+    '<a href="' + safeHttpUrl(input.resetLink) + '" style="background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:bold;font-size:14px;display:inline-block;">पासवर्ड सेट करें</a>',
     '</p>',
     '<p style="font-size:12px;color:#64748b;margin:0 0 4px;">यह लिंक 30 मिनट के लिए वैध है और केवल एक बार उपयोग हो सकता है।</p>',
     '<p style="font-size:12px;color:#94a3b8;margin:0;">बटन काम न करे तो यह लिंक ब्राउज़र में खोलें:</p>',
-    '<p style="font-size:12px;color:#94a3b8;word-break:break-all;margin:0 0 16px;">' + input.resetLink + '</p>',
+    '<p style="font-size:12px;color:#94a3b8;word-break:break-all;margin:0 0 16px;">' + escapeHtml(input.resetLink) + '</p>',
     '<p style="font-size:12px;color:#cbd5e1;margin:0;">यदि यह अनुरोध आपने नहीं किया तो इस ईमेल को अनदेखा कर दें।</p>',
     '</div>'
   ].join('');
@@ -218,11 +249,12 @@ export async function sendNotificationEmail(env: any, input: NotificationEmailIn
 
   const title = input.title || 'महत्वपूर्ण सूचना';
   const badgeHtml = input.badge
-    ? '<span style="display:inline-block;padding:4px 10px;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:9999px;font-size:11px;font-weight:bold;margin-bottom:12px;">' + input.badge + '</span>'
+    ? '<span style="display:inline-block;padding:4px 10px;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:9999px;font-size:11px;font-weight:bold;margin-bottom:12px;">' + escapeHtml(input.badge) + '</span>'
     : '';
 
-  const buttonHtml = input.buttonText && input.buttonUrl
-    ? '<p style="text-align:center;margin:28px 0;"><a href="' + input.buttonUrl + '" style="background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 26px;border-radius:10px;font-weight:bold;font-size:14px;display:inline-block;box-shadow:0 2px 4px rgba(79,70,229,0.25);">' + input.buttonText + '</a></p>'
+  const buttonUrl = safeHttpUrl(input.buttonUrl);
+  const buttonHtml = input.buttonText && buttonUrl
+    ? '<p style="text-align:center;margin:28px 0;"><a href="' + buttonUrl + '" style="background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 26px;border-radius:10px;font-weight:bold;font-size:14px;display:inline-block;box-shadow:0 2px 4px rgba(79,70,229,0.25);">' + escapeHtml(input.buttonText) + '</a></p>'
     : '';
 
   const html = [
@@ -230,9 +262,9 @@ export async function sendNotificationEmail(env: any, input: NotificationEmailIn
     '<div style="margin-bottom:16px;border-bottom:1px solid #f1f5f9;padding-bottom:12px;">',
     badgeHtml,
     '<h1 style="font-size:20px;color:#4f46e5;margin:0 0 6px;">Pragnya Mitra — स्कूल प्रबंधन</h1>',
-    '<h2 style="font-size:16px;margin:0;color:#0f172a;">' + title + '</h2>',
+    '<h2 style="font-size:16px;margin:0;color:#0f172a;">' + escapeHtml(title) + '</h2>',
     '</div>',
-    '<div style="font-size:14px;margin:0 0 20px;white-space:pre-wrap;color:#334155;">' + input.message + '</div>',
+    '<div style="font-size:14px;margin:0 0 20px;white-space:pre-wrap;color:#334155;">' + escapeHtml(input.message) + '</div>',
     buttonHtml,
     '<p style="font-size:12px;color:#94a3b8;margin:24px 0 0;border-top:1px solid #f1f5f9;padding-top:12px;">यह एक स्वचालित संदेश है। किसी भी सहायता के लिए संपर्क करें: pragnya@navasanganakah.com</p>',
     '</div>'

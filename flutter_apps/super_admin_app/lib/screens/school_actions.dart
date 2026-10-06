@@ -1182,10 +1182,24 @@ Future<void> _busy(
   void Function(Map<String, dynamic> res) onResult,
 ) async {
   if (!context.mounted) return;
+
+  // A real Navigator reference for the progress dialog.
+  //
+  // `barrierDismissible: false` does NOT block the Android system back button, so the
+  // dialog could already be gone by the time the operation finished. The old code then
+  // popped using the SCREEN's context, which popped a second time and navigated the
+  // Super Admin off the Schools screen — and it called onResult(res) unconditionally
+  // even when the screen was gone, whose callbacks show a snackbar on a deactivated
+  // context and then reload into a disposed State.
+  //
+  // Showing the dialog through its own context and popping that exact route means the
+  // pop is correct whether or not the dialog is still open, and onResult only runs when
+  // there is still a screen to show its result on.
+  final navigator = Navigator.of(context);
   showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (ctx) => const Center(
+    builder: (dialogCtx) => const Center(
       child: Card(
         child: Padding(
           padding: EdgeInsets.all(20),
@@ -1196,11 +1210,13 @@ Future<void> _busy(
   );
   try {
     final res = await op();
-    if (context.mounted) Navigator.of(context).pop();
-    onResult(res);
+    if (navigator.canPop()) navigator.pop();
+    if (context.mounted) onResult(res);
   } catch (e) {
+    // Always dismiss the dialog, even if the screen is gone: `canPop` is checked
+    // rather than assuming the dialog is still on screen.
+    if (navigator.canPop()) navigator.pop();
     if (context.mounted) {
-      Navigator.of(context).pop();
       showSnack(context, 'त्रुटि: ${e.toString().replaceFirst('Exception: ', '')}',
           ok: false);
     }

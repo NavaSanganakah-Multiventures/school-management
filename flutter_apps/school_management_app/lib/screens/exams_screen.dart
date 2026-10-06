@@ -61,13 +61,24 @@ class _ExamsScreenState extends State<ExamsScreen> {
 
   Future<void> _loadStudents() async {
     try {
-      final students = await _studentSvc.getStudents(className: _selectedClass);
-      _students = students;
-      final classSet = <String>{};
-      for (final s in students) {
-        if (s.className.isNotEmpty) classSet.add(s.className);
+      // The class list must come from the UNFILTERED roster, and must only be fetched
+      // once.
+      //
+      // It used to be rebuilt from the students returned by this method, which were
+      // already filtered by _selectedClass. So choosing "Class 5" narrowed _classes to
+      // ['Class 5'], and the dropdown then offered only "सभी कक्षाएं" and "Class 5" — the
+      // teacher could not move to another class without first going back to All and
+      // rediscovering the control's behaviour.
+      if (_classes.isEmpty) {
+        final allStudents = await _studentSvc.getStudents();
+        final classSet = <String>{};
+        for (final s in allStudents) {
+          if (s.className.isNotEmpty) classSet.add(s.className);
+        }
+        _classes = classSet.toList()..sort();
       }
-      _classes = classSet.toList()..sort();
+
+      _students = await _studentSvc.getStudents(className: _selectedClass);
     } catch (_) {}
   }
 
@@ -172,11 +183,34 @@ class _MarksEntryTabState extends State<_MarksEntryTab> {
     }
   }
 
+  /// Drops every marks field.
+  ///
+  /// Marks belong to a (student, exam, subject) triple, and the controllers are keyed by
+  /// subject name alone and were never cleared. `_loadSubjects` ran on an exam change and
+  /// only ADDED controllers for the new exam's subjects, leaving the old text in place.
+  /// So: type 78/100 into Mathematics for the Unit Test, switch the dropdown to
+  /// Half-Yearly, press save — and 78 was written to the Half-Yearly record for the same
+  /// subject. The old max-marks label was gone, so nothing on screen indicated the number
+  /// belonged to a different paper. Silent mark corruption in the one place a teacher
+  /// cannot afford it.
+  ///
+  /// Called whenever the exam changes and whenever the student changes, because both
+  /// identify a different set of marks.
+  void _resetMarkControllers() {
+    for (final c in _marksControllers.values) {
+      c.dispose();
+    }
+    _marksControllers.clear();
+  }
+
   Future<void> _loadSubjects() async {
     if (widget.examId == null) return;
     setState(() => _loadingSubjects = true);
+    // A different paper means different marks. Clear before loading the new subjects.
+    _resetMarkControllers();
     try {
       final subs = await _examSvc.getExamSubjects(widget.examId!);
+      if (!mounted) return;
       _subjects = subs;
       for (final s in subs) {
         _marksControllers[s.subjectName] ??= TextEditingController();
@@ -219,7 +253,8 @@ class _MarksEntryTabState extends State<_MarksEntryTab> {
 
   @override
   void dispose() {
-    for (final c in _marksControllers.values) c.dispose();
+    // Reuses _resetMarkControllers so teardown and exam/student changes cannot diverge.
+    _resetMarkControllers();
     super.dispose();
   }
 
@@ -253,7 +288,13 @@ class _MarksEntryTabState extends State<_MarksEntryTab> {
               value: _selectedStudent,
               decoration: const InputDecoration(labelText: 'छात्र चुनें', border: OutlineInputBorder(), isDense: true),
               items: widget.students.map((s) => DropdownMenuItem(value: s, child: Text('${s.fullName} (${s.className})'))).toList(),
-              onChanged: (s) => setState(() => _selectedStudent = s),
+              // A different student is a different set of marks. Without clearing, marks
+              // typed for one student and saved for another would be written straight to
+              // the second student's record.
+              onChanged: (s) => setState(() {
+                _selectedStudent = s;
+                _resetMarkControllers();
+              }),
             ),
             const SizedBox(height: 16),
             if (_loadingSubjects)
@@ -313,6 +354,22 @@ class _ReportCardTabState extends State<_ReportCardTab> {
   bool _loading = false;
   bool _busyPdf = false;
 
+  // The exam this tab is showing. It starts at the exam chosen on the marks-entry tab but
+  // is owned here, because this tab's dropdown used to be `onChanged: (_) {}` — it
+  // displayed a selection and discarded it, so "रिपोर्ट कार्ड देखें" always fetched the
+  // marks-entry tab's exam no matter what was chosen here.
+  late String? _examId = widget.examId;
+
+  @override
+  void didUpdateWidget(_ReportCardTab old) {
+    super.didUpdateWidget(old);
+    // A change from the marks-entry tab adopts the new exam and invalidates the card.
+    if (old.examId != widget.examId) {
+      _examId = widget.examId;
+      _report = null;
+    }
+  }
+
   Future<void> _downloadReport() async {
     final r = _report;
     if (r == null || _busyPdf) return;
@@ -332,11 +389,24 @@ class _ReportCardTabState extends State<_ReportCardTab> {
     }
     setState(() => _loading = true);
     try {
-      final rc = await _examSvc.getReportCard(_selectedStudent!.id, examId: widget.examId);
+      final rc = await _examSvc.getReportCard(_selectedStudent!.id, examId: _examId);
+      // Both catch branches below were guarded; the success path was not, so switching
+      // tabs while the report card was loading crashed with "setState() after dispose()".
+      if (!mounted) return;
       setState(() {
         _report = rc;
         _loading = false;
       });
+    } on NoReportCardDataException catch (e) {
+      // "No marks entered" is a real answer, not a failure to load. Clear any card left
+      // over from a previous student so the teacher does not read those numbers as this
+      // student's, and show the server's own message.
+      if (!mounted) return;
+      setState(() {
+        _report = null;
+        _loading = false;
+      });
+      showSnack(context, e.message, isError: true);
     } on ApiException catch (e) {
       if (mounted) showSnack(context, e.message, isError: true);
       if (mounted) setState(() => _loading = false);
@@ -357,17 +427,29 @@ class _ReportCardTabState extends State<_ReportCardTab> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             DropdownButtonFormField<String>(
-              value: widget.examId,
+              value: _examId,
               decoration: const InputDecoration(labelText: 'परीक्षा', border: OutlineInputBorder(), isDense: true),
               items: widget.exams.map((e) => DropdownMenuItem(value: e.id, child: Text(e.name))).toList(),
-              onChanged: (_) {},
+              // Was `onChanged: (_) {}`, which discarded the choice. Changing the exam now
+              // takes effect and clears the card, so a stale marksheet can never be shown
+              // against a different paper.
+              onChanged: (id) => setState(() {
+                _examId = id;
+                _report = null;
+              }),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<StudentModel>(
               value: _selectedStudent,
               decoration: const InputDecoration(labelText: 'छात्र चुनें', border: OutlineInputBorder(), isDense: true),
               items: widget.students.map((s) => DropdownMenuItem(value: s, child: Text('${s.fullName} (${s.className})'))).toList(),
-              onChanged: (s) => setState(() => _selectedStudent = s),
+              // Clearing the card matters here: without it, picking a new student left the
+              // PREVIOUS student's marksheet on screen, and pressing "download PDF" would
+              // print that one's card for the newly selected name.
+              onChanged: (s) => setState(() {
+                _selectedStudent = s;
+                _report = null;
+              }),
             ),
             const SizedBox(height: 12),
             FilledButton.icon(

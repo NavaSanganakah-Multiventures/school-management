@@ -152,10 +152,33 @@ function fakeDb(users) {
         },
         async run() {
           if (/INSERT INTO login_rate_limits/i.test(sql)) {
-            tables.login_rate_limits.set(String(bound[0]), {
-              window_start: Number(bound[1]),
-              attempts: Number(bound[2]),
-            });
+            // Models the limiter's atomic upsert as api/lib/login-rate-limit.ts writes it:
+            //
+            //   INSERT INTO login_rate_limits (rate_key, window_start, attempts) VALUES (?, ?, 1)
+            //   ON CONFLICT(rate_key) DO UPDATE SET
+            //     attempts   = CASE WHEN window_start + ? <= ? THEN 1 ELSE attempts + 1 END
+            //     window_start = CASE WHEN window_start + ? <= ? THEN ? ELSE window_start END
+            //
+            // bound = [key, windowStart, WINDOW_MS, now, WINDOW_MS, now, windowStart]
+            //
+            // This stand-in used to assume the three-parameter shape and that bound[2]
+            // was the new absolute attempt count. Reading it that way made
+            // windowMs (900000) land in `attempts`, so every login 429'd immediately and
+            // the control cases failed. A stand-in that misreads the statement it is
+            // standing in for reports a green run for code that does not work — which is
+            // the exact failure this repo keeps re-learning.
+            const key = String(bound[0]);
+            const windowMs = Number(bound[2]);
+            const now = Number(bound[3]);
+            const newWindowStart = Number(bound[6]);
+            const existing = tables.login_rate_limits.get(key);
+            if (!existing) {
+              tables.login_rate_limits.set(key, { window_start: newWindowStart, attempts: 1 });
+            } else {
+              const expired = Number(existing.window_start) + windowMs <= now;
+              existing.attempts = expired ? 1 : Number(existing.attempts) + 1;
+              existing.window_start = expired ? newWindowStart : Number(existing.window_start);
+            }
             return { success: true, meta: { changes: 1 } };
           }
           if (/DELETE FROM login_rate_limits WHERE rate_key IN/i.test(sql)) {

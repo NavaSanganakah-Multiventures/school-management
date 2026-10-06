@@ -77,6 +77,21 @@ activityLogsApp.get('/', async (c) => {
     params.push(`${date}%`);
   }
 
+  // Search goes in SQL, not in JS.
+  //
+  // It used to be applied to the already-paginated `logs` array, which was wrong
+  // three ways: it only matched inside the current page, so results and page count
+  // disagreed (the COUNT below never saw the search term); a matching row on page 3
+  // was invisible on page 1; and `l.description.toLowerCase()` threw a 500 on the
+  // single row where description is NULL, which the schema allows.
+  if (search) {
+    whereConditions.push(
+      '(IFNULL(description, \'\') LIKE ? OR IFNULL(user_name, \'\') LIKE ? OR IFNULL(action_title, \'\') LIKE ? OR IFNULL(class_name, \'\') LIKE ?)'
+    );
+    const like = `%${search}%`;
+    params.push(like, like, like, like);
+  }
+
   const whereClause = whereConditions.length ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
   // Get total count
@@ -97,7 +112,7 @@ activityLogsApp.get('/', async (c) => {
   `;
 
   const rows = await db.prepare(query).bind(...params, limit, offset).all();
-  let logs = (rows.results || []).map((r: any) => ({
+  const logs = (rows.results || []).map((r: any) => ({
     id: r.id,
     schoolId: r.school_id,
     userId: r.user_id,
@@ -112,16 +127,6 @@ activityLogsApp.get('/', async (c) => {
     metadata: r.metadata ? (() => { try { return JSON.parse(r.metadata); } catch (_) { return null; } })() : null,
     createdAt: r.created_at,
   }));
-
-  if (search) {
-    logs = logs.filter(
-      (l: any) =>
-        l.description.toLowerCase().includes(search) ||
-        l.userName.toLowerCase().includes(search) ||
-        l.actionTitle.toLowerCase().includes(search) ||
-        (l.className && l.className.toLowerCase().includes(search))
-    );
-  }
 
   return c.json({
     success: true,

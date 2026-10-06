@@ -91,7 +91,10 @@ authApp.post('/login', async (c) => {
 
       const ok = await verifyPassword(password, admin.password_hash || '');
       if (!ok) {
-        recordLoginFailure(db, identifier, getClientIp(c));
+        // Awaited, not fire-and-forget. These calls were unawaited, so the response
+        // could be returned and the isolate frozen before the counter reached D1 — which
+        // is the one case where the limiter has to be correct.
+        await recordLoginFailure(db, identifier, getClientIp(c));
         return c.json({ success: false, message: 'अमान्य पासवर्ड।' }, 401);
       }
       await clearLoginFailures(db, identifier, getClientIp(c));
@@ -257,7 +260,7 @@ authApp.post('/login', async (c) => {
 
   if (!user) {
     await burnPasswordVerification(password);
-    recordLoginFailure(db, identifier, getClientIp(c));
+    await recordLoginFailure(db, identifier, getClientIp(c));
     return c.json(genericLoginFailure, 401);
   }
   if (!user.password_hash) {
@@ -267,12 +270,12 @@ authApp.post('/login', async (c) => {
       await sendPasswordResetEmail(c.env, { to: user.email, name: user.full_name, resetLink, invite: true });
     }
     await burnPasswordVerification(password);
-    recordLoginFailure(db, identifier, getClientIp(c));
+    await recordLoginFailure(db, identifier, getClientIp(c));
     return c.json(genericLoginFailure, 401);
   }
   const ok = await verifyPassword(password, user.password_hash);
   if (!ok) {
-    recordLoginFailure(db, identifier, getClientIp(c));
+    await recordLoginFailure(db, identifier, getClientIp(c));
     return c.json(genericLoginFailure, 401);
   }
 
@@ -502,13 +505,30 @@ authApp.post('/register', async (c) => {
   const preferredPlanId = VALID_PLANS.includes(rawPreferredPlan) ? rawPreferredPlan : 'trial';
   const customRequirements = String(body.customRequirements || '').trim();
 
+  // `plan_id` is the AUTHORITATIVE entitlement and is always 'trial' here, whatever
+  // the request asked for. This endpoint is unauthenticated, so accepting a
+  // caller-supplied plan had two consequences:
+  //
+  //  1. Trial never expired. api/lib/trial-expiration.ts selects on
+  //     `WHERE (s.plan_id = 'trial' OR s.status = 'Trial')`, and this INSERT writes
+  //     status 'Active', never 'Trial'. A tenant registered with
+  //     preferredPlanId 'enterprise' therefore matched neither arm and was skipped by
+  //     both the cron sweep (:142) and the single-school check (:378) — free access,
+  //     forever, with no suspension and no notification.
+  //  2. Enterprise entitlements. api/plugins/index.ts:69 and api/ai/index.ts:41 fall
+  //     back to `tenant.plan_id === 'enterprise'` when no subscription row exists.
+  //
+  // The caller's preference is a sales signal and is recorded in `preferred_plan_id`,
+  // which nothing treats as an entitlement. Upgrading is the billing path's job.
+  const planId = 'trial';
+
   // 7-दिन FREE TRIAL — instant access, कोई approval नहीं।
   const TRIAL_DAYS = 7;
   const trialEndDate = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // YYYY-MM-DD
   const today = now.split('T')[0];
 
   await db.prepare('INSERT INTO school_tenants (id, school_name, subdomain, custom_domain, contact_email, contact_phone, status, registration_status, plan_id, estimated_students, estimated_staff, preferred_plan_id, custom_requirements, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind(schoolId, schoolName, subdomain, body.customDomain || '', email, phone, 'Active', 'Approved', preferredPlanId === 'trial' ? 'trial' : preferredPlanId, estimatedStudents, estimatedStaff, preferredPlanId, customRequirements, now).run();
+    .bind(schoolId, schoolName, subdomain, body.customDomain || '', email, phone, 'Active', 'Approved', planId, estimatedStudents, estimatedStaff, preferredPlanId, customRequirements, now).run();
 
   await db.prepare('UPDATE school_tenants SET trial_ends_at=?, approved_at=?, approved_by=? WHERE id=?')
     .bind(trialEndDate, now, 'system-auto-register', schoolId).run();

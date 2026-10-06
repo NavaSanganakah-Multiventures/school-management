@@ -49,6 +49,10 @@ UPDATE teachers SET school_id = 'school-01' WHERE school_id IS NULL OR school_id
 UPDATE fee_invoices SET school_id = 'school-01' WHERE school_id IS NULL OR school_id = '';
 
 -- ── PART A.1: teachers.employee_code → UNIQUE(school_id, employee_code) ──
+-- `created_at` MUST be in this list. It is declared in 0001 and
+-- api/staff/index.ts:83 does `ORDER BY t.created_at DESC`; omitting it made that
+-- route fail with "no such column: created_at" on every school. See the note on
+-- column completeness below before removing any column from either rebuild.
 CREATE TABLE teachers_mig0040 (
     id TEXT PRIMARY KEY,
     employee_code TEXT NOT NULL,
@@ -63,12 +67,14 @@ CREATE TABLE teachers_mig0040 (
     joining_date TEXT,
     status TEXT DEFAULT 'Active',
     login_user_id TEXT,
-    school_id TEXT DEFAULT 'school-01'
+    school_id TEXT DEFAULT 'school-01',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 INSERT INTO teachers_mig0040
 SELECT id, employee_code, name, designation, department, subject_specialization,
-       phone, email, qualification, salary, joining_date, status, login_user_id, school_id
+       phone, email, qualification, salary, joining_date, status, login_user_id,
+       school_id, created_at
 FROM teachers;
 
 DROP TABLE teachers;
@@ -80,6 +86,21 @@ CREATE INDEX IF NOT EXISTS idx_teachers_school
     ON teachers (school_id);
 
 -- ── PART A.2: fee_invoices.invoice_number → UNIQUE(school_id, invoice_number) ──
+-- This rebuild originally listed only the columns 0001 and 0004 happened to add,
+-- and silently dropped five more that earlier migrations had already added:
+-- razorpay_order_id / razorpay_payment_id / razorpay_payment_link_id /
+-- razorpay_payment_link_url (0035), last_reminder_at (0036) and created_at
+-- (0001).
+--
+-- Because migrations run in filename order, 0035 and 0036 have ALWAYS run before
+-- 0040, so on every fresh database this rebuild destroyed them. That dropped the
+-- razorpay ids of every live invoice and made api/fees/index.ts:68
+-- (`ORDER BY created_at DESC`) and :430/:464/:550 throw "no such column".
+--
+-- The repair migration 0044 adds the dropped columns back for databases that
+-- already applied this file. A rebuild must list EVERY column of the table it
+-- replaces -- including ones added by migrations that run before it. There is a
+-- harness check for exactly this: scripts/verify-migration-0040-rebuild.mjs.
 CREATE TABLE fee_invoices_mig0040 (
     id TEXT PRIMARY KEY,
     invoice_number TEXT NOT NULL,
@@ -96,24 +117,43 @@ CREATE TABLE fee_invoices_mig0040 (
     transaction_id TEXT,
     paid_at TEXT,
     school_id TEXT DEFAULT 'school-01',
-    scholar_number TEXT
+    scholar_number TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    razorpay_order_id TEXT,
+    razorpay_payment_id TEXT,
+    razorpay_payment_link_id TEXT,
+    razorpay_payment_link_url TEXT,
+    last_reminder_at TEXT
 );
 
 INSERT INTO fee_invoices_mig0040
 SELECT id, invoice_number, student_id, student_name, class_name, section, title,
        total_amount, paid_amount, due_date, status, payment_method, transaction_id,
-       paid_at, school_id, scholar_number
+       paid_at, school_id, scholar_number, created_at,
+       razorpay_order_id, razorpay_payment_id, razorpay_payment_link_id,
+       razorpay_payment_link_url, last_reminder_at
 FROM fee_invoices;
 
 DROP TABLE fee_invoices;
 ALTER TABLE fee_invoices_mig0040 RENAME TO fee_invoices;
 
+-- One canonical definition of each. The school_status and school_student indexes
+-- were each emitted twice here; harmless at runtime because every statement is
+-- IF NOT EXISTS, but a reader could not tell which copy was the intended one, and
+-- a future edit to only one copy would leave the migration asserting an index it
+-- no longer fully controls.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_fee_invoices_school_number
     ON fee_invoices (school_id, invoice_number);
 CREATE INDEX IF NOT EXISTS idx_fee_invoices_school_status
     ON fee_invoices (school_id, status);
 CREATE INDEX IF NOT EXISTS idx_fee_invoices_school_student
     ON fee_invoices (school_id, student_id);
+-- The two below are recreated because the rebuild above dropped the old table,
+-- and 0035 had created them against it.
+CREATE INDEX IF NOT EXISTS idx_fee_invoices_razorpay_order
+    ON fee_invoices(razorpay_order_id);
+CREATE INDEX IF NOT EXISTS idx_fee_invoices_razorpay_link
+    ON fee_invoices(razorpay_payment_link_id);
 
 -- ── PART A.3: school_subscriptions.cancel_at_cycle_end ──
 -- api/billing/index.ts needs to record that a cancellation was requested at the

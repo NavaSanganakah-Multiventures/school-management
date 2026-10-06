@@ -291,7 +291,11 @@ examsApp.get('/report-card/:studentId', async (c) => {
   const st = await db.prepare('SELECT * FROM students WHERE school_id = ? AND id = ?').bind(schoolId, studentId).first();
   if (!st) return c.json({ success: false, message: 'छात्र रिकॉर्ड नहीं मिला।' }, 404);
 
-  let query = 'SELECT em.subject, em.max_marks, em.marks_obtained, em.grade, em.remarks, em.updated_at, e.id as exam_id, e.exam_name, e.academic_year, e.term, COALESCE(es.passing_marks, 33) as passing_marks FROM exam_marks em LEFT JOIN exams e ON e.id = em.exam_id LEFT JOIN exam_subjects es ON es.exam_id = em.exam_id AND es.subject_name = em.subject AND es.school_id = em.school_id WHERE em.student_id = ? AND em.school_id = ?';
+  // `exams` join is tenant-scoped. The sibling join on the same line already was
+  // (`es.school_id = em.school_id`), which made the omission visible: `exams` is
+  // school-scoped like `exam_marks`, so matching on exam_id alone can pull another
+  // tenant's exam name and term into this student's marksheet.
+  let query = 'SELECT em.subject, em.max_marks, em.marks_obtained, em.grade, em.remarks, em.updated_at, e.id as exam_id, e.exam_name, e.academic_year, e.term, COALESCE(es.passing_marks, 33) as passing_marks FROM exam_marks em LEFT JOIN exams e ON e.id = em.exam_id AND e.school_id = em.school_id LEFT JOIN exam_subjects es ON es.exam_id = em.exam_id AND es.subject_name = em.subject AND es.school_id = em.school_id WHERE em.student_id = ? AND em.school_id = ?';
   const params: any[] = [studentId, schoolId];
   if (examId) {
     query += ' AND em.exam_id = ?';
@@ -599,9 +603,10 @@ examsApp.get('/analytics/:examId', async (c) => {
     return c.json({ success: false, message: 'परीक्षा नहीं मिली।' }, 404);
   }
 
-  // Get all marks for this exam
+  // Get all marks for this exam. `em.school_id = ?` scoped the driving table but not
+  // the join to `students`, which is school-scoped too.
   const marksRows = await db.prepare(
-    'SELECT em.*, s.class_name, s.section FROM exam_marks em JOIN students s ON s.id = em.student_id WHERE em.school_id = ? AND em.exam_id = ?'
+    'SELECT em.*, s.class_name, s.section FROM exam_marks em JOIN students s ON s.id = em.student_id AND s.school_id = em.school_id WHERE em.school_id = ? AND em.exam_id = ?'
   ).bind(schoolId, examId).all();
 
   const marks = marksRows.results || [];

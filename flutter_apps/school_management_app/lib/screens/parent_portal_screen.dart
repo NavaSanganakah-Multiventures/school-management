@@ -35,6 +35,13 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
   String _schoolPhone = '';
   String _schoolName = '';
 
+  // Set once the child's attendance has actually loaded, so the UI can tell "no
+  // attendance recorded yet" apart from "100% attendance". Before this existed the
+  // ring rendered 100.0% whenever _totalDays was 0, which is the state a parent is
+  // shown when the summary request fails — so a total failure looked like perfect
+  // attendance.
+  bool _attendanceLoaded = false;
+
   @override
   void initState() {
     super.initState();
@@ -45,6 +52,7 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
   Future<void> _loadSchoolProfile() async {
     try {
       final profile = await SchoolProfileService().getProfile();
+      if (!mounted) return;
       setState(() {
         _schoolPhone = profile.phone ?? '';
         _schoolName = profile.schoolName;
@@ -52,33 +60,97 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
     } catch (_) {}
   }
 
+  // Loads the three independent pieces of this screen separately.
+  //
+  // They used to be one try block, which made the screen all-or-nothing:
+  //
+  //   1. /api/attendance/summary was called with NO studentId. That is a 400 for a
+  //      family role — api/attendance/index.ts:227-232 rejects it, correctly, because
+  //      without a studentId the endpoint would otherwise return whole-school
+  //      aggregates. ApiClient throws on non-2xx, so control jumped straight to the
+  //      catch and the setState that assigns _childName, the counts and the notices
+  //      never ran. EVERY parent saw an empty portal: the child banner fell back to
+  //      the parent's own name, today's status stayed "अद्यावधिक (लंबित)", and the
+  //      notices tab always said there were none.
+  //   2. Notices and attendance are independent, so one failing must not blank the
+  //      other.
   Future<void> _loadParentData() async {
-    setState(() => _isLoading = true);
-    try {
-      final noticesRes = await _api.get('/api/notices', queryParams: {'limit': '20'});
-      final summaryRes = await _api.get('/api/attendance/summary');
+    if (mounted) setState(() => _isLoading = true);
 
-      setState(() {
-        if (noticesRes['success'] == true) {
-          _notices = noticesRes['notices'] ?? [];
+    await Future.wait([
+      _loadNotices(),
+      _loadChildAttendance(),
+    ]);
+
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  Future<void> _loadNotices() async {
+    try {
+      final res = await _api.get('/api/notices', queryParams: {'limit': '20'});
+      if (!mounted) return;
+      if (res['success'] == true) {
+        setState(() => _notices = res['notices'] ?? []);
+      }
+    } catch (_) {
+      // Leave the existing notices in place; the tab shows its own empty state.
+    }
+  }
+
+  // Resolves the linked child first, then asks for that child's summary.
+  //
+  // GET /api/students is already family-scoped (api/students/index.ts:220 applies
+  // getFamilyStudentScope, backed by parent_student_links), so it is the correct way
+  // for a parent to discover which child to ask about without widening any endpoint.
+  Future<void> _loadChildAttendance() async {
+    String? studentId;
+    try {
+      final res = await _api.get('/api/students');
+      if (!mounted) return;
+      final list = (res['success'] == true ? (res['students'] ?? []) : const []);
+      if (list.isNotEmpty) {
+        studentId = list.first['id']?.toString();
+        if (mounted) {
+          final s = list.first;
+          setState(() {
+            _childName = '${s['first_name'] ?? ''} ${s['last_name'] ?? ''}'.trim();
+            _childClass = 'कक्षा: ${s['class_name'] ?? ''}-${s['section'] ?? ''}';
+          });
         }
-        if (summaryRes['success'] == true) {
-          final stats = summaryRes['stats'] ?? {};
-          _totalDays = stats['total'] ?? 0;
-          _presentDays = stats['present'] ?? 0;
-          _absentDays = stats['absent'] ?? 0;
-          _leaveDays = stats['leave'] ?? 0;
-          _todayStatus = summaryRes['todayStatus'] ?? 'Unmarked';
-          if (summaryRes['student'] != null) {
-            final s = summaryRes['student'];
+      }
+    } catch (_) {
+      // No linked child yet, or the request failed. Both mean there is nothing to show.
+    }
+
+    if (studentId == null || !mounted) {
+      if (mounted) setState(() => _attendanceLoaded = true);
+      return;
+    }
+
+    try {
+      final res = await _api.get(
+        '/api/attendance/summary',
+        queryParams: {'studentId': studentId},
+      );
+      if (!mounted) return;
+      if (res['success'] == true) {
+        final stats = res['stats'] ?? {};
+        setState(() {
+          _totalDays = (stats['total'] as num?)?.toInt() ?? 0;
+          _presentDays = (stats['present'] as num?)?.toInt() ?? 0;
+          _absentDays = (stats['absent'] as num?)?.toInt() ?? 0;
+          _leaveDays = (stats['leave'] as num?)?.toInt() ?? 0;
+          _todayStatus = (res['todayStatus'] ?? 'Unmarked').toString();
+          if (res['student'] != null) {
+            final s = res['student'];
             _childName = '${s['first_name'] ?? ''} ${s['last_name'] ?? ''}'.trim();
             _childClass = 'कक्षा: ${s['class_name'] ?? ''}-${s['section'] ?? ''}';
           }
-        }
-        _isLoading = false;
-      });
+          _attendanceLoaded = true;
+        });
+      }
     } catch (_) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _attendanceLoaded = true);
     }
   }
 
@@ -167,7 +239,12 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
 
   // TAB 1: Attendance & Child Progress
   Widget _buildAttendanceTab() {
-    final double attendanceRate = _totalDays > 0 ? (_presentDays / _totalDays) * 100 : 100.0;
+    // 0.0, not 100.0, when nothing has been recorded. A percentage of zero days is
+    // unknown, not perfect — showing 100% meant that any parent whose summary request
+    // failed saw a flawless attendance record instead of an error or an empty state.
+    final double attendanceRate =
+        _totalDays > 0 ? (_presentDays / _totalDays) * 100 : 0.0;
+    final bool hasAttendanceData = _totalDays > 0;
 
     Color statusColor;
     Color statusBgColor;
@@ -306,6 +383,35 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
                   ),
                   const SizedBox(height: 16),
 
+                  // Say plainly WHY there is no figure, instead of showing a ring that
+                  // reads as a real number. Before this, a failed load and a genuinely
+                  // empty register were indistinguishable, and both rendered 100%.
+                  if (!hasAttendanceData)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFFBEB),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFFDE68A)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline, size: 20, color: Color(0xFF92400E)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _attendanceLoaded
+                                  ? 'अभी तक आपके बच्चे की कोई उपस्थिति दर्ज नहीं है। विद्यालय द्वारा दर्ज किए जाने पर यहाँ दिखेगा।'
+                                  : 'उपस्थिति की जानकारी लोड नहीं हो सकी। कृपया थोड़ी देर बकर दोबारा खोलें।',
+                              style: const TextStyle(fontSize: 12.5, color: Color(0xFF92400E)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
                   // Attendance Progress Card with Circular Chart
                   Container(
                     padding: const EdgeInsets.all(18),
@@ -349,7 +455,14 @@ class _ParentPortalScreenState extends State<ParentPortalScreen> {
                                       '${attendanceRate.toStringAsFixed(1)}%',
                                       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF047857)),
                                     ),
-                                    const Text('हाजिरी', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                                    Text(
+                                      // Say so rather than implying a real figure.
+                                      hasAttendanceData
+                                          ? 'हाजिरी'
+                                          : 'अभी कोई\nरिकॉर्ड नहीं',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(fontSize: 10, color: Colors.grey),
+                                    ),
                                   ],
                                 ),
                               ],

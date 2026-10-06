@@ -197,7 +197,10 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
           tokenErrors.push('token: ' + errStr);
           // Auto-deactivate invalid/unregistered tokens in DB
           if (errStr.includes('not a valid FCM registration token') || errStr.includes('UNREGISTERED') || errStr.includes('INVALID_ARGUMENT') || errStr.includes('NOT_FOUND')) {
-            await db.prepare('UPDATE fcm_device_tokens SET is_active = 0 WHERE device_token = ?').bind(token).run().catch(() => {});
+            // Scoped by school_id, matching the SELECT at :134. `fcm_device_tokens` is
+            // school-scoped and is copied per school by migrate-to-dedicated.mjs, so an
+            // unscoped deactivation can reach another tenant's row.
+            await db.prepare('UPDATE fcm_device_tokens SET is_active = 0 WHERE device_token = ? AND school_id = ?').bind(token, activeSchoolId).run().catch(() => {});
           }
         }
       } catch (e: any) {
@@ -205,7 +208,8 @@ export async function broadcastAlert(db: any, env: any, opts: BroadcastOptions):
         const errStr = e && e.message ? e.message : String(e);
         tokenErrors.push('token: ' + errStr);
         if (errStr.includes('not a valid FCM registration token') || errStr.includes('UNREGISTERED') || errStr.includes('INVALID_ARGUMENT')) {
-          await db.prepare('UPDATE fcm_device_tokens SET is_active = 0 WHERE device_token = ?').bind(token).run().catch(() => {});
+          // Same tenant scoping as the sibling branch above.
+          await db.prepare('UPDATE fcm_device_tokens SET is_active = 0 WHERE device_token = ? AND school_id = ?').bind(token, activeSchoolId).run().catch(() => {});
         }
       }
     }

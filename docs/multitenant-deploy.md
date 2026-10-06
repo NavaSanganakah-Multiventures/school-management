@@ -175,20 +175,23 @@ flag तीन जगह एक साथ रखा जाता है (single 
 
 - Plugin catalog और `school_plugins` subscription platform D1 में रहते हैं।
 - Dedicated worker का `/api/plugins/*` route platform API से पढ़कर response देता है (proxy)।
-- Frontend shell `PLUGINS_REGISTRY` से plugin के navItems, routes और widgets dynamically inject करता है।
-- core shell में कोई hardcoded if-statement नहीं होता।
+- Client उन्हीं routes से entitled plugin list पाता है। कोई client-side registry नहीं है —
+  React plugin shell (`components/school-crm-shell.tsx` + repo root `plugins/`) हटा दिया
+  गया है, क्योंकि वह कभी mount नहीं हुआ था।
 
 ## 9. Plugin Architecture + LMS as add-on
 
-- Plugins पूरी तरह core से decoupled (WordPress-style) हैं।
-- Backend: `api/plugins/index.ts` + DB tables (`plugins`, `school_plugins`) — ये platform worker पर रहते हैं।
-- Frontend: `plugins/index.ts` का `PLUGINS_REGISTRY`।
+- Plugins core से decoupled हैं, लेकिन UI Flutter apps में है, React में नहीं।
+- Backend: `api/plugins/index.ts` + DB tables (`plugins`, `school_plugins`) — platform worker पर।
+- Frontend: `flutter_apps/school_management_app/lib/screens/` + `lib/routes/app_router.dart`।
 - नया plugin बनाने के लिए:
-  1. `plugins/(plugin-name)/` folder बनाएँ (screen/widget)।
-  2. `db_migrations` में migration से plugin register करें।
-  3. `api/(plugin-name)/` बनाकर `api/index.ts` में route register करें।
-  4. `plugins/index.ts` में `PLUGINS_REGISTRY` में entry जोड़ें।
-- एक deploy के बाद plugin सभी schools (shared और dedicated दोनों) में उपलब्ध हो जाता है।
+  1. `db_migrations` में migration से plugin register करें। **Bare `ALTER TABLE … ADD COLUMN` मत लिखें** — SQLite में `IF NOT EXISTS` नहीं है, और 19 migrations इसीलिए re-runnable नहीं हैं।
+  2. `api/(plugin-name)/` बनाकर `api/index.ts` में route register करें।
+  3. Flutter में screen + service बनाएँ और `app_router.dart` में route डालें।
+- Entitlement **दो** जगह लागू होती है, दोनों ज़रूरी: `GET /api/plugins` (list) और
+  `POST /api/plugins/subscribe` (activate)। दूसरे ने एक बार `target_school_id` ignore
+  कर दिया था, जिससे कोई Director दूसरे tenant का paid plugin activate कर सकता था।
+- पूरी स्कीम: `.agents/rules/plugin_architecture.md`।
 
 **LMS Dashboard = plugin (advanced service / add-on):**
 - Core में सिर्फ़ student management + teacher management (और ज़रूरी school operations)।

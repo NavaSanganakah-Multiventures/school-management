@@ -4,6 +4,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 // re-export shims alongside it would be redundant (unnecessary_import).
 import 'package:pragnya_shared/pragnya_shared.dart';
 
+import 'pdf_service.dart' show PdfService;
+import 'fcm_notification_service.dart' show FcmNotificationService;
+
 class AuthService {
   static final AuthService _instance = AuthService._internal();
   factory AuthService() => _instance;
@@ -14,7 +17,23 @@ class AuthService {
 
   /// Dedicated hosts already retried during this login attempt, so a second
   /// USE_DEDICATED_DOMAIN cannot spin.
+  ///
+  /// Scope is ONE login attempt, not the process lifetime. It used to live on the
+  /// singleton and was never cleared, so the loop guard outlived the reason for it:
+  /// sign in via the apex → the app follows the redirect once and the set now holds
+  /// `dps.pragnya.nasven.com` → log out → Settings → "रीसेट" (which resets
+  /// AppConfig to the platform) → sign in again. This time the USE_DEDICATED_DOMAIN
+  /// branch is skipped, so the code fell through to the dead-end message "यह स्कूल अपने
+  /// पोर्टल dps.pragnya.nasven.com पर है, लेकिन यह ऐप वहाँ नहीं खुला है" — telling the user
+  /// to open the exact URL the app is already pointed at, with no recovery short of a full
+  /// process restart.
+  ///
+  /// Clearing it in [logout] and [clearCurrentUser] restores the correct scope: the guard
+  /// is about one attempt's loop, not about the user's whole session history.
   final Set<String?> _redirectedTo = <String?>{};
+
+  /// Empties the redirect guard. Called whenever the identity changes.
+  void _resetRedirectGuard() => _redirectedTo.clear();
 
   UserModel? _currentUser;
   UserModel? get currentUser => _currentUser;
@@ -112,12 +131,31 @@ class AuthService {
       await _api.post('/api/auth/logout');
     } catch (_) {}
     _currentUser = null;
+    // PdfService caches the school profile in a static field for 5 minutes so repeated
+    // PDF exports do not refetch it. Without this line the cache survives the logout:
+    // signing in as a different school within that window printed the PREVIOUS school's
+    // name, address and phone on the new school's bonafide, receipt and report card.
+    PdfService.clearSchoolCache();
+    // The redirect guard is scoped to one login attempt, so a new session starts fresh.
+    _resetRedirectGuard();
+    // Leave this school's FCM topics. Subscriptions live on the device, not in the
+    // token, so without this the phone keeps receiving the previous school's attendance
+    // and absentee broadcasts after signing in to a different school.
+    await FcmNotificationService().unsubscribeAll();
     await _api.clearAuth();
   }
 
   /// Clears the in-memory user (used by the global 401 handler).
   void clearCurrentUser() {
     _currentUser = null;
+    _resetRedirectGuard();
+    // Same reason as logout(): an expired session is still a switch of identity, and the
+    // PDF header cache would otherwise carry the old school's details forward.
+    PdfService.clearSchoolCache();
+    // Fire-and-forget here: clearCurrentUser is synchronous and is called from the 401
+    // handler, which cannot await. The topic list is held in memory, so it is safe to
+    // walk it asynchronously.
+    FcmNotificationService().unsubscribeAll();
   }
 
   /// Fetches the current authenticated user profile from the server.

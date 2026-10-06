@@ -31,7 +31,15 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     _load();
   }
 
+  // Incremented on every _load. Only the newest load may write to state.
+//
+// Without it, tapping "Paid" then quickly "Failed" issued two requests; if the Paid one
+// resolved last it overwrote the list, so the table showed Paid invoices while the
+// "Failed" chip was the highlighted filter — the UI contradicting itself.
+int _loadEpoch = 0;
+
   Future<void> _load() async {
+    final epoch = ++_loadEpoch;
     setState(() {
       _loading = true;
       _error = null;
@@ -41,8 +49,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         _service.fetchTransactions(status: _statusFilter),
         _service.fetchWebhookEvents(),
       ]);
+      if (!mounted || epoch != _loadEpoch) return;
       final (txns, summary) = results[0] as (List<TransactionModel>, TxnSummaryModel?);
-      if (!mounted) return;
       setState(() {
         _txns = txns;
         _summary = summary;
@@ -50,7 +58,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         _loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || epoch != _loadEpoch) return;
       setState(() {
         _error = e.toString().replaceFirst('Exception: ', '');
         _loading = false;

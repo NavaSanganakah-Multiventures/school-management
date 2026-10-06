@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
-import { createRazorpayOrder, createRazorpayPaymentLink, verifyRazorpaySignature, getRazorpayKeyId, getRazorpayKeySecret } from '../lib/razorpay';
+import { createRazorpayOrder, createRazorpayPaymentLink, verifyRazorpaySignature, getRazorpayKeyId, getRazorpayKeySecret, fetchRazorpayOrderAmountPaidPaise } from '../lib/razorpay';
 import { activateFeePaymentFromRazorpay } from '../lib/fee-payment';
 import { canActOnStudent, getFamilyStudentScope, requireSession, type Role } from '../lib/rbac';
 import { isFamily } from '../lib/roles';
@@ -46,11 +46,26 @@ feesApp.get('/', async (c) => {
   const { db, schoolId, user } = guard;
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const status = c.req.query('status');
-  const search = (c.req.query('q') || '').toLowerCase();
+  const search = (c.req.query('q') || '').trim();
 
-  let sql = 'SELECT * FROM fee_invoices WHERE school_id = ?';
-  const binds: any[] = [schoolId];
+  // Pagination. A school can hold thousands of invoices, and this route used to read the
+  // whole table on every request, filter it in JS, and serialise all of it. That is a
+  // full-table scan plus a full-table read per page view, and on an enterprise school
+  // (maxStudentsLimit is null) the row count is unbounded.
+  //
+  // The page size is capped so a caller cannot ask for everything by passing
+  // limit=100000. `total` and `hasMore` are returned so the client can say "showing 200 of
+  // 1843" rather than silently presenting a truncated ledger as if it were complete.
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '') || 200, 1), 1000);
+  const offset = Math.max(parseInt(c.req.query('offset') || '') || 0, 0);
+
+  // Filtering happens in SQL, not in JS. The status and search predicates are pushed down
+  // so the rows that are about to be discarded are never read. IFNULL is used because the
+  // JS version called .toLowerCase() on possibly-null columns and would have thrown a 500.
+  const where: string[] = ['school_id = ?'];
+  const whereBinds: any[] = [schoolId];
   let familyOnly = false;
+
   if (isFamily(user.role)) {
     familyOnly = true;
     const scope = await getFamilyStudentScope(guard);
@@ -59,41 +74,62 @@ feesApp.get('/', async (c) => {
         success: true,
         summary: { totalReceivable: 0, totalCollected: 0, totalPending: 0, invoiceCount: 0 },
         invoices: [],
+        total: 0,
+        hasMore: false,
       });
     }
     const placeholders = Array.from(scope).map(() => '?').join(',');
-    sql += ' AND student_id IN (' + placeholders + ')';
-    binds.push(...Array.from(scope));
+    where.push('student_id IN (' + placeholders + ')');
+    whereBinds.push(...Array.from(scope));
   }
-  sql += ' ORDER BY created_at DESC';
-
-  const rows = await db.prepare(sql).bind(...binds).all();
-  const all: any[] = (rows.results || []).map(mapFee);
-  let list = all;
 
   if (status && status !== 'All') {
-    list = list.filter((f: any) => f.status.toLowerCase() === status.toLowerCase());
-  }
-  if (search) {
-    list = list.filter((f: any) =>
-      f.studentName.toLowerCase().includes(search) ||
-      f.invoiceNumber.toLowerCase().includes(search) ||
-      f.scholarNumber.toLowerCase().includes(search)
-    );
+    where.push('LOWER(IFNULL(status, \'\')) = ?');
+    whereBinds.push(status.toLowerCase());
   }
 
-  const totalCollected = all.reduce((acc: number, f: any) => acc + (f.paidAmount || 0), 0);
-  const totalReceivable = all.reduce((acc: number, f: any) => acc + (f.totalAmount || 0), 0);
+  if (search) {
+    const like = '%' + search.toLowerCase() + '%';
+    where.push(
+      '(LOWER(IFNULL(student_name, \'\')) LIKE ? OR LOWER(IFNULL(invoice_number, \'\')) LIKE ? OR LOWER(IFNULL(scholar_number, \'\')) LIKE ?)',
+    );
+    whereBinds.push(like, like, like);
+  }
+
+  const whereSql = ' WHERE ' + where.join(' AND ');
+
+  // Totals are aggregated in SQL over the SAME filtered set the list uses, so they agree
+  // with what is on screen. They used to be computed in JS over the whole table, which is
+  // why the summary ignored the status filter while the list honoured it.
+  const agg: any = await db
+    .prepare(
+      'SELECT COUNT(*) AS n, IFNULL(SUM(total_amount), 0) AS receivable, IFNULL(SUM(paid_amount), 0) AS collected'
+      + ' FROM fee_invoices' + whereSql,
+    )
+    .bind(...whereBinds)
+    .first();
+
+  const totalCount = Number((agg && agg.n) || 0);
+  const totalCollected = Number((agg && agg.collected) || 0);
+  const totalReceivable = Number((agg && agg.receivable) || 0);
   const totalPending = totalReceivable - totalCollected;
+
+  const rows = await db
+    .prepare('SELECT * FROM fee_invoices' + whereSql + ' ORDER BY created_at DESC LIMIT ? OFFSET ?')
+    .bind(...whereBinds, limit, offset)
+    .all();
+  const list: any[] = (rows.results || []).map(mapFee);
 
   return c.json({
     success: true,
     // A family account gets only their own children's figures, never the
     // school's school-wide totals.
     summary: familyOnly
-      ? { totalReceivable, totalCollected, totalPending, invoiceCount: all.length, scope: 'own-children' }
-      : { totalReceivable, totalCollected, totalPending, invoiceCount: all.length },
+      ? { totalReceivable, totalCollected, totalPending, invoiceCount: totalCount, scope: 'own-children' }
+      : { totalReceivable, totalCollected, totalPending, invoiceCount: totalCount },
     invoices: list,
+    total: totalCount,
+    hasMore: offset + list.length < totalCount,
   });
 });
 
@@ -227,12 +263,41 @@ feesApp.post('/create-invoice', async (c) => {
     }
   }
 
-  const cnt = await db.prepare('SELECT COUNT(*) AS n FROM fee_invoices WHERE school_id = ?').bind(schoolId).first();
-  const invoiceNumber = 'INV-' + new Date().getFullYear() + '/' + String((cnt ? cnt.n : 0) + 1).padStart(3, '0');
+  const year = new Date().getFullYear();
   const id = 'fee-' + Date.now();
 
-  await db.prepare('INSERT INTO fee_invoices (id, invoice_number, student_id, student_name, class_name, title, total_amount, paid_amount, due_date, status, school_id, scholar_number, section) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind(id, invoiceNumber, body.studentId || ('std-' + Date.now()), body.studentName, className, body.title, Number(body.totalAmount), 0, body.dueDate || new Date().toISOString().split('T')[0], 'Unpaid', schoolId, scholarNumber, section).run();
+  // The number is derived from MAX(), not COUNT(*), and the collision is retried.
+  //
+  // COUNT(*) + 1 is wrong the moment a row is deleted — a gap makes the next number a
+  // duplicate of an existing one — and, more importantly, two concurrent requests both
+  // read the same count and both produce the same number. `UNIQUE(school_id,
+  // invoice_number)` (migration 0040) then rejects the loser with an unhandled constraint
+  // violation, which surfaces as a 500 with no partial-failure reporting.
+  //
+  // MAX() gives the highest number actually in use, so a gap cannot cause a duplicate,
+  // and the retry loop resolves the remaining race by letting the database be the
+  // authority rather than a pre-read guess.
+  let invoiceNumber = '';
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const maxRow: any = await db
+      .prepare(
+        "SELECT MAX(CAST(REPLACE(invoice_number, 'INV-' || ? || '/', '') AS INTEGER)) AS n FROM fee_invoices WHERE school_id = ?",
+      )
+      .bind(year, schoolId)
+      .first();
+    const next = (maxRow && Number(maxRow.n || 0) || 0) + 1;
+    const candidate = 'INV-' + year + '/' + String(next).padStart(3, '0');
+    try {
+      await db.prepare('INSERT INTO fee_invoices (id, invoice_number, student_id, student_name, class_name, title, total_amount, paid_amount, due_date, status, school_id, scholar_number, section) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(id, candidate, body.studentId || ('std-' + Date.now()), body.studentName, className, body.title, Number(body.totalAmount), 0, body.dueDate || new Date().toISOString().split('T')[0], 'Unpaid', schoolId, scholarNumber, section).run();
+      invoiceNumber = candidate;
+      break;
+    } catch (e: any) {
+      const msg = e && e.message ? e.message : String(e);
+      if (!/UNIQUE constraint failed|constraint failed/i.test(msg) || attempt === 4) throw e;
+      // Someone else took this number between the read and the insert. Re-read and retry.
+    }
+  }
 
   const row = await db.prepare('SELECT * FROM fee_invoices WHERE id = ? AND school_id = ?').bind(id, schoolId).first();
   const invoice = mapFee(row);
@@ -276,35 +341,77 @@ feesApp.post('/create-bulk', async (c) => {
     return c.json({ success: false, message: className + ' में कोई सक्रिय छात्र नहीं मिला।' }, 404);
   }
 
-  const cntRow = await db.prepare('SELECT COUNT(*) AS n FROM fee_invoices WHERE school_id = ?').bind(schoolId).first();
-  let baseCnt = Number(cntRow ? cntRow.n : 0);
+  // MAX(), not COUNT(*): a deleted row must not make the next number collide with one that
+  // already exists. See the note on the single-invoice path above.
   const year = new Date().getFullYear();
+  const maxRow: any = await db
+    .prepare("SELECT MAX(CAST(REPLACE(invoice_number, 'INV-' || ? || '/', '') AS INTEGER)) AS n FROM fee_invoices WHERE school_id = ?")
+    .bind(year, schoolId)
+    .first();
+  let baseCnt = Number((maxRow && maxRow.n) || 0);
 
   let createdCount = 0;
+  const failed: { studentId: string; reason: string }[] = [];
+
   for (const st of students as any[]) {
-    baseCnt++;
-    const invNum = 'INV-' + year + '/' + String(baseCnt).padStart(3, '0');
     const invId = 'fee-' + Date.now() + '-' + createdCount;
+    const fullName = (st.first_name || '') + (st.last_name ? ' ' + st.last_name : '');
 
-    await db.prepare(
-      'INSERT INTO fee_invoices (id, invoice_number, student_id, student_name, class_name, title, total_amount, paid_amount, due_date, status, school_id, scholar_number, section) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
-    ).bind(
-      invId,
-      invNum,
-      st.id,
-      (st.first_name || '') + (st.last_name ? ' ' + st.last_name : ''),
-      st.class_name,
-      title,
-      totalAmount,
-      0,
-      dueDate,
-      'Unpaid',
-      schoolId,
-      st.scholar_number || '',
-      st.section || ''
-    ).run();
+    // One number per invoice, retried on collision. There is no transaction around this
+    // loop — wrangler rejects a manual one on remote D1 — so a mid-run failure has always
+    // been able to leave a partially-populated billing run. Rather than hide that, the
+    // loop now records what failed and reports it, so the clerk learns that 40 of 60
+    // invoices went out instead of reading "सफलतापूर्वक" and assuming all 60 exist.
+    let inserted = false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      baseCnt++;
+      const invNum = 'INV-' + year + '/' + String(baseCnt).padStart(3, '0');
+      try {
+        await db.prepare(
+          'INSERT INTO fee_invoices (id, invoice_number, student_id, student_name, class_name, title, total_amount, paid_amount, due_date, status, school_id, scholar_number, section) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        ).bind(
+          invId,
+          invNum,
+          st.id,
+          fullName,
+          st.class_name,
+          title,
+          totalAmount,
+          0,
+          dueDate,
+          'Unpaid',
+          schoolId,
+          st.scholar_number || '',
+          st.section || ''
+        ).run();
+        inserted = true;
+        break;
+      } catch (e: any) {
+        const msg = e && e.message ? e.message : String(e);
+        if (!/UNIQUE constraint failed|constraint failed/i.test(msg) || attempt === 4) {
+          failed.push({ studentId: st.id, reason: msg });
+          break;
+        }
+        // Collision: re-read the high-water mark and try the next number.
+        const retryRow: any = await db
+          .prepare("SELECT MAX(CAST(REPLACE(invoice_number, 'INV-' || ? || '/', '') AS INTEGER)) AS n FROM fee_invoices WHERE school_id = ?")
+          .bind(year, schoolId)
+          .first();
+        baseCnt = Number((retryRow && retryRow.n) || 0);
+      }
+    }
 
-    createdCount++;
+    if (inserted) createdCount++;
+  }
+
+  if (failed.length) {
+    return c.json({
+      success: false,
+      message: className + ' में ' + failed.length + ' चालान नहीं बन सके। ' + createdCount + ' बनाए गए।',
+      count: createdCount,
+      failed: failed.length,
+      failures: failed.slice(0, 20),
+    }, 207);
   }
 
   return c.json({
@@ -458,6 +565,12 @@ feesApp.post('/verify', async (c) => {
   }
 
   const secret = await getRazorpayKeySecret(c.env);
+  // Fail closed, explicitly. Without this the HMAC would be computed with an empty
+  // key, which anyone can reproduce, so a forged signature would mark an invoice
+  // paid. A missing key is a configuration fault, not a payment.
+  if (!secret) {
+    return c.json({ success: false, message: 'पेमेंट सिग्नेचर वेरिफिकेशन असंभव है: RAZORPAY_KEY_SECRET सेट नहीं है।' }, 500);
+  }
   const ok = await verifyRazorpaySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature, secret);
   if (!ok) return c.json({ success: false, message: 'पेमेंट सिग्नेचर वेरिफिकेशन विफल।' }, 400);
 
@@ -467,12 +580,26 @@ feesApp.post('/verify', async (c) => {
     return c.json({ success: false, message: 'आपको इस भुगतान की अनुमति नहीं है।' }, 403);
   }
 
+  // How much was actually collected comes from Razorpay, never from the request body.
+  // create-order deliberately allows paying less than the invoice total, so this is
+  // routinely a partial payment; omitting it made api/lib/fee-payment.ts fall back to
+  // `total - paid` and credit the whole invoice for a fraction of the amount.
+  const paidPaise = await fetchRazorpayOrderAmountPaidPaise(c.env, razorpay_order_id);
+  if (paidPaise === null) {
+    return c.json({ success: false, message: 'राज़पे भुगतान राशि की पुष्टि नहीं हो सकी। कृपया दोबारा प्रयास करें।' }, 502);
+  }
+  if (paidPaise <= 0) {
+    return c.json({ success: false, message: 'राज़पे ने इस ऑर्डर के लिए कोई राशि प्राप्त नहीं की।' }, 400);
+  }
+  const paidAmountINR = Math.round(paidPaise) / 100;
+
   const result = await activateFeePaymentFromRazorpay({
     db,
     env: c.env,
     schoolId,
     razorpay_order_id,
     razorpay_payment_id,
+    paidAmountINR,
   });
 
   if (!result.success) {

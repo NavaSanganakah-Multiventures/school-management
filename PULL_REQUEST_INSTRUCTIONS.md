@@ -1,5 +1,15 @@
 # Exam System Overhaul Pull Request Instructions
 
+> **Historical record — do not follow this file.**
+>
+> This describes one completed PR (`exam-system-overhaul`, already merged) and lists
+> `components/screens/*` and `components/report-templates/*` files that no longer exist —
+> the React CRM was dead code with zero importers and has since been deleted. The exam and
+> marksheet features it built do live on, in the Flutter app:
+> `flutter_apps/school_management_app/lib/screens/exams_screen.dart`.
+>
+> For current plugin/UI work see `.agents/rules/plugin_architecture.md`.
+
 ## ✅ Complete Exam System Overhaul Ready
 
 ### 📋 How to Create Pull Request on GitHub

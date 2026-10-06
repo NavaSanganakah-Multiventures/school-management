@@ -95,14 +95,18 @@ School id path me isliye hai kyunki `INTERNAL_SYNC_SECRET` fleet-wide hai: wo pr
 karta hai *koi* dedicated worker poocha, *yahi* worker poocha nahi. Header me school
 id koi bhi worker badal sakta tha aur signature phir bhi verify ho jaata।
 
-⚠️ `api/billing/index.ts` me abhi bhi `isDedicated ? 'enterprise'` likha hai। Wo
-dedicated schools ke liye **ab dead** hai, kyunki ab unka billing platform answer karta
-hai aur wahan `isDedicated` false hai। Verify kiya: `yagyaashram` trial ab
-`planId: 'trial'` aur 8 modules report karta hai, `enterprise` + 17 nahi। Line khud
-chhedni nahi gayi — agar koi dedicated worker kabhi khud billing answer kare to ye
-wapas zinda ho jayegi.
+⚠️ **हटा दिया गया।** `api/billing/index.ts` me `isDedicated ? 'enterprise'` tha, jo
+sabse mehnga tier ke saare 17 modules, unlimited students/staff/email aur har feature
+flag de deta tha। Dedicated schools ke liye ye pehle se hi dead tha (billing platform
+answer karta hai, wahan `isDedicated` false hai), isliye hara hua nahi dikh raha tha —
+par ye ek **live shortcut** tha: jis bhi worker par `SCHOOL_ID` set ho, uske handler
+ko sabse mehnga tier mil jata। Ab plan hamesha platform ke apne DB se aata hai, aur
+`|| isDedicated` wali duplicate shortcut bhi hata di gayi।
 
-`scripts/verify-routing.mjs` यह contract CI में assert करता है।
+Purana README ye daava karta tha: "`scripts/verify-routing.mjs` यह contract CI में assert
+करता है". **Wo galat tha** — us script me `billing`, `isDedicated` ya `enterprise` ka ek
+bhi mention nahi hai। Isiliye isi tarah ki baaki copies kabhi nazar nahi aayin। Ab ye
+CI me hai:
 
 ## Previews (branch testing)
 
@@ -129,11 +133,38 @@ possible hi nahi hain।
 ## Directory layout
 
 - api/            Hono backend (auth, students, exams, fees, plugins, ai, admin, lms, ...)
-- components/     React UI (school-crm-shell + screens + modals)
-- plugins/        Pluggable feature modules (AI Assistant, LMS, AI Report Analyzer)
-- db_migrations/  D1 migrations (idempotent, school_id-scoped)
+- flutter_apps/   **असली UI** — school_management_app (staff/parent/student) + super_admin_app + shared
+- components/     React, और बस जितना live है: public website + /reset screen
+- db_migrations/  D1 migrations (school_id-scoped)
 - scripts/        provisioning + deploy helpers + verification harnesses
 - schools.json    Tenant registry (source of truth for dedicated deploy)
+
+`schools.json` me ek QA test tenant (`qa-school-266668`) aur teen aise slugs hain jo shayad
+ek hi school ke repeated registrations hain (`yagya-pragnya`, `school188328`,
+`yagyaashram`). Dono production data operations hain, code se nahi — poori jaanch, delete
+ka order aur verification commands `docs/tenant-registry-audit.md` me hain.
+
+### React CRM हटा दिया गया
+
+`components/screens/`, `components/modals/`, `components/report-templates/`,
+`components/school-crm-shell.tsx` और repo root का `plugins/` folder — ये सब **dead code**
+थे और हटा दिए गए हैं। `app/page.tsx` सिर्फ़ `LandingPage` render करता था, इसलिए
+`SchoolCrmShell` का **शून्य importer** था: ~882 KB का UI जो किसी user को कभी दिखा ही नहीं।
+
+उसमें कुछ ऐसे bugs थे जो live UI नहीं होने से कभी activate नहीं हुए — जैसे "अंक प्रविष्टि"
+modal एक छात्र के अंक दूसरे छात्र के record में लिख देता था। यही इसका सबसे बड़ा जोखिम था:
+बिना दिखे मौजूद रहना।
+
+अब React में सिर्फ यही बचा है, और यही live है:
+
+| File | Kya serve karta hai |
+|---|---|
+| `components/website/landing.tsx` | `pragnya.nasven.com` marketing website |
+| `components/website/register-form.tsx` | 7-दिन free trial registration |
+| `components/screens/reset-password-screen.tsx` | `/reset?token=` password reset |
+
+नया स्कूल-फ़ेचर Flutter में बनाइए। `.agents/rules/plugin_architecture.md` में पूरी स्कीम।
+Git history में पूरा deleted code मौजूद है।
 
 ## Verification harnesses
 
@@ -148,6 +179,7 @@ par chalte hain:
 | `verify-routing.mjs` | routing contract, preview bindings, wrangler version pin |
 | `verify-migration-0041.mjs` | `parent_student_links` backfill, cross-tenant refusal |
 | `verify-migration-0042.mjs` | per-table dedicated migration ledger |
+| `verify-migration-0040-rebuild.mjs` | कोई table rebuild किसी column को **drop** तो नहीं कर रहा |
 | `audit-dedicated-tables.mjs` | हर school-scoped table dedicated D1 तक पहुँचती है या नहीं |
 | `resolve-preview-url.test.mjs` | Preview URL resolution + liveness |
 | `verify-billing-m2m.mjs` | billing authorisation boundary: real `api/` modules, real HMAC, forged scope/path/body/role sab refuse hote hain, poori chain end-to-end, aur deploy fail-closed bhi rahega |
@@ -164,6 +196,27 @@ zaroori kuch nahi hota.** Sirf "403 hua" assert karna uss code ko bhi pass kara
 deta hai jo har kuch refuse karta hai. Isiliye tampered-body case ke saath
 unchanged-body wala bhi assert hota hai (400 chahiye, 401 nahi) — yahi prove karta
 hai ki signature verify hua, sirf ye nahi ki kuch refuse hua.
+
+### Aur ek: green check ko laal dikhne ka ability dikhao
+
+`verify-migration-0040-rebuild.mjs` likhte waqt use jaan-boojhkar toda gaya — 0040 ke
+rebuild se `created_at` aur chaaron `razorpay_*` columns hata diye gaye — aur **check ne
+kuch nahi pakda**. Do wajah:
+
+1. Jis migration ka `db.exec()` fail ho raha tha, use `continue` se skip kar diya tha.
+   Purana table wahi pada rehta, comparison ko kuch dikhai nahi deta, aur check green
+   reh jaata tha — jabki wo rebuild **kabhi chala hi nahi**.
+2. Comparison sirf clean path par chal rahi thi. Par ek file ke andar rebuild columns
+   drop kar chuka hota hai aur koi **baad ka** statement fail hota hai; tab `db.exec()`
+   throw karta hai turant baad, aur phir bhi nuksan ho chuka hota hai.
+
+Isi tarah `verify-login-hardening.mjs` ka D1 stand-in INSERT ke teen parameters maanta
+tha aur `attempts` index 2 par padhta tha. Rate limiter ko atomic increment par le jaane
+par usne `windowStart` ko `attempts` samajh liya, har login 429 ho gaya, aur check ne
+GREEN report kiya. Stand-in galat padh raha tha — yahi sabse khatarnaak failure mode hai.
+
+Isiliye: **har naye harness ko ek baar jaan-bujhkar todo**, aur confirm karo ki wo laal
+hota hai. Warna wo sirf़ dikhawati jaanch hai.
 
 ## Local development
 
@@ -201,10 +254,13 @@ Checks: npm run lint | npm run typecheck | npm run build
 
 ## Plugin architecture
 
-components/school-crm-shell.tsx को edit न करें। नया plugin register करने के लिए:
-1. db_migrations/ में plugins/school_plugins row (INSERT OR IGNORE)
-2. api/ में backend routes
-3. plugins/index.ts में PLUGINS_REGISTRY entry
+UI Flutter में है, React में नहीं। नया plugin बनाने के लिए:
+1. `db_migrations/` में `plugins` / `school_plugins` row (`INSERT OR IGNORE`)
+2. `api/` में backend routes, `api/index.ts` में register
+3. `flutter_apps/school_management_app/lib/screens/` में screen + `app_router.dart` में route
+
+पूरी स्कीम और entitlement के दोनों जगह लागू होने का नियम:
+`.agents/rules/plugin_architecture.md`
 
 ## CI/CD
 
@@ -280,7 +336,8 @@ toh jis school ke paas data already hai use repair ke liye
 
 ## Notes
 
-- Migrations idempotent (CREATE TABLE IF NOT EXISTS / INSERT OR IGNORE) और composite (school_id, ...) indexes के साथ।
+- Tables बनाने वाले migrations idempotent हैं (CREATE TABLE IF NOT EXISTS / INSERT OR IGNORE) और composite (school_id, ...) indexes के साथ हैं।
+- ⚠️ **पर यह दावा पूरा सही नहीं है:** 19 migrations bare `ALTER TABLE ... ADD COLUMN` use करते हैं, और SQLite के पास `ADD COLUMN IF NOT EXISTS` का कोई रूप नहीं है। `wrangler d1 migrations apply` इन्हें दोबारा नहीं चलाता (वह `d1_migrations` में applied files track करता है), इसलिए deploy सुरक्षित है — पर manual `wrangler d1 execute --file`, या किसी पुराने backup को restore करना, दूसरी बार पर आधा-लागू होकर रुक जाएगा। पूरी सूची `KNOWN_NON_IDEMPOTENT` में `scripts/verify-migrations-apply.mjs` में है, और CI गिनती बढ़ने पर fail करता है।
 
 ## ईमेल कोटा व बिज़नेस-डोमेन ईमेल (Phase 3)
 

@@ -4,17 +4,29 @@ import '../models/fee_model.dart';
 class FeeService {
   final _api = ApiClient();
 
-  Future<({FeeSummaryModel summary, List<FeeInvoiceModel> invoices})>
-      getInvoices({String? status, String? q}) async {
+  /// A page of invoices plus the totals the server computed over the whole filtered set.
+  ///
+  /// [total] and [hasMore] come from the server because the list is paginated. Without
+  /// them a caller cannot tell a complete ledger from a truncated one, and a fee screen
+  /// that quietly shows the first 200 invoices is worse than one that shows an error.
+  Future<({FeeSummaryModel summary, List<FeeInvoiceModel> invoices, int total, bool hasMore})>
+      getInvoices({String? status, String? q, int limit = 200, int offset = 0}) async {
     final res = await _api.get('/api/fees', queryParams: {
       if (status != null) 'status': status,
       if (q != null) 'q': q,
+      'limit': '$limit',
+      'offset': '$offset',
     });
     final summary = FeeSummaryModel.fromJson(res['summary'] ?? {});
     final list = (res['invoices'] as List? ?? [])
         .map((e) => FeeInvoiceModel.fromJson(e as Map<String, dynamic>))
         .toList();
-    return (summary: summary, invoices: list);
+    return (
+      summary: summary,
+      invoices: list,
+      total: (res['total'] as num?)?.toInt() ?? list.length,
+      hasMore: res['hasMore'] == true,
+    );
   }
 
   Future<FeeInvoiceModel> createInvoice(Map<String, dynamic> body) async {

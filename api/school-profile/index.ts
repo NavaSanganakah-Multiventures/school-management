@@ -2,7 +2,10 @@ import { Hono } from 'hono';
 import { getDB } from '../db';
 import { getAuthUser, getRequestSchoolId } from '../lib/auth';
 import { syncTenantFromPlatform } from '../lib/tenant-sync';
-import { resolveTenant } from '../lib/tenant-resolver';
+// resolveTenant is no longer used here: this route is authenticated and its tenant comes
+// from the verified session, so there is nothing to resolve. The import is gone rather
+// than left unused, because an unused tenant resolver on an authenticated route is
+// exactly the thing that gets "helpfully" re-wired later.
 
 export const schoolProfileApp = new Hono<{ Bindings: any }>();
 
@@ -29,18 +32,26 @@ function rowToProfile(row: any) {
 }
 
 // GET /api/school-profile
+//
+// Authentication is required.
+//
+// This used to be open: an anonymous caller fell through to resolveTenant, which honours
+// a `?schoolId=` query parameter (api/lib/tenant-resolver.ts:42). On the platform worker
+// — whose D1 holds every tenant — that made `GET /api/school-profile?schoolId=school-…`
+// return director name, principal name, affiliation number, school code, email, phone
+// and full address for any school, with no rate limit and nothing to distinguish a valid
+// id from an invented one.
+//
+// Every caller is a post-login screen (SchoolProfileService is used by the profile
+// screen, the parent portal and the PDF header service), so requiring a session costs
+// nothing and closes the enumeration.
 schoolProfileApp.get('/', async (c) => {
   const db = getDB(c);
   if (!db) return c.json({ success: false, message: 'डेटाबेस उपलब्ध नहीं है।' }, 500);
   const authUser = await getAuthUser(c);
-  let schoolId: string;
-
-  if (authUser) {
-    schoolId = getRequestSchoolId(c, authUser);
-  } else {
-    const resolved = await resolveTenant(c);
-    schoolId = resolved.schoolId;
-  }
+  if (!authUser) return c.json({ success: false, message: 'लॉगिन आवश्यक है।' }, 401);
+  const schoolId = getRequestSchoolId(c, authUser);
+  if (!schoolId) return c.json({ success: false, message: 'स्कूल पहचान नहीं हो सकी।' }, 400);
 
   let row = await db.prepare('SELECT * FROM school_profile WHERE id = ?').bind(schoolId).first();
 

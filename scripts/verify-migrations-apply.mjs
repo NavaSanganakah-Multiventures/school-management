@@ -124,7 +124,7 @@ section('re-running every migration (idempotency)');
 //   - Restoring a backup that already has the columns, or applying a migration by
 //     hand during an incident, fails halfway.
 //
-// 17 of the 42 migrations add a column with a bare `ALTER TABLE ... ADD COLUMN`,
+// 19 of the 42 migrations add a column with a bare `ALTER TABLE ... ADD COLUMN`,
 // which SQLite has no `IF NOT EXISTS` form for. They are listed in
 // KNOWN_NON_IDEMPOTENT below so the harness fails on a NEW violation while still
 // reporting the existing ones. Making the check "everything must be idempotent"
@@ -150,6 +150,20 @@ const KNOWN_NON_IDEMPOTENT = new Set([
   '0032_subscriptions_recurring.sql',
   '0033_plugin_trials.sql',
   '0040_tenant_uniqueness_and_payment_ledger.sql',
+  // 0035 and 0036 were NOT failures until 0040 stopped dropping the columns they add.
+  // 0040's table rebuild omitted razorpay_order_id / razorpay_payment_id /
+  // razorpay_payment_link_id / razorpay_payment_link_url (0035) and last_reminder_at
+  // (0036), so on this second pass the columns were absent again and the bare
+  // ALTER TABLE ... ADD COLUMN succeeded every time. The rebuild was accidentally
+  // making two broken migrations look idempotent.
+  //
+  // Fixing 0040 restored the columns, so re-running 0035/0036 now reports "duplicate
+  // column name" — which is the truth about them, and is the same known limitation as
+  // every other file in this set. Listing them here is not a new violation being
+  // tolerated; it is a masked defect becoming visible. The count this set encodes went
+  // 17 -> 19 because two of those seventeen were never really passing.
+  '0035_student_fee_razorpay.sql',
+  '0036_fee_reminders.sql',
 ]);
 
 const secondPass = [];

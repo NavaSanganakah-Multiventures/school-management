@@ -130,13 +130,17 @@ class _SubjectsScreenState extends State<SubjectsScreen> {
           FilledButton(
             onPressed: () async {
               if (name.text.trim().isEmpty) return;
+              // Captured before the await; this dialog is popped on success. The old
+              // code guarded `c` and then used the screen's `context`, so the guard
+              // never applied to the context actually being used.
+              final messenger = ScaffoldMessenger.of(c);
               try {
                 await _svc.createSubject(name.text.trim(), subjectCode: code.text.trim().isEmpty ? null : code.text.trim());
                 if (c.mounted) Navigator.pop(c);
-                showSnack(context, 'विषय जोड़ा गया');
+                showSnackVia(messenger, 'विषय जोड़ा गया');
                 _load();
               } on ApiException catch (e) {
-                if (c.mounted) showSnack(context, e.message, isError: true);
+                if (c.mounted) showSnackVia(messenger, e.message, isError: true);
               }
             },
             child: const Text('जोड़ें'),
@@ -170,13 +174,15 @@ class _SubjectsScreenState extends State<SubjectsScreen> {
           FilledButton(
             onPressed: () async {
               if (className.text.trim().isEmpty || subjectId.text.isEmpty) return;
+              // Captured before the await; this dialog is popped on success.
+              final messenger = ScaffoldMessenger.of(c);
               try {
                 await _svc.mapSubject(className: className.text.trim(), subjectId: subjectId.text);
                 if (c.mounted) Navigator.pop(c);
-                showSnack(context, 'विषय मैप हो गया');
+                showSnackVia(messenger, 'विषय मैप हो गया');
                 _load();
               } on ApiException catch (e) {
-                if (c.mounted) showSnack(context, e.message, isError: true);
+                if (c.mounted) showSnackVia(messenger, e.message, isError: true);
               }
             },
             child: const Text('मैप करें'),

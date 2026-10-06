@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -71,8 +72,41 @@ class PdfEngine {
     await boldLoader.load();
   }
 
-  /// Render a flow of [blocks] into a multi-page A4 PDF.
-  Future<Uint8List> renderPdf(List<PdfBlock> blocks) async {
+  /// Serialises renders.
+  ///
+  /// This engine is a singleton and its render state (`_recorder`, `_canvas`, `_y`,
+  /// `_dirty`, `_pages`) is mutable and shared, not per-call. Two overlapping
+  /// [renderPdf] calls therefore interleaved destructively: the second call's
+  /// `_pages.clear()` discarded the first call's pages, both wrote into the same canvas
+  /// at the same `_y`, and the first call's `page.dispose()` could free an image the
+  /// second was still embedding. The result was a PDF containing another student's rows,
+  /// duplicated pages, or a "use of disposed image" failure.
+  ///
+  /// Callers did not reliably prevent this: fees_screen only disabled the button for the
+  /// invoice already in flight, so tapping invoice A then invoice B started two renders,
+  /// and the attendance, notice and leave downloads had no guard at all, so a double tap
+  /// reproduced it.
+  ///
+  /// A mutex fixes it at the one place that owns the shared state, rather than relying on
+  /// every call site to remember.
+  Future<void> _renderChain = Future<void>.value();
+
+  /// Renders a flow of [blocks] into a multi-page A4 PDF, one render at a time.
+  Future<Uint8List> renderPdf(List<PdfBlock> blocks) {
+    final completer = Completer<Uint8List>();
+    final previous = _renderChain;
+    _renderChain = previous.then((_) async {
+      try {
+        completer.complete(await _renderPdfExclusive(blocks));
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
+  }
+
+  /// The real render. Only ever runs while holding the mutex above.
+  Future<Uint8List> _renderPdfExclusive(List<PdfBlock> blocks) async {
     await ensureFonts();
 
     _pages.clear();

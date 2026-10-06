@@ -113,8 +113,20 @@ pluginsApp.post('/subscribe', async (c) => {
     const { pluginId } = await c.req.json();
     if (!pluginId) return c.json({ success: false, error: 'Plugin ID required' }, 400);
 
-    // Check if plugin exists
-    const plugin = await db.prepare(`SELECT * FROM plugins WHERE id = ?`).bind(pluginId).first();
+    // A plugin must be VISIBLE to this school before it can be subscribed to.
+    //
+    // This used to be `SELECT * FROM plugins WHERE id = ?`, which ignored
+    // is_active, type and target_school_id. A private plugin is a per-school paid
+    // artefact, and the read path above (:76) already scopes those two fields, so the
+    // subscribe path was strictly weaker than the list path: a Director could POST
+    // any plugin id — enumerable through GET /api/admin/plugins, or guessable as
+    // 'plugin-lms' — and receive status='active' for a plugin another tenant had
+    // paid for. GET /api/plugins then reported it active to this school.
+    //
+    // Same predicate as the read path, on purpose.
+    const plugin = await db.prepare(
+      `SELECT * FROM plugins WHERE id = ? AND is_active = 1 AND (type = 'global' OR (type = 'private' AND target_school_id = ?))`
+    ).bind(pluginId, schoolId).first();
     if (!plugin) return c.json({ success: false, error: 'Plugin not found' }, 404);
 
     // Free plugins (price = 0): activate immediately.

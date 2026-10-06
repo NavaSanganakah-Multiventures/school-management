@@ -1323,7 +1323,11 @@ adminApp.post('/plugins/send-payment-link', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const schoolId = String(body.schoolId || '').trim();
   const pluginId = String(body.pluginId || '').trim();
-  const billingCycle = ['monthly', 'annual'].indexOf(String(body.billingCycle || 'monthly')) !== -1 ? String(body.billingCycle) : 'monthly';
+  // Same defect as the plan checkout above: the guard validated the defaulted string
+// while the branch returned the raw field, so an absent billingCycle became the
+// literal "undefined" in billing_invoices.billing_cycle and the Razorpay notes.
+const requestedCycle = String(body.billingCycle == null ? 'monthly' : body.billingCycle).trim().toLowerCase();
+  const billingCycle = ['monthly', 'annual'].includes(requestedCycle) ? requestedCycle : 'monthly';
   if (!schoolId || !pluginId) {
     return c.json({ success: false, message: 'schoolId और pluginId आवश्यक हैं।' }, 400);
   }
@@ -1523,7 +1527,16 @@ adminApp.post('/schools/send-payment-link', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const schoolId = String(body.schoolId || '').trim();
   const planId = String(body.planId || 'starter').trim();
-  const billingCycle = ['monthly', 'quarterly', 'annual'].indexOf(String(body.billingCycle || 'annual')) !== -1 ? String(body.billingCycle) : 'annual';
+  // Resolve the cycle ONCE, then validate that resolved value.
+//
+// The guard used to test `String(body.billingCycle || 'annual')` but the true branch
+// returned `String(body.billingCycle)` — the RAW field. When the field was absent the
+// test saw 'annual' (index 2, passes) and the branch returned String(undefined), i.e.
+// the literal string "undefined". That was then written to billing_invoices.billing_cycle,
+// passed to Razorpay as notes.billing_cycle, shown in the customer email, and made the
+// webhook add 30 days to a subscription the operator believed was annual.
+const requestedCycle = String(body.billingCycle == null ? 'annual' : body.billingCycle).trim().toLowerCase();
+const billingCycle = ['monthly', 'quarterly', 'annual'].includes(requestedCycle) ? requestedCycle : 'annual';
 
   if (!schoolId) return c.json({ success: false, message: 'schoolId आवश्यक है।' }, 400);
 
@@ -1706,8 +1719,22 @@ adminApp.post('/subscriptions/cancel', async (c) => {
   const result = await cancelRazorpaySubscription(c.env, sub.razorpay_subscription_id, cancelAtCycleEnd);
   if (result.error) return c.json({ success: false, message: result.error }, 400);
 
-  await db.prepare("UPDATE school_subscriptions SET status = 'Canceled', mandate_status = 'revoked', updated_at = ? WHERE school_id = ?")
-    .bind(new Date().toISOString(), schoolId).run().catch(() => {});
+  // Cancel-at-cycle-end must NOT claim the mandate is dead.
+//
+// This UPDATE ran regardless of `cancelAtCycleEnd`, so cancelling "at cycle end"
+// through the admin console wrote status='Canceled' + mandate_status='revoked' —
+// while Razorpay would still auto-debit the school at the end of the cycle. The
+// platform was reporting a mandate it had not actually revoked. api/billing/index.ts
+// already fixed this exact bug on the customer-facing route; this admin twin was
+// never updated, so the same lie was reachable through the console.
+const nowIso = new Date().toISOString();
+if (cancelAtCycleEnd) {
+  await db.prepare('UPDATE school_subscriptions SET cancel_at_cycle_end = 1, updated_at = ? WHERE school_id = ?')
+    .bind(nowIso, schoolId).run().catch(() => {});
+} else {
+  await db.prepare("UPDATE school_subscriptions SET status = 'Canceled', mandate_status = 'revoked', cancel_at_cycle_end = 0, updated_at = ? WHERE school_id = ?")
+    .bind(nowIso, schoolId).run().catch(() => {});
+}
   return c.json({ success: true, message: cancelAtCycleEnd ? 'सदस्यता चक्र के अंत में रद्द होगी।' : 'सदस्यता रद्द कर दी गई।' });
 });
 
