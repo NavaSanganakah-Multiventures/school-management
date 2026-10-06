@@ -12,6 +12,7 @@
     "clean": "next clean",
     "test": "node scripts/verify-flutter-ci.mjs && node scripts/verify-preview-workflow.mjs && node scripts/verify-flutter-dialogs.mjs && node scripts/verify-session-status.mjs && node scripts/verify-role-gates.mjs && node scripts/verify-plugins-authz.mjs && node scripts/verify-login-hardening.mjs && node scripts/verify-billing-m2m.mjs && node scripts/verify-phase0-signing.mjs && node scripts/verify-phase1-rbac.mjs && node scripts/verify-phase2-money.mjs && node scripts/verify-routing.mjs && node scripts/audit-dedicated-tables.mjs && node scripts/verify-migration-0041.mjs && node scripts/verify-migration-0042.mjs && node scripts/verify-migration-0040-rebuild.mjs && node scripts/verify-migrations-apply.mjs && node scripts/mutation-check-billing-m2m.mjs",
     "test:fast": "node scripts/verify-phase0-signing.mjs && node scripts/verify-phase1-rbac.mjs && node scripts/verify-phase2-money.mjs && node scripts/verify-routing.mjs && node scripts/verify-migration-0040-rebuild.mjs",
+      "test:repair:0040": "node scripts/verify-repair-migration-0040.mjs",
     "repair:0040": "node scripts/repair-migration-0040.mjs",
     "test:mutation": "node scripts/mutation-check-billing-m2m.mjs"
   },
