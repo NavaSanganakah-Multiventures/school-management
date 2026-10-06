@@ -137,22 +137,23 @@ FROM fee_invoices;
 DROP TABLE fee_invoices;
 ALTER TABLE fee_invoices_mig0040 RENAME TO fee_invoices;
 
+-- One canonical definition of each. The school_status and school_student indexes
+-- were each emitted twice here; harmless at runtime because every statement is
+-- IF NOT EXISTS, but a reader could not tell which copy was the intended one, and
+-- a future edit to only one copy would leave the migration asserting an index it
+-- no longer fully controls.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_fee_invoices_school_number
     ON fee_invoices (school_id, invoice_number);
 CREATE INDEX IF NOT EXISTS idx_fee_invoices_school_status
     ON fee_invoices (school_id, status);
 CREATE INDEX IF NOT EXISTS idx_fee_invoices_school_student
     ON fee_invoices (school_id, student_id);
--- Recreated here because the rebuild above dropped the old table, and these two
--- were created against it by 0035.
+-- The two below are recreated because the rebuild above dropped the old table,
+-- and 0035 had created them against it.
 CREATE INDEX IF NOT EXISTS idx_fee_invoices_razorpay_order
     ON fee_invoices(razorpay_order_id);
 CREATE INDEX IF NOT EXISTS idx_fee_invoices_razorpay_link
     ON fee_invoices(razorpay_payment_link_id);
-CREATE INDEX IF NOT EXISTS idx_fee_invoices_school_status
-    ON fee_invoices (school_id, status);
-CREATE INDEX IF NOT EXISTS idx_fee_invoices_school_student
-    ON fee_invoices (school_id, student_id);
 
 -- ── PART A.3: school_subscriptions.cancel_at_cycle_end ──
 -- api/billing/index.ts needs to record that a cancellation was requested at the

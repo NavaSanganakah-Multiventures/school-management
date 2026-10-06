@@ -1,0 +1,65 @@
+fix(verify): four defects the 0040 review surfaced
+
+Addresses the Kilo review on #129. Three of the four hold up under reproduction; the
+fourth does not, and is corrected in a different place than it was reported.
+
+1. CRITICAL — `loadSchools()` returned [] when schools.json was missing, and the run
+   printed the reassuring sentence and exited 0. Reproduced by renaming schools.json
+   and running the most common invocation:
+
+     $ mv schools.json schools.json.bak
+     $ npm run repair:0040
+     Nothing to repair. Every database in scope was examined and answered.
+     $ echo $?
+     0
+
+   Zero databases examined, and it claimed every one had answered. A missing registry
+   is not an empty work list — it is no list to walk. That now throws, and so does a
+   registry with no `schools` array or an empty one. The qualified sentence I added in
+   the previous commit is what made this worse: it now asserted databases had answered
+   when none had been named.
+
+2. WARNING — `actionable` filtered on `!r.skipped`, but nothing sets `skipped` since the
+   silent-SKIP removal. A condition that can never be false will not catch anyone when a
+   skip is reintroduced elsewhere. Removed.
+
+3. WARNING — reported against scripts/verify-routing.mjs:531, "comment-stripping regex
+   matches `//` inside string literals (e.g. 'http://example.com')". The URL case does
+   not reproduce — the `[^:]` guard preserves it. But the claim is right about the
+   defect, just not about the example. A `//` in a string with no colon before it ate
+   the rest of the line:
+
+     const u = "a//b"; const plan = isDedicated ? "enterprise" : "standard";
+     ->  const u = "a
+
+   and the tier-derived plan this block exists to catch disappeared with it. A stripper
+   that can be made to hide the bug by prefixing a line with a string is worse than no
+   stripper, so stripComments is now a single pass that tracks string state, and is
+   asserted against that exact smuggling case plus a URL, a line comment, a block
+   comment and a template literal.
+
+4. SUGGESTION — the rebuild detector was /CREATE TABLE\s+\w*_?(mig|new)/i, a naming
+   convention rather than a structure. Adding the `IF NOT EXISTS` guard:
+
+     CREATE TABLE IF NOT EXISTS fee_invoices_mig0040 (...)
+
+   made it not match, and since the entire column-drop comparison sits behind that test,
+   a column-dropping rebuild written with a guard would pass silently. A guard is the
+   least risky way to touch a rebuild, so it is the likeliest way to write one. Detection
+   is now structural — DROP TABLE <table> plus a RENAME onto that name — and the
+   detector is asserted directly, including three negative cases.
+
+5. SUGGESTION — 0040 emitted idx_fee_invoices_school_status and
+   idx_fee_invoices_school_student twice. Harmless at runtime, every statement being
+   IF NOT EXISTS, but the second copy is a place an edit can land that changes nothing.
+   Audited the whole file rather than trusting the reported pair: 9 indexes, all defined
+   once after the edit. Removed the duplicates and added a check, because the assertion
+   is worth more than the cleanup.
+
+Verification: 72/72 in scripts/verify-repair-migration-0040.mjs (13 new, covering all
+three registry failure modes and the sentence's single call site), 22 in
+verify-migration-0040-rebuild.mjs (was 10), routing contract green. npm test green,
+tsc and eslint clean.
+
+The production dry run still reports 9 problems on each of 7 dedicated databases plus
+the platform D1, and this changes nothing about that.

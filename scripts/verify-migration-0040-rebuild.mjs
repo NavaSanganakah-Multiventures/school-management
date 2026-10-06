@@ -86,6 +86,20 @@ const REQUIRED = {
   ],
 };
 
+// True when the SQL rebuilds `table` by the copy/drop/rename dance, regardless of
+// how the intermediate table is named or whether the CREATE carries a guard.
+//
+// The RENAME is the part that cannot be faked: something must end up holding the
+// original table's name. `DROP TABLE <table>` plus a rename onto it is the shape
+// SQLite requires here, so requiring both is what makes this structural.
+function rebuildsTable(sql, table) {
+  const escaped = table.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const renames = new RegExp(`ALTER\\s+TABLE\\s+\\w+\\s+RENAME\\s+TO\\s+["']?${escaped}["']?`, 'i');
+  if (!renames.test(sql)) return false;
+  const drops = new RegExp(`DROP\\s+TABLE\\s+(IF\\s+EXISTS\\s+)?["']?${escaped}["']?`, 'i');
+  return drops.test(sql);
+}
+
 function columnsOf(db, table) {
   return new Set(db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all().map((r) => String(r.name)));
 }
@@ -129,8 +143,22 @@ try {
       console.log('        ' + file + ' -> ' + applyError);
     }
 
+    // A rebuild is detected structurally: something creates a table, copies the
+    // old one, drops the old one, and renames. The previous detector was
+    //
+    //   /CREATE TABLE\s+\w*_?(mig|new)/i
+    //
+    // which is a naming convention, not a structure. Writing the same rebuild
+    // with the `IF NOT EXISTS` guard —
+    //
+    //   CREATE TABLE IF NOT EXISTS fee_invoices_mig0040 (...)
+    //
+    // — made it not match, and because the whole column-drop comparison sits
+    // behind this test, a column-dropping rebuild would then pass the check
+    // silently. A guard is the least risky way to touch a rebuild, so it is the
+    // most likely way to write one.
     const isRebuild = REBUILD_TABLES.some(
-      (t) => before[t].size > 0 && /CREATE TABLE\s+\w*_?(mig|new)/i.test(sql),
+      (t) => before[t].size > 0 && rebuildsTable(sql, t),
     );
     if (!isRebuild) continue;
 
@@ -150,6 +178,36 @@ try {
   check('no rebuild dropped any column', dropped.length === 0,
     dropped.map((d) => d.file + ':' + d.table + ' lost ' + d.gone.join(',')).join(' | '));
 
+  // The detector above decides whether the column comparison runs at all, so it
+  // is asserted directly. A check that can be turned off by a naming choice is
+  // the same shape of defect as the one this script exists to catch.
+  section('the rebuild detector recognises a rebuild however it is written');
+
+  const copyDropRename = (t) => [
+    `CREATE TABLE IF NOT EXISTS ${t}_mig0040 (id TEXT, school_id TEXT);`,
+    `INSERT INTO ${t}_mig0040 SELECT id, school_id FROM ${t};`,
+    `DROP TABLE ${t};`,
+    `ALTER TABLE ${t}_mig0040 RENAME TO ${t};`,
+  ].join('\n');
+
+  const quietCopyDropRename = (t) => [
+    `CREATE TABLE IF NOT EXISTS ${t}_new (id TEXT, school_id TEXT);`,
+    `INSERT INTO ${t}_new SELECT id, school_id FROM ${t};`,
+    `DROP TABLE IF EXISTS ${t};`,
+    `ALTER TABLE ${t}_new RENAME TO "${t}";`,
+  ].join('\n');
+
+  for (const t of REBUILD_TABLES) {
+    check('detects a guarded rebuild of ' + t, rebuildsTable(copyDropRename(t), t));
+    check('detects a differently-named guarded rebuild of ' + t, rebuildsTable(quietCopyDropRename(t), t));
+    check('ignores an unrelated table in ' + t + '\'s file',
+      !rebuildsTable('CREATE TABLE audit_log (id TEXT);\nINSERT INTO audit_log SELECT id FROM other;', t));
+    check('ignores a DROP of ' + t + ' with no rename',
+      !rebuildsTable(`DROP TABLE ${t};`, t));
+    check('ignores a rename that never drops ' + t,
+      !rebuildsTable(`ALTER TABLE tmp_x RENAME TO ${t};`, t));
+  }
+
   section('the rebuilt tables carry every required column');
 
   for (const table of REBUILD_TABLES) {
@@ -168,6 +226,30 @@ try {
   for (const idx of ['idx_fee_invoices_razorpay_order', 'idx_fee_invoices_razorpay_link']) {
     check(idx + ' exists', indexNames.has(idx));
   }
+
+  section('the migration defines each index exactly once');
+
+  // school_status and school_student were each emitted twice. Harmless at runtime
+  // because every statement is IF NOT EXISTS, but the second copy is a place a
+  // future edit can land without changing what the migration does.
+  const migrationSql = fs.readFileSync(path.join(MIG_DIR, '0040_tenant_uniqueness_and_payment_ledger.sql'), 'utf8');
+  const withoutComments = migrationSql
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--[^\n]*/g, ' ');
+
+  const defined = new Map();
+  const indexRe = /CREATE\s+(UNIQUE\s+)?INDEX\s+(IF\s+NOT\s+EXISTS\s+)?(\w+)/gi;
+  let indexMatch;
+  while ((indexMatch = indexRe.exec(withoutComments)) !== null) {
+    const name = indexMatch[3];
+    defined.set(name, (defined.get(name) || 0) + 1);
+  }
+
+  const repeated = [...defined].filter(([, n]) => n > 1).map(([name]) => name);
+  check('0040 defines each index exactly once', repeated.length === 0,
+    'defined more than once: ' + repeated.join(', '));
+  check('0040 defines the 7 indexes the rebuild depends on', defined.size >= 7,
+    'found ' + defined.size);
 
   section('the queries the code actually issues still work');
   // The specific statement that was throwing in production, and the two others that

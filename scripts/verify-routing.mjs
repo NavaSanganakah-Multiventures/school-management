@@ -526,12 +526,85 @@ console.log('the plan is resolved by the platform, never by the tier');
   // instead of the code, and a check that breaks on spelling.
   //
   // A comment must not be able to fail a check, and must not be able to satisfy one.
-  const stripComments = (src) => src
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  //
+  // This walks the source once and tracks string state, rather than pattern-matching
+  // `//`. The previous version was:
+  //
+  //   src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+  //
+  // and it was wrong in the direction that matters here. `[^:]` saves the common
+  // case — 'http://example.com' inside a literal survives — but a `//` in a string
+  // with no colon before it still ate the rest of the line:
+  //
+  //   const u = "a//b"; const plan = isDedicated ? "enterprise" : "standard";
+  //   ->  const u = "a
+  //
+  // Everything after the `//` disappears, including the tier-derived plan this
+  // entire block exists to catch. A stripper that can be made to hide the bug by
+  // prefixing a line with a string is worse than no stripper, so the check is
+  // verified against that exact smuggling case below.
+  const stripComments = (src) => {
+    let out = '';
+    let i = 0;
+    let quote = null;
+    let lineComment = false;
+    let blockComment = false;
+
+    while (i < src.length) {
+      const c = src[i];
+      const d = src[i + 1];
+
+      if (lineComment) {
+        out += c === '\n' ? '\n' : ' ';
+        if (c === '\n') lineComment = false;
+        i++;
+        continue;
+      }
+      if (blockComment) {
+        if (c === '*' && d === '/') { blockComment = false; out += '  '; i += 2; continue; }
+        out += c === '\n' ? '\n' : ' ';
+        i++;
+        continue;
+      }
+      if (quote) {
+        out += c;
+        if (c === '\\') { out += src[i + 1] || ''; i += 2; continue; }
+        if (c === quote) quote = null;
+        i++;
+        continue;
+      }
+      if (c === '/' && d === '/') { lineComment = true; out += '  '; i += 2; continue; }
+      if (c === '/' && d === '*') { blockComment = true; out += '  '; i += 2; continue; }
+      if (c === "'" || c === '"' || c === '`') { quote = c; out += c; i++; continue; }
+      out += c;
+      i++;
+    }
+    return out;
+  };
 
   const TIER_PLAN = /isDedicated[^\n;]*enterprise|enterprise[^\n;]*isDedicated/i;
   const TIER_GRANT = /\|\|\s*isDedicated\b/;
+  const TIER_PLAN_TEST = (src) => TIER_PLAN.test(src);
+
+  // The stripper itself, asserted before it is trusted.
+  {
+    const url = "const u = 'http://example.com/x';";
+    check('a URL inside a string literal survives stripping',
+      stripComments(url) === url);
+
+    const quoted = 'const u = "a//b"; const plan = isDedicated ? "enterprise" : "standard";';
+    check('a // inside a string cannot swallow the rest of the line',
+      TIER_PLAN_TEST(stripComments(quoted)));
+
+    check('a real line comment is still removed',
+      !/isDedicated/.test(stripComments('const p = 1; // isDedicated "enterprise"')));
+
+    check('a real block comment is still removed',
+      !/isDedicated/.test(stripComments('/* isDedicated "enterprise" */ const p = 1;')));
+
+    check('a template literal is not treated as a comment',
+      stripComments('const s = `a//${x}b`;').includes('${x}'));
+  }
 
   const billingSrc = stripComments(fs.readFileSync('api/billing/index.ts', 'utf8'));
 

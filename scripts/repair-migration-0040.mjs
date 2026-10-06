@@ -359,19 +359,42 @@ function tableExists(slug, table) {
 
 function loadSchools() {
   const registryPath = path.resolve(ROOT, registryFile);
+
+  // A missing registry must stop the run. Returning [] was reachable through the
+  // most common invocation (`npm run repair:0040`, no --registry) and produced:
+  //
+  //   Nothing to repair. Every database in scope was examined and answered.
+  //   exit 0
+  //
+  // with zero databases examined. That is the same false reassurance this script
+  // was rewritten to remove, reached a second way — and the qualified sentence I
+  // added is what made it worse, because it now claims databases answered.
   if (!fs.existsSync(registryPath)) {
-    // An explicitly named registry that is missing is a mistake worth stopping
-    // for. Silently falling back to "no schools" makes the next line report
-    // "Unknown slug" and leaves the real reason buried two messages deep.
-    if (registryFile !== 'schools.json') {
-      throw new Error(`registry file ${registryPath} not found`);
-    }
-    return [];
+    throw new Error(
+      `registry file ${registryPath} not found. Nothing was examined. ` +
+      `The registry lists the schools to repair; without it there is no list to walk.`,
+    );
   }
+
   // A BOM makes JSON.parse throw on an otherwise valid registry, and the error
   // surfaces as "Unexpected token" with no mention of which file.
-  const registry = JSON.parse(fs.readFileSync(registryPath, 'utf-8').replace(/^\uFEFF/, ''));
-  return Array.isArray(registry.schools) ? registry.schools : [];
+  let registry;
+  try {
+    registry = JSON.parse(fs.readFileSync(registryPath, 'utf-8').replace(/^\uFEFF/, ''));
+  } catch (e) {
+    throw new Error(`could not parse ${registryPath}: ${e.message}`);
+  }
+
+  if (!Array.isArray(registry.schools)) {
+    // Same reasoning: an empty list and a malformed list both mean "no schools",
+    // and both used to print the reassuring sentence.
+    throw new Error(`${registryPath} has no "schools" array. Nothing was examined.`);
+  }
+  if (!registry.schools.length) {
+    throw new Error(`${registryPath} lists zero schools, so there is nothing to repair. ` +
+      `If that is wrong, fix the registry; if it is right, there is no work to do.`);
+  }
+  return registry.schools;
 }
 
 async function confirm(question) {
@@ -467,10 +490,10 @@ async function main() {
   console.log(`Mode: ${useRemote ? 'REMOTE (production)' : 'local'}${apply ? ', APPLYING' : ', dry run — no changes will be made'}`);
   console.log('');
 
-  // A slug is skipped only when the database genuinely cannot be identified. The
-// old SKIPPED-on-missing-config behaviour hid all eight databases, so a school
-// that could not be repaired had to be visible as a failure, not as absence.
-const report = [];
+  // Every target in scope is reported, including the ones that failed. A school
+  // that could not be repaired has to be visible as a failure, not as absence —
+  // the old SKIPPED-on-missing-config behaviour hid all eight databases.
+  const report = [];
   for (const entry of targets) {
     const configName = entry.slug ? `wrangler-${entry.slug}.toml` : 'wrangler.toml';
     try {
@@ -511,7 +534,11 @@ const report = [];
 // skipped and every real database was broken.
 const errored = report.filter((r) => r.error);
   const unexamined = report.filter((r) => !r.error && !Array.isArray(r.problems));
-  const actionable = report.filter((r) => !r.skipped && r.problems && r.problems.some((p) => p.kind !== 'note'));
+  // No `!r.skipped` term: nothing sets `skipped` any more, and a filter term that
+  // can never be false is a condition that will not catch anyone when a skip is
+  // reintroduced somewhere else. A database that could not be examined is now
+  // carried by `errored` and must stop the run rather than drop out of it.
+  const actionable = report.filter((r) => r.problems && r.problems.some((p) => p.kind !== 'note'));
 
   if (errored.length || unexamined.length) {
     console.log('');

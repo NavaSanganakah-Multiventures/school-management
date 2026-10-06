@@ -287,9 +287,70 @@ console.log('\n8. A missing registry must not read as an empty one\n');
   const out = String(r.stdout || '') + String(r.stderr || '');
   check('non-zero exit', r.status !== 0);
   check('names the missing file', /registry file .*nope\.json not found/.test(out));
+  check('does not claim anything was examined', !/Every database in scope was examined/.test(out));
+}
+
+console.log('\n8b. The DEFAULT registry missing must also stop the run\n');
+{
+  // The most common invocation is `npm run repair:0040` with no --registry, and
+  // that path used to return [] and print the reassuring sentence. Reproduced
+  // live: renaming schools.json produced
+  //   "Nothing to repair. Every database in scope was examined and answered."
+  //   exit 0
+  // with zero databases examined.
+  const real = path.resolve('schools.json');
+  const hidden = path.join(TMP, 'schools.json.hidden');
+  fs.renameSync(real, hidden);
+  let r, out;
+  try {
+    r = spawnSync(process.execPath, [SCRIPT, '--local', '--registry', 'schools.json', '--slug', 'selftest'],
+      { encoding: 'utf-8', shell: false });
+    out = String(r.stdout || '') + String(r.stderr || '');
+  } finally {
+    fs.renameSync(hidden, real);
+  }
+  check('schools.json is back', fs.existsSync(real));
+  check('non-zero exit', r.status !== 0);
+  check('says nothing was examined', /Nothing was examined/i.test(out));
+  check('never prints the reassuring sentence', !/Every database in scope was examined/.test(out));
+}
+
+console.log('\n8c. A registry with no schools array, or an empty one, must also stop\n');
+{
+  const malformed = path.join(TMP, 'schools-noschools.json');
+  fs.writeFileSync(malformed, JSON.stringify({ tenants: [] }));
+  const a = spawnSync(process.execPath,
+    [SCRIPT, '--local', '--registry', malformed, '--slug', 'selftest'], { encoding: 'utf-8', shell: false });
+  const aOut = String(a.stdout || '') + String(a.stderr || '');
+  check('a missing schools array exits non-zero', a.status !== 0);
+  check('and says so', /no "schools" array/i.test(aOut));
+
+  const empty = path.join(TMP, 'schools-empty.json');
+  fs.writeFileSync(empty, JSON.stringify({ schools: [] }));
+  const b = spawnSync(process.execPath,
+    [SCRIPT, '--local', '--registry', empty, '--slug', 'selftest'], { encoding: 'utf-8', shell: false });
+  const bOut = String(b.stdout || '') + String(b.stderr || '');
+  check('an empty schools list exits non-zero', b.status !== 0);
+  check('and never claims a database answered', !/Every database in scope was examined/.test(bOut));
 }
 
 // ---------------------------------------------------------------- 9
+console.log('\n8d. No path may print the reassuring sentence over an unexamined database\n');
+{
+  const src = fs.readFileSync(SCRIPT, 'utf-8');
+  // Counted in the code, not in comments: this file quotes the sentence twice to
+  // explain the defect, so a plain substring count over the whole source is 3.
+  const emitted = (src.match(/console\.log\('Nothing to repair\./g) || []).length;
+  check('the reassuring sentence is emitted from exactly one call', emitted === 1,
+    'found ' + emitted);
+  check('and it is guarded by the empty-report check',
+    /if \(!errored\.length && !unexamined\.length\)/.test(src));
+  check('loadSchools has no bare `return []` on a missing file',
+    !/registryFile !== 'schools\.json'/.test(src));
+  check('actionable does not filter on a field nothing sets',
+    !/actionable = report\.filter\(\(r\) => !r\.skipped/.test(src));
+}
+
 console.log('\n9. The bugs must stay fixed in the source\n');
 {
   const src = fs.readFileSync(SCRIPT, 'utf-8');
